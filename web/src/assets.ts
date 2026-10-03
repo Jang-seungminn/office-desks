@@ -33,6 +33,9 @@ export const FRAMES = {
   vending: [[28, 7], [29, 7]] as Cell[],
   printer: [27, 8] as Cell,
   cooler: [28, 14] as Cell,
+  // Lounge (indoor sheet): a cushioned bench as the sofa, a cloth-covered table.
+  sofa: [[4, 7], [5, 7], [6, 7], [7, 7]] as Cell[],
+  coffeeTable: [[7, 9], [8, 9], [9, 9]] as Cell[],
 };
 
 // Character layers on the Kenney character sheet (front-facing, 16x16, stacked).
@@ -97,6 +100,14 @@ export function floorTexture(scene: Phaser.Scene): string {
 }
 
 /** Two-tile-high wall strip: brick on top, a band of windows with brick pillars below. */
+export function sofaTexture(scene: Phaser.Scene): string {
+  return compose(scene, 'sofa4', 4, 1, FRAMES.sofa.map((cell, i) => ({ sheet: 'indoor' as const, cell, x: i, y: 0 })));
+}
+
+export function coffeeTableTexture(scene: Phaser.Scene): string {
+  return compose(scene, 'coffee-table3', 3, 1, FRAMES.coffeeTable.map((cell, i) => ({ sheet: 'indoor' as const, cell, x: i, y: 0 })));
+}
+
 export function mapPosterTexture(scene: Phaser.Scene): string {
   return compose(scene, 'map-poster', 2, 1, FRAMES.mapPoster.map((cell, i) => ({ sheet: 'indoor' as const, cell, x: i, y: 0 })));
 }

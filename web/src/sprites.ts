@@ -60,7 +60,65 @@ export function iconKey(state: string): string | null {
   return ICONS[state] ? `icon-${state}` : null;
 }
 
+// Lounge furniture the Kenney packs don't have.
+const BOOKSHELF = [
+  'wwwwwwwwwwwwwwww',
+  'wddddddddddddddw',
+  'wdrrbbgyyrrbbgdw',
+  'wdrrbbgyyrrbbgdw',
+  'wdrrbbgyyrrbbgdw',
+  'wwwwwwwwwwwwwwww',
+  'wddddddddddddddw',
+  'wdggyyddbbrrggdw',
+  'wdggyyddbbrrggdw',
+  'wdggyyopbbrrggdw',
+  'wwwwwwwwwwwwwwww',
+  'wddddddddddddddw',
+  'wdbbrrggyybbdddw',
+  'wdbbrrggyybbpodw',
+  'wdbbrrggyybbpodw',
+  'wwwwwwwwwwwwwwww',
+  'ww............ww',
+];
+
+const FLOOR_LAMP = [
+  '..yyyyyy..',
+  '.yYYYYYYy.',
+  'yYYYYYYYYy',
+  '....kk....',
+  '....kk....',
+  '....kk....',
+  '....kk....',
+  '....kk....',
+  '....kk....',
+  '....kk....',
+  '..kkkkkk..',
+];
+
+const MUG = [
+  'wwwww.',
+  'wcccwww',
+  'wwwww.w',
+  'wwwwwww',
+  '.www...',
+];
+
+const STEAM = ['.s.', 's..', '.s.', '..s'];
+
 export function buildTextures(scene: Phaser.Scene): void {
+  pixelTexture(scene, 'bookshelf', BOOKSHELF, {
+    w: 0x5b3a24,
+    d: 0x3d2718,
+    r: 0xc0392b,
+    b: 0x3b6fd8,
+    g: 0x3f8f4a,
+    y: 0xe0a800,
+    o: 0xf2efe6,
+    p: 0x8a6fd1,
+  });
+  pixelTexture(scene, 'floor-lamp', FLOOR_LAMP, { y: 0xd9a441, Y: 0xffe39a, k: 0x2b2118 });
+  pixelTexture(scene, 'mug', MUG, { w: 0xf4f1ea, c: 0x6b3f1d });
+  pixelTexture(scene, 'steam', STEAM, { s: 0xffffff });
   pixelTexture(scene, 'monitor-back', MONITOR_BACK, { m: 0x23262e, M: 0x3a3f4b, l: 0x8ad0ff, s: 0x2a2f3a });
   for (const [state, icon] of Object.entries(ICONS)) {
     pixelTexture(scene, `icon-${state}`, icon.rows, { x: icon.color });

@@ -33,6 +33,8 @@ const usageEl = statusBar.querySelector<HTMLElement>('.usage')!;
 
 /** Plan usage like Orca's status bar: 5-hour session, weekly, Fable weekly. */
 function renderUsage(u: UsageSnapshot): void {
+  const claude = u.providers[0];
+  scene.setUsageLine(claude ? claude.windows.slice(0, 2).map((w) => `${w.label} ${w.usedPercent}%`).join(' · ') : null);
   usageEl.innerHTML = u.providers
     .flatMap((p) =>
       p.windows.map((w) => {

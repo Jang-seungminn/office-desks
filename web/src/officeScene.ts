@@ -37,6 +37,8 @@ const ROOM_HEADER = 42;
 const ROOM_GAP = 26;
 const ZONE_HEADER = 30;
 const ZONE_GAP = 34;
+const LOUNGE_W = 250;
+const LOUNGE_H = 230;
 const MARGIN = 28;
 const WALL_H = 2 * PX;
 const FIRST_ROW_Y = WALL_H + 40;
@@ -85,6 +87,10 @@ class Seat {
   private readonly bubbleIcon: Phaser.GameObjects.Image;
   private readonly activity: Phaser.GameObjects.Text;
   private readonly modelTag: Phaser.GameObjects.Text;
+  /** Coffee on the desk while the agent rests after finishing. */
+  private readonly mug: Phaser.GameObjects.Image;
+  private readonly steam: Phaser.GameObjects.Image;
+  private steamTween: Phaser.Tweens.Tween | null = null;
   private readonly badge: Phaser.GameObjects.Container;
   private badgeTween: Phaser.Tweens.Tween | null = null;
   private badgeKind: string | null = null;
@@ -111,6 +117,8 @@ class Seat {
       this.interns.push(s.add.image(SEAT_W - 16 - i * 20, DESK_Y + 6, '__MISSING').setOrigin(0.5, 1).setScale(2).setVisible(false));
     }
     const desk = s.add.image(6, DESK_Y, deskTexture(s)).setOrigin(0).setScale(SCALE);
+    this.mug = s.add.image(SEAT_W - 34, DESK_Y + 16, 'mug').setOrigin(0.5, 1).setScale(SCALE).setVisible(false);
+    this.steam = s.add.image(SEAT_W - 32, DESK_Y, 'steam').setOrigin(0.5, 1).setScale(2).setVisible(false);
     this.glow = s.add.rectangle(12, DESK_Y - 24, 44, 26, SCREEN.away, 0.9).setOrigin(0);
     const monitor = s.add.image(16, DESK_Y - 20, 'monitor-back').setOrigin(0).setScale(SCALE);
     this.activity = s.add
@@ -169,6 +177,8 @@ class Seat {
       desk,
       this.glow,
       monitor,
+      this.mug,
+      this.steam,
       this.activity,
       this.modelTag,
       this.bubble,
@@ -197,6 +207,8 @@ class Seat {
     const icon = iconKey(state);
     this.bubble.setVisible(Boolean(icon));
     if (icon) this.bubbleIcon.setTexture(icon);
+
+    this.showCoffee(state === 'done');
 
     if (state !== this.shownState) {
       this.shownState = state;
@@ -233,6 +245,18 @@ class Seat {
       case 'done':
         c.setAlpha(0.95);
         break;
+    }
+  }
+
+  private showCoffee(on: boolean): void {
+    if (on === this.mug.visible) return;
+    this.mug.setVisible(on);
+    this.steam.setVisible(on);
+    this.steamTween?.remove();
+    this.steamTween = null;
+    if (on) {
+      this.steam.setY(DESK_Y).setAlpha(0.7);
+      this.steamTween = this.scene.tweens.add({ targets: this.steam, y: DESK_Y - 12, alpha: 0, duration: 1800, repeat: -1, ease: 'Sine.easeOut' });
     }
   }
 
@@ -288,6 +312,7 @@ class Seat {
     for (const t of this.tweens) t.remove();
     for (const t of this.internTweens) t.remove();
     this.badgeTween?.remove();
+    this.steamTween?.remove();
     this.root.destroy();
   }
 }
@@ -341,8 +366,28 @@ export class OfficeScene extends Phaser.Scene {
     this.interior?.update(new Date());
   }
 
+  private usageLine: string | null = null;
+
+  /** Plan usage line for the wall TV, e.g. "5시간 22% · 주간 24%". */
+  setUsageLine(line: string | null): void {
+    this.usageLine = line;
+    this.updateTv();
+  }
+
+  private updateTv(): void {
+    const agents = this.snapshot?.desks.flatMap((d) => d.agents) ?? [];
+    const busy = agents.filter((a) => ['typing', 'reading', 'running'].includes(a.state)).length;
+    const waiting = agents.filter((a) => a.state === 'waiting').length;
+    const subs = agents.reduce((n, a) => n + a.subagentsRunning, 0);
+    const lines = [`⌨ 일하는 중 ${busy}명`, waiting ? `🙋 확인 필요 ${waiting}` : '✔ 확인 필요 없음'];
+    if (subs) lines.push(`🤖 서브에이전트 ${subs}`);
+    if (this.usageLine) lines.push(this.usageLine);
+    this.interior?.setTvLines(lines);
+  }
+
   setSnapshot(snapshot: OfficeSnapshot): void {
     this.snapshot = snapshot;
+    this.updateTv();
     if (this.sys.isActive()) this.layout();
   }
 
@@ -376,7 +421,10 @@ export class OfficeScene extends Phaser.Scene {
     // Floors by activity (working / waiting / idle); rooms per repo inside a floor, newest left.
     const zones = arrangeOffice(desks, new Set(this.attention.keys()));
     const podH = LABEL_H + SEAT_H + POD_PAD * 2;
-    const maxInner = Math.max(SEAT_W + POD_PAD * 2, width - MARGIN * 2 - ROOM_PAD * 2);
+    // A lounge corner on the right when the office is wide enough; rooms flow beside it.
+    const lounge = width >= 1100 ? { x: width - MARGIN - LOUNGE_W, y: FIRST_ROW_Y + 4, w: LOUNGE_W, h: LOUNGE_H } : null;
+    const usable = lounge ? width - LOUNGE_W - ROOM_GAP : width;
+    const maxInner = Math.max(SEAT_W + POD_PAD * 2, usable - MARGIN * 2 - ROOM_PAD * 2);
     let ry = FIRST_ROW_Y;
     let rowH = 0;
 
@@ -394,7 +442,7 @@ export class OfficeScene extends Phaser.Scene {
       plaque.lineStyle(2, 0x3d2b1f, 1).strokeRoundedRect(MARGIN, ry - 6, title.width + 20, 26, 6);
       plaque.fillStyle(0xc9a25a, 1).fillCircle(MARGIN + 5, ry + 7, 2).fillCircle(MARGIN + title.width + 15, ry + 7, 2);
       const rule = this.add.graphics();
-      rule.lineStyle(3, 0x6b5038, 0.45).lineBetween(MARGIN + title.width + 30, ry + 7, width - MARGIN, ry + 7);
+      rule.lineStyle(3, 0x6b5038, 0.45).lineBetween(MARGIN + title.width + 30, ry + 7, usable - MARGIN, ry + 7);
       this.podLayer.add([rule, plaque, title]);
       ry += ZONE_HEADER;
       let rx = MARGIN;
@@ -419,7 +467,7 @@ export class OfficeScene extends Phaser.Scene {
         // Wide enough for the project name at its full size (plus the "워크트리 n개" note).
         const roomW = Math.max(innerW + ROOM_PAD * 2, this.plateWidth(room) + ROOM_PAD * 2);
         const roomH = ROOM_HEADER + py + podH + ROOM_PAD;
-        if (rx > MARGIN && rx + roomW > width - MARGIN) {
+        if (rx > MARGIN && rx + roomW > usable - MARGIN) {
           rx = MARGIN;
           ry += rowH + ROOM_GAP;
           rowH = 0;
@@ -451,12 +499,12 @@ export class OfficeScene extends Phaser.Scene {
       );
     }
 
-    const roomH = Math.max(this.scale.height, ry + rowH + MARGIN * 2);
+    const roomH = Math.max(this.scale.height, ry + rowH + MARGIN * 2, FIRST_ROW_Y + LOUNGE_H + MARGIN * 2);
     this.floor.setSize(width, roomH);
     this.wall.setSize(width, WALL_H);
     this.decor[1].setX(width - MARGIN - PX);
     this.decor[2].setX(width - MARGIN - 20);
-    this.interior.layout(width, roomH - WALL_H, WALL_H);
+    this.interior.layout(width, roomH - WALL_H, WALL_H, lounge);
     this.cameras.main.setBounds(0, 0, width, roomH);
   }
 

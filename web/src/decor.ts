@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { FRAMES, frameIndex, mapPosterTexture, PX, SCALE, type SheetKey } from './assets';
+import { coffeeTableTexture, FRAMES, frameIndex, mapPosterTexture, PX, SCALE, sofaTexture, type SheetKey } from './assets';
 
 // Office interior that isn't about agents: the wall clock, the sky in the windows (follows the
 // PC's clock: dawn, day, sunset, night with stars), pictures on the wall and machines along it.
@@ -66,6 +66,137 @@ export function skyAt(date: Date): Sky {
   return { color: 0x0b1633, alpha: 0.72, stars: true, floorDim: 0.22, skyline: 0x141c30, skylineAlpha: 0.95 }; // night
 }
 
+export interface LoungeRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** A lounge corner: rug, sofa, coffee table with a steaming mug, bookshelf, lamp and plants. */
+class Lounge {
+  private readonly rug: Phaser.GameObjects.Graphics;
+  private readonly lampGlow: Phaser.GameObjects.Graphics;
+  private readonly items: Phaser.GameObjects.Image[];
+  private readonly sign: Phaser.GameObjects.Text;
+  private readonly steam: Phaser.GameObjects.Image;
+  private night = false;
+
+  constructor(private readonly scene: Phaser.Scene) {
+    const s = scene;
+    this.rug = s.add.graphics().setDepth(-3);
+    this.lampGlow = s.add.graphics().setDepth(-3);
+    const plant = (i: number) => s.add.image(0, 0, 'indoor', frameIndex('indoor', FRAMES.plants[i])).setOrigin(0.5, 1).setScale(SCALE);
+    this.items = [
+      s.add.image(0, 0, 'bookshelf').setOrigin(1, 0).setScale(SCALE),
+      s.add.image(0, 0, 'floor-lamp').setOrigin(0.5, 0).setScale(SCALE),
+      s.add.image(0, 0, sofaTexture(s)).setOrigin(0.5, 0).setScale(SCALE),
+      s.add.image(0, 0, coffeeTableTexture(s)).setOrigin(0.5, 0).setScale(SCALE),
+      s.add.image(0, 0, 'mug').setOrigin(0.5, 1).setScale(SCALE),
+      plant(0),
+      plant(1),
+    ];
+    for (const it of this.items) it.setDepth(-2);
+    this.steam = s.add.image(0, 0, 'steam').setOrigin(0.5, 1).setScale(SCALE).setDepth(-2).setAlpha(0.7);
+    this.sign = s.add
+      .text(0, 0, '☕ 라운지', { fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#fdf6e3' })
+      .setShadow(1, 1, '#2b1d14', 0, false, true)
+      .setDepth(-2);
+    s.tweens.add({ targets: this.steam, y: '-=10', alpha: 0, duration: 1600, repeat: -1, ease: 'Sine.easeOut' });
+  }
+
+  private rect: LoungeRect | null = null;
+
+  setNight(night: boolean): void {
+    if (night === this.night) return;
+    this.night = night;
+    this.layout(this.rect);
+  }
+
+  layout(r: LoungeRect | null): void {
+    this.rect = r;
+    const visible = Boolean(r);
+    for (const o of [this.rug, this.lampGlow, this.sign, this.steam, ...this.items]) o.setVisible(visible);
+    if (!r) return;
+    const [shelf, lamp, sofa, table, mug, plantA, plantB] = this.items;
+
+    // Rug: burgundy with a gold border and a dotted inner line.
+    const g = this.rug.clear();
+    g.fillStyle(0x2b1d14, 0.3).fillRoundedRect(r.x + 4, r.y + 5, r.w, r.h, 14);
+    g.fillStyle(0x8c3b2b, 1).fillRoundedRect(r.x, r.y, r.w, r.h, 14);
+    g.lineStyle(4, 0xd9a441, 1).strokeRoundedRect(r.x + 8, r.y + 8, r.w - 16, r.h - 16, 10);
+    for (let x = r.x + 20; x < r.x + r.w - 20; x += 12) {
+      g.fillStyle(0xe8c47a, 0.8).fillRect(x, r.y + 18, 4, 4).fillRect(x, r.y + r.h - 22, 4, 4);
+    }
+
+    this.sign.setPosition(r.x + 18, r.y + 22);
+    shelf.setPosition(r.x + r.w - 14, r.y + 14);
+    lamp.setPosition(r.x + 40, r.y + 40);
+    sofa.setPosition(r.x + r.w / 2 - 10, r.y + 64);
+    table.setPosition(r.x + r.w / 2 - 10, r.y + 130);
+    mug.setPosition(r.x + r.w / 2 + 14, r.y + 150);
+    this.steam.setPosition(mug.x + 2, mug.y - 18);
+    plantA.setPosition(r.x + 26, r.y + r.h - 8);
+    plantB.setPosition(r.x + r.w - 26, r.y + r.h - 8);
+
+    // Warm light pool from the lamp; stronger at night.
+    const lg = this.lampGlow.clear();
+    const a = this.night ? 0.28 : 0.12;
+    lg.fillStyle(0xffd27a, a).fillCircle(lamp.x, lamp.y + 12, 46);
+    lg.fillStyle(0xffd27a, a * 0.6).fillCircle(lamp.x, lamp.y + 12, 70);
+  }
+}
+
+/** A wall TV that cycles through live office stats. */
+class WallTv {
+  private readonly frame: Phaser.GameObjects.Graphics;
+  private readonly text: Phaser.GameObjects.Text;
+  private readonly title: Phaser.GameObjects.Text;
+  private lines: string[] = ['OFFICE DESKS'];
+  private index = 0;
+  private lastSwitch = 0;
+  readonly width = 150;
+
+  constructor(scene: Phaser.Scene) {
+    this.frame = scene.add.graphics().setDepth(-4);
+    this.title = scene.add
+      .text(0, 0, 'LIVE', { fontFamily: 'monospace', fontSize: '9px', fontStyle: 'bold', color: '#ff5a4f' })
+      .setDepth(-4);
+    this.text = scene.add
+      .text(0, 0, '', { fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#7cf0a0', align: 'center' })
+      .setOrigin(0.5)
+      .setDepth(-4);
+  }
+
+  setLines(lines: string[]): void {
+    this.lines = lines.length ? lines : ['OFFICE DESKS'];
+    this.index %= this.lines.length;
+    this.text.setText(this.lines[this.index]);
+  }
+
+  layout(cx: number): void {
+    const w = this.width;
+    const h = 62;
+    const x = cx - w / 2;
+    const y = 8;
+    const g = this.frame.clear();
+    g.lineStyle(2, 0x2b2118, 1).lineBetween(cx - 20, 0, cx, y).lineBetween(cx + 20, 0, cx, y); // hanging wire
+    g.fillStyle(0x2b1d14, 0.35).fillRoundedRect(x + 3, y + 4, w, h, 5);
+    g.fillStyle(0x1b1d22, 1).fillRoundedRect(x - 4, y - 4, w + 8, h + 8, 6);
+    g.fillStyle(0x0b1a12, 1).fillRect(x + 2, y + 2, w - 4, h - 4);
+    for (let sy = y + 4; sy < y + h - 2; sy += 3) g.fillStyle(0x000000, 0.18).fillRect(x + 2, sy, w - 4, 1); // scanlines
+    this.title.setPosition(x + 7, y + 5);
+    this.text.setPosition(cx, y + h / 2 + 4);
+  }
+
+  update(nowMs: number): void {
+    if (nowMs - this.lastSwitch < 3500) return;
+    this.lastSwitch = nowMs;
+    this.index = (this.index + 1) % this.lines.length;
+    this.text.setText(this.lines[this.index]);
+  }
+}
+
 export class OfficeDecor {
   private readonly clockPanel: Phaser.GameObjects.Graphics;
   private readonly clockDigits: Phaser.GameObjects.Graphics;
@@ -77,6 +208,9 @@ export class OfficeDecor {
   private pictures: Phaser.GameObjects.Image[] = [];
   private readonly poster: Phaser.GameObjects.Image;
   private readonly machines: Phaser.GameObjects.Image[];
+  private readonly lounge: Lounge;
+  private readonly tv: WallTv;
+  private tvX = 0;
   private width = 0;
   private lastMinute = -1;
   private lastSecond = -1;
@@ -96,6 +230,8 @@ export class OfficeDecor {
     this.clockDate = s.add
       .text(0, 0, '', { fontFamily: 'monospace', fontSize: '11px', fontStyle: 'bold', color: '#ff8a80' })
       .setOrigin(0.5, 0);
+    this.lounge = new Lounge(s);
+    this.tv = new WallTv(s);
     // Below everything about agents (rooms, desks use depth 0).
     this.floorShade.setDepth(-9);
     this.sky.setDepth(-7);
@@ -108,8 +244,15 @@ export class OfficeDecor {
   }
 
   /** Position everything for a new canvas width. */
-  layout(width: number, floorHeight: number, floorTop: number): void {
+  setTvLines(lines: string[]): void {
+    this.tv.setLines(lines);
+  }
+
+  layout(width: number, floorHeight: number, floorTop: number, lounge: LoungeRect | null): void {
     this.width = width;
+    this.lounge.layout(lounge);
+    this.tvX = Math.round(width * 0.7);
+    this.tv.layout(this.tvX);
     this.floorShade.setPosition(0, floorTop).setSize(width, floorHeight);
 
     // Pictures hang on the brick pillars of the window row; skip the ones under the clock.
@@ -118,7 +261,7 @@ export class OfficeDecor {
     this.clockX = Math.round(width / 2);
     let k = 0;
     for (let x = PX / 2; x < width - PX; x += PERIOD) {
-      if (Math.abs(x - this.clockX) < 140 || x < 3 * PX) continue;
+      if (Math.abs(x - this.clockX) < 140 || Math.abs(x - this.tvX) < 130 || x < 3 * PX) continue;
       const cell = FRAMES.pictures[k++ % FRAMES.pictures.length];
       this.pictures.push(this.scene.add.image(x, WALL_ROW + PX / 2, 'indoor', frameIndex('indoor', cell)).setOrigin(0.5).setScale(2).setDepth(-5));
     }
@@ -139,6 +282,7 @@ export class OfficeDecor {
 
   /** Call every frame; redraws only when the second/minute changes. */
   update(now: Date): void {
+    this.tv.update(now.getTime());
     const sec = now.getSeconds();
     if (sec === this.lastSecond) return;
     this.lastSecond = sec;
@@ -221,5 +365,6 @@ export class OfficeDecor {
       }
     }
     this.floorShade.setFillStyle(0x0b1633, sky.floorDim);
+    this.lounge.setNight(sky.stars);
   }
 }
