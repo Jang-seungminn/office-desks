@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { PX11, PX11B, PX14 } from './fonts';
+import { pixelIconKey } from './sprites';
 import { coffeeTableTexture, FRAMES, frameIndex, mapPosterTexture, PX, SCALE, sofaTexture, type SheetKey } from './assets';
 
 // Office interior that isn't about agents: the wall clock, the sky in the windows (follows the
@@ -83,6 +84,7 @@ class Lounge {
   private readonly items: Phaser.GameObjects.Image[];
   private readonly sign: Phaser.GameObjects.Text;
   private readonly steam: Phaser.GameObjects.Image;
+  private readonly signIcon: Phaser.GameObjects.Image;
   private night = false;
 
   constructor(private readonly scene: Phaser.Scene) {
@@ -102,9 +104,10 @@ class Lounge {
     for (const it of this.items) it.setDepth(-2);
     this.steam = s.add.image(0, 0, 'steam').setOrigin(0.5, 1).setScale(SCALE).setDepth(-2).setAlpha(0.7);
     this.sign = s.add
-      .text(0, 0, '☕ 라운지', { ...PX14, color: '#fdf6e3' })
+      .text(0, 0, '라운지', { ...PX14, color: '#fdf6e3' })
       .setShadow(1, 1, '#2b1d14', 0, false, true)
       .setDepth(-2);
+    this.signIcon = s.add.image(0, 0, pixelIconKey('cup')).setScale(2).setDepth(-2);
     s.tweens.add({ targets: this.steam, y: '-=10', alpha: 0, duration: 1600, repeat: -1, ease: 'Sine.easeOut' });
   }
 
@@ -119,7 +122,7 @@ class Lounge {
   layout(r: LoungeRect | null): void {
     this.rect = r;
     const visible = Boolean(r);
-    for (const o of [this.rug, this.lampGlow, this.sign, this.steam, ...this.items]) o.setVisible(visible);
+    for (const o of [this.rug, this.lampGlow, this.sign, this.signIcon, this.steam, ...this.items]) o.setVisible(visible);
     if (!r) return;
     const [shelf, lamp, sofa, table, mug, plantA, plantB] = this.items;
 
@@ -132,7 +135,8 @@ class Lounge {
       g.fillStyle(0xe8c47a, 0.8).fillRect(x, r.y + 18, 4, 4).fillRect(x, r.y + r.h - 22, 4, 4);
     }
 
-    this.sign.setPosition(r.x + 18, r.y + 22);
+    this.signIcon.setPosition(r.x + 28, r.y + 30);
+    this.sign.setPosition(r.x + 46, r.y + 23);
     shelf.setPosition(r.x + r.w - 14, r.y + 14);
     lamp.setPosition(r.x + 40, r.y + 40);
     sofa.setPosition(r.x + r.w / 2 - 10, r.y + 64);

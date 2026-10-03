@@ -12,7 +12,7 @@ import {
   sideboardTexture,
   wallTexture,
 } from './assets';
-import { buildTextures, iconKey, SCREEN } from './sprites';
+import { buildTextures, iconKey, pixelIconKey, SCREEN } from './sprites';
 import { modelTag } from './format';
 import { PX11, PX14, PX22B } from './fonts';
 import { arrangeOffice, type Room } from './arrange';
@@ -398,8 +398,8 @@ export class OfficeScene extends Phaser.Scene {
     const busy = agents.filter((a) => ['typing', 'reading', 'running'].includes(a.state)).length;
     const waiting = agents.filter((a) => a.state === 'waiting').length;
     const subs = agents.reduce((n, a) => n + a.subagentsRunning, 0);
-    const lines = [`⌨ 일하는 중 ${busy}명`, waiting ? `🙋 확인 필요 ${waiting}` : '✔ 확인 필요 없음'];
-    if (subs) lines.push(`🤖 서브에이전트 ${subs}`);
+    const lines = [`일하는 중 ${busy}명`, waiting ? `확인 필요 ${waiting}` : '확인 필요 없음'];
+    if (subs) lines.push(`서브에이전트 ${subs}명`);
     if (this.usageLine) lines.push(this.usageLine);
     this.interior?.setTvLines(lines);
   }
@@ -449,18 +449,20 @@ export class OfficeScene extends Phaser.Scene {
 
     for (const zone of zones) {
       // Floor sign: a wooden plaque with the floor name, and a rail across the room.
-      const title = this.add.text(MARGIN + 10, ry, `${zone.label} · ${zone.count}`, {
+      const title = this.add.text(MARGIN + 34, ry, `${zone.label} · ${zone.count}`, {
         ...PX14,
         color: '#fdf6e3',
       });
+      const icon = this.add.image(MARGIN + 17, ry + 7, pixelIconKey(zone.icon)).setScale(2);
+      const plaqueW = title.width + 46;
       const plaque = this.add.graphics();
-      plaque.fillStyle(0x2b1d14, 0.35).fillRoundedRect(MARGIN + 3, ry - 3, title.width + 20, 26, 6);
-      plaque.fillStyle(0x7a5536, 1).fillRoundedRect(MARGIN, ry - 6, title.width + 20, 26, 6);
-      plaque.lineStyle(2, 0x3d2b1f, 1).strokeRoundedRect(MARGIN, ry - 6, title.width + 20, 26, 6);
-      plaque.fillStyle(0xc9a25a, 1).fillCircle(MARGIN + 5, ry + 7, 2).fillCircle(MARGIN + title.width + 15, ry + 7, 2);
+      plaque.fillStyle(0x2b1d14, 0.35).fillRoundedRect(MARGIN + 3, ry - 3, plaqueW, 26, 6);
+      plaque.fillStyle(0x7a5536, 1).fillRoundedRect(MARGIN, ry - 6, plaqueW, 26, 6);
+      plaque.lineStyle(2, 0x3d2b1f, 1).strokeRoundedRect(MARGIN, ry - 6, plaqueW, 26, 6);
+      plaque.fillStyle(0xc9a25a, 1).fillCircle(MARGIN + 5, ry + 7, 2).fillCircle(MARGIN + plaqueW - 5, ry + 7, 2);
       const rule = this.add.graphics();
-      rule.lineStyle(3, 0x6b5038, 0.45).lineBetween(MARGIN + title.width + 30, ry + 7, usable - MARGIN, ry + 7);
-      this.podLayer.add([rule, plaque, title]);
+      rule.lineStyle(3, 0x6b5038, 0.45).lineBetween(MARGIN + plaqueW + 10, ry + 7, usable - MARGIN, ry + 7);
+      this.podLayer.add([rule, plaque, icon, title]);
       ry += ZONE_HEADER;
       let rx = MARGIN;
       rowH = 0;
@@ -530,11 +532,11 @@ export class OfficeScene extends Phaser.Scene {
   /** Pixel width the room's name plate needs (measured once per text). */
   private plateWidth(room: Room): number {
     const meta = room.total > 1 ? 90 : 0;
-    const key = `📁 ${room.repo}`;
+    const key = room.repo;
     let w = this.plateWidths.get(key);
     if (w === undefined) {
       const probe = this.add.text(0, 0, key, { ...PX22B });
-      w = Math.ceil(probe.width) + 4;
+      w = Math.ceil(probe.width) + 4 + 26; // + folder icon
       probe.destroy();
       this.plateWidths.set(key, w);
     }
@@ -547,8 +549,9 @@ export class OfficeScene extends Phaser.Scene {
     g.fillStyle(0x3d3128, 0.28).fillRoundedRect(x + 4, y + 5, w, h, 12); // shadow
     g.fillStyle(0xe9dcc3, 0.92).fillRoundedRect(x, y, w, h, 12);
     g.lineStyle(4, 0x6b5038, 1).strokeRoundedRect(x, y, w, h, 12);
-    const plate = this.add.text(x + ROOM_PAD, y + 8, '', { ...PX22B, color: '#2b2118' });
-    this.podLayer.add([g, plate]);
+    const folder = this.add.image(x + ROOM_PAD + 9, y + 19, pixelIconKey('folder')).setScale(2);
+    const plate = this.add.text(x + ROOM_PAD + 26, y + 8, '', { ...PX22B, color: '#2b2118' });
+    this.podLayer.add([g, folder, plate]);
     // Worktree count only when the repo has several; "2/4" when the rest sit on other floors.
     let metaW = 0;
     if (room.total > 1) {
@@ -561,7 +564,7 @@ export class OfficeScene extends Phaser.Scene {
       metaW = meta.width + 8;
       this.podLayer.add(meta);
     }
-    fitText(plate, `📁 ${room.repo}`, w - ROOM_PAD * 2 - metaW);
+    fitText(plate, room.repo, w - ROOM_PAD * 2 - metaW - 26);
   }
 
   /** One worktree: a team carpet tinted by status, a two-line label and one seat per agent. */

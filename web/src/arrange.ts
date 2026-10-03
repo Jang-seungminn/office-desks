@@ -20,15 +20,17 @@ export interface Room {
 export interface Zone {
   key: ZoneKey;
   label: string;
+  /** Pixel icon drawn before the label (see sprites.ts). */
+  icon: string;
   rooms: Room[];
   count: number;
 }
 
 const ACTIVE = new Set(['typing', 'reading', 'running']);
-const ZONES: [ZoneKey, string][] = [
-  ['working', '🔥 작업 중 · 새 보고'],
-  ['waiting', '☕ 대기'],
-  ['idle', '💤 휴면'],
+const ZONES: [ZoneKey, string, string][] = [
+  ['working', '작업 중 · 새 보고', 'fire'],
+  ['waiting', '대기', 'cup'],
+  ['idle', '휴면', 'zzz'],
 ];
 
 const NONE: ReadonlySet<string> = new Set();
@@ -50,7 +52,7 @@ export function arrangeOffice(desks: OfficeDesk[], unseen: ReadonlySet<string> =
   const totals = new Map<string, number>();
   for (const d of desks) totals.set(d.repoId, (totals.get(d.repoId) ?? 0) + 1);
 
-  return ZONES.map(([key, label]) => {
+  return ZONES.map(([key, label, icon]) => {
     const here = desks
       .filter((d) => zoneOf(d, unseen) === key)
       .sort((a, b) => recency(b, unseen) - recency(a, unseen) || a.name.localeCompare(b.name));
@@ -61,6 +63,6 @@ export function arrangeOffice(desks: OfficeDesk[], unseen: ReadonlySet<string> =
       rooms.set(d.repoId, room);
     }
     // Rooms keep the order of their newest desk (Map keeps insertion order).
-    return { key, label, rooms: [...rooms.values()], count: here.length };
+    return { key, label, icon, rooms: [...rooms.values()], count: here.length };
   }).filter((z) => z.count > 0);
 }

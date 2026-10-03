@@ -105,7 +105,32 @@ const MUG = [
 
 const STEAM = ['.s.', 's..', '.s.', '..s'];
 
+// 9x9 pixel icons used in place of emoji (emoji render differently on every OS).
+const PIXEL_ICONS: Record<string, { rows: string[]; palette: Palette }> = {
+  fire: {
+    palette: { r: 0xe5484d, o: 0xff8a3d, y: 0xffd166 },
+    rows: ['....r....', '...rr....', '...rro...', '..rrooo..', '..roooor.', '.rooyyor.', '.roiyyor.', '.rooyyoor', '..rooor..'].map((r) => r.replace('i', 'y')),
+  },
+  cup: {
+    palette: { w: 0xf4f1ea, c: 0x6b3f1d, s: 0xd8d2c4 },
+    rows: ['..s..s...', '...s..s..', '.........', 'wwwwwww..', 'wcccccwww', 'wcccccw.w', 'wcccccwww', '.wwwww...', 'sssssss..'],
+  },
+  zzz: {
+    palette: { b: 0x8ab4ff },
+    rows: ['....bbbbb', '.......b.', '......b..', '.....bbbb', 'bbbb.....', '...b.....', '..b......', '.b.......', 'bbbb.....'],
+  },
+  folder: {
+    palette: { d: 0xb98a3e, y: 0xe8b85a, l: 0xf6d38a },
+    rows: ['.........', 'dddd.....', 'dyyyddddd', 'dlllllllld', 'dyyyyyyyd', 'dyyyyyyyd', 'dyyyyyyyd', 'dyyyyyyyd', 'ddddddddd'],
+  },
+};
+
+export function pixelIconKey(name: keyof typeof PIXEL_ICONS | string): string {
+  return `px-${name}`;
+}
+
 export function buildTextures(scene: Phaser.Scene): void {
+  for (const [name, icon] of Object.entries(PIXEL_ICONS)) pixelTexture(scene, pixelIconKey(name), icon.rows, icon.palette);
   pixelTexture(scene, 'bookshelf', BOOKSHELF, {
     w: 0x5b3a24,
     d: 0x3d2718,
