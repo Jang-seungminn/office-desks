@@ -1436,3 +1436,82 @@ body.night .slash-menu .item.active {
     gap: 10px;
   }
 }
+
+/* Night theme: everything that hard-codes a light background (keeps text readable) */
+body.night #help kbd,
+body.night #panel .stop:not(.armed),
+body.night .pending-actions button,
+body.night .changes .diff-head button,
+body.night .question-card .to-term,
+body.night .sub-header button,
+body.night #modal .row button:not(.primary),
+body.night #modal .r-resume button,
+body.night #panel .hire-here,
+body.night .slash-menu .hint {
+  background: #2a3040;
+  color: var(--ink);
+  border-color: #5a6378;
+}
+body.night #help kbd {
+  border-bottom-color: #0f1117;
+}
+body.night .menu-banner {
+  background: #3a3220;
+  border-color: #b38a1e;
+  color: #f1dfb0;
+}
+body.night .question-card .q-warn {
+  background: #3a3220;
+  color: #f1dfb0;
+}
+body.night .question-card[data-status='cancelled'] {
+  background: #252a36;
+}
+body.night .question-card .opt.picked {
+  background: #4a3426;
+  border-color: var(--accent);
+}
+body.night .subagent-card,
+body.night .sub-header {
+  background: #2a2540;
+  border-color: #7d68c4;
+}
+body.night .subagent-card.openable:hover {
+  background: #342d52;
+}
+body.night .subagent-card .who {
+  color: #b9a6f0;
+}
+body.night .subagent-card .badge {
+  background: #3d3560;
+  color: #d4c8ff;
+}
+body.night .subagent-card[data-status='running'] .badge {
+  background: #4a3d12;
+  color: #ffd27a;
+}
+body.night .subagent-card[data-status='failed'] .badge {
+  background: #4a1f1a;
+  color: #ffa89b;
+}
+body.night #modal .results li.live:hover {
+  background: #1f2d22;
+}
+body.night #modal .tag:not(.live) {
+  background: #313849;
+  color: var(--ink);
+}
+body.night .changes .add {
+  color: #8be28b;
+}
+body.night .changes .del {
+  color: #ff9b8f;
+}
+body.night .question-card .answer {
+  color: #8be28b;
+}
+body.night .md a,
+body.night #panel .pr a,
+body.night #panel button.link {
+  color: #f0a58a;
+}
