@@ -1,4 +1,4 @@
-import type { OfficeSnapshot, OrgChart, ServerMessage, UsageSnapshot } from '../../bridge/src/model';
+import type { AwardBoard, OfficeSnapshot, OrgChart, ServerMessage, UsageSnapshot } from '../../bridge/src/model';
 
 export type ConnectionState = 'connecting' | 'open' | 'closed';
 
@@ -8,6 +8,7 @@ export function connectOffice(
   onConnection: (state: ConnectionState) => void,
   onUsage: (u: UsageSnapshot) => void = () => {},
   onOrg: (o: OrgChart) => void = () => {},
+  onAwards: (a: AwardBoard) => void = () => {},
 ): void {
   let delay = 500;
   const open = () => {
@@ -23,6 +24,7 @@ export function connectOffice(
       if (msg.type === 'snapshot') onSnapshot(msg.snapshot);
       else if (msg.type === 'usage') onUsage(msg.usage);
       else if (msg.type === 'org') onOrg(msg.org);
+      else if (msg.type === 'awards') onAwards(msg.awards);
     };
     ws.onclose = () => {
       onConnection('closed');

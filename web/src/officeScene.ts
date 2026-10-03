@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import type { OfficeAgent, OfficeDesk, OfficeSnapshot, OrgChart, UsageSnapshot } from '../../bridge/src/model';
+import type { AwardBoard, OfficeAgent, OfficeDesk, OfficeSnapshot, OrgChart, UsageSnapshot } from '../../bridge/src/model';
 import {
   characterTexture,
   deskTexture,
@@ -44,7 +44,7 @@ const MARGIN = 28;
 const WALL_H = 2 * PX;
 const FIRST_ROW_Y = WALL_H + 40;
 const CEO_W = 300;
-const CEO_H = 156;
+const CEO_H = 170;
 const BOARD_MAX_W = 470;
 
 // Department interiors: carpet, its border, and a prop by the sign.
@@ -110,6 +110,9 @@ class Seat {
   private readonly steam: Phaser.GameObjects.Image;
   private steamTween: Phaser.Tweens.Tween | null = null;
   private readonly badge: Phaser.GameObjects.Container;
+  /** The last employee of the day keeps a trophy on the desk; today's leader wears a crown. */
+  private readonly trophy: Phaser.GameObjects.Image;
+  private readonly crown: Phaser.GameObjects.Image;
   private badgeTween: Phaser.Tweens.Tween | null = null;
   private badgeKind: string | null = null;
   private readonly highlight: Phaser.GameObjects.Rectangle;
@@ -160,6 +163,8 @@ class Seat {
     badgeBg.fillStyle(0xe5484d, 1).fillCircle(0, 0, 10).lineStyle(2, 0xffffff, 1).strokeCircle(0, 0, 10);
     const badgeText = s.add.text(0, 0, '!', { ...PX14, color: '#ffffff' }).setOrigin(0.5);
     this.badge = s.add.container(SEAT_W - 12, 10, [badgeBg, badgeText]).setVisible(false);
+    this.trophy = s.add.image(SEAT_W - 26, DESK_Y + 44, pixelIconKey('trophy')).setOrigin(0.5, 1).setScale(3).setVisible(false);
+    this.crown = s.add.image(CX, CHAR_Y - 2, pixelIconKey('crown')).setOrigin(0.5, 1).setScale(2).setVisible(false);
 
     const bubbleBg = s.add.graphics();
     bubbleBg.fillStyle(0xffffff, 1).fillRoundedRect(0, 0, 11 * SCALE, 11 * SCALE, 6);
@@ -196,6 +201,8 @@ class Seat {
       monitor,
       this.mug,
       this.steam,
+      this.trophy,
+      this.crown,
       this.activity,
       this.modelTag,
       this.bubble,
@@ -334,6 +341,11 @@ class Seat {
     }
   }
 
+  setHonors(trophy: boolean, crown: boolean): void {
+    this.trophy.setVisible(trophy);
+    this.crown.setVisible(crown && this.character.visible);
+  }
+
   setSelected(on: boolean): void {
     this.selected = on;
     this.highlight.setFillStyle(on ? 0xffd166 : 0xffffff, on ? 0.3 : 0.14).setVisible(on);
@@ -364,6 +376,7 @@ export class OfficeScene extends Phaser.Scene {
   /** A click on the CEO's office or the company board. */
   onCeo: () => void = () => {};
   private org: OrgChart | null = null;
+  private awards: AwardBoard | null = null;
   private usage: UsageSnapshot | null = null;
 
   constructor() {
@@ -474,6 +487,11 @@ export class OfficeScene extends Phaser.Scene {
 
   setUsage(usage: UsageSnapshot): void {
     this.usage = usage;
+    if (this.sys.isActive()) this.layout();
+  }
+
+  setAwards(awards: AwardBoard): void {
+    this.awards = awards;
     if (this.sys.isActive()) this.layout();
   }
 
@@ -735,9 +753,17 @@ export class OfficeScene extends Phaser.Scene {
     objs.push(this.add.text(x + 16, y + 14, '회사 현황판', { ...PX14, color: '#7cf0a0' }));
     objs.push(this.add.text(x + 16, y + 36, `직원 ${agents.length}명 · 일하는 중 ${busy} · 결재 대기 ${waiting}`, waiting ? { ...led, color: '#ffd166' } : led));
     objs.push(this.add.text(x + 16, y + 52, `오늘 지시 ${today}건 · 외주(서브에이전트) ${subs}명`, led));
+    const lastWin = this.awards?.hall[0];
+    const lead = this.awards?.leader;
+    const honor = [lastWin ? `★ ${lastWin.date.slice(5).replace('-', '/')} 우수사원 ${lastWin.name}` : '', lead ? `오늘 1위 ${lead.name}` : ''].filter(Boolean).join(' · ');
+    if (honor) {
+      const t = this.add.text(x + 16, y + 68, '', { ...led, color: '#ffd166' });
+      fitText(t, honor, w - 32);
+      objs.push(t);
+    }
     const noOrg = !this.org?.departments.length;
     const windows = (this.usage?.providers ?? []).flatMap((p) => p.windows).slice(0, noOrg ? 2 : 3);
-    let by = y + 76;
+    let by = y + (honor ? 88 : 76);
     if (windows.length) {
       const barX = x + 96;
       const barW = Math.max(60, w - 96 - 70);
@@ -859,6 +885,7 @@ export class OfficeScene extends Phaser.Scene {
       seat.update(agent, hash(agent?.id ?? key), tag);
       seat.setSelected(key === this.selectionKey());
       seat.setAttention(agent ? (this.attention.get(agent.id) ?? null) : null);
+      seat.setHonors(Boolean(agent && this.awards?.hall[0]?.agentId === agent.id), Boolean(agent && this.awards?.leader?.agentId === agent.id));
     });
   }
 }

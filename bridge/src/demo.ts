@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AgentStats, OrgChart } from './model.js';
+import type { AgentStats, Award, OrgChart } from './model.js';
+import { localDate } from './awards.js';
 import type { OrcaRunner } from './orcaCli.js';
 
 // A fake Orca for `npm run demo`: several repos, some with many worktrees, agents whose
@@ -242,8 +243,42 @@ export function demoEnrichment(agentId: string): { subagentsRunning: number; mod
     instructions: [0, 142, 37, 8, 64, 211, 19, 90][n] ?? 10,
     instructionsToday: [0, 12, 5, 2, 7, 18, 3, 4][n] ?? 1,
     toolCalls: [0, 1840, 402, 77, 690, 2650, 230, 512][n] ?? 50,
+    toolCallsToday: [0, 160, 44, 12, 70, 210, 31, 25][n] ?? 5,
     subagents: [0, 31, 4, 0, 9, 44, 2, 6][n] ?? 0,
     hiredAt: new Date(START - ([0, 40, 9, 2, 21, 60, 5, 30][n] ?? 1) * 86400_000).toISOString(),
   };
   return { subagentsRunning, model, effort, stats };
+}
+
+/** A sample hall of fame for the demo; returns the awards file to use. */
+export function createDemoAwards(): string {
+  const dir = path.join(os.tmpdir(), 'office-desks-demo');
+  mkdirSync(dir, { recursive: true });
+  const day = (n: number) => localDate(new Date(START - n * 86400_000));
+  const win = (n: number, pane: string, name: string, repo: string, instructions: number, toolCalls: number): Award => ({
+    date: day(n),
+    agentId: `${pane}:leaf`,
+    deskId: `demo-${repo}::/demo/${repo}/${name}`,
+    name,
+    repo,
+    repoId: `demo-${repo}`,
+    agentType: 'claude',
+    instructions,
+    toolCalls,
+    score: instructions * 10 + toolCalls,
+  });
+  const file = path.join(dir, 'awards.json');
+  writeFileSync(
+    file,
+    JSON.stringify({
+      leader: null,
+      hall: [
+        win(1, 'p5', 'rate-limit', 'api-server', 21, 240),
+        win(2, 'p1', 'shop-web', 'shop-web', 17, 198),
+        win(3, 'p2', 'checkout-flow', 'shop-web', 12, 130),
+        win(4, 'p5', 'rate-limit', 'api-server', 15, 171),
+      ],
+    }),
+  );
+  return file;
 }

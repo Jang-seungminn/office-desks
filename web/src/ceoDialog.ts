@@ -1,4 +1,4 @@
-import type { Department, OfficeAgent, OfficeDesk, OfficeSnapshot, OrgChart, UsageSnapshot } from '../../bridge/src/model';
+import type { Award, AwardBoard, Department, OfficeAgent, OfficeDesk, OfficeSnapshot, OrgChart, UsageSnapshot } from '../../bridge/src/model';
 import { postJson } from './api';
 import { THEME_LABEL } from './arrange';
 import { rankOf } from './rank';
@@ -9,6 +9,8 @@ import { rankOf } from './rank';
 type Theme = Department['theme'];
 const THEMES = Object.keys(THEME_LABEL) as Theme[];
 const ACTIVE = new Set(['typing', 'reading', 'running']);
+/** Same score as the bridge's employee of the day (awards.ts). */
+const score = (a: OfficeAgent) => (a.stats ? a.stats.instructionsToday * 10 + a.stats.toolCallsToday : 0);
 
 function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -28,7 +30,7 @@ export class CeoDialog {
 
   constructor(
     private readonly el: HTMLElement,
-    private readonly data: () => { snapshot: OfficeSnapshot | null; org: OrgChart; usage: UsageSnapshot | null },
+    private readonly data: () => { snapshot: OfficeSnapshot | null; org: OrgChart; usage: UsageSnapshot | null; awards: AwardBoard | null },
   ) {
     el.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && el.querySelector('.dialog.ceo')) {
@@ -47,6 +49,7 @@ export class CeoDialog {
         <button type="button" class="close" data-close title="닫기">✕</button>
         <h2>🏢 사장실</h2>
         <section class="company"></section>
+        <section class="honors"></section>
         <section class="mvp"></section>
         <section class="org">
           <h3>조직도 <span class="muted">부서를 만들고 프로젝트를 배치하세요. 저장하면 자리가 바뀝니다.</span></h3>
@@ -116,15 +119,42 @@ export class CeoDialog {
     // CSP forbids inline style attributes; widths go through the CSSOM.
     for (const f of company.querySelectorAll<HTMLElement>('.fill')) f.style.width = `${f.dataset.pct}%`;
 
+    this.renderHonors(desks);
+
     const ranked = desks
       .flatMap((d) => d.agents.map((a) => ({ d, a })))
       .filter(({ a }) => a.stats)
-      .sort((x, y) => y.a.stats!.instructionsToday - x.a.stats!.instructionsToday || y.a.stats!.instructions - x.a.stats!.instructions)
+      .filter(({ a }) => a.stats!.instructionsToday > 0)
+      .sort((x, y) => score(y.a) - score(x.a) || y.a.stats!.instructions - x.a.stats!.instructions)
       .slice(0, 3);
     const mvp = this.el.querySelector<HTMLElement>('.mvp')!;
     mvp.innerHTML = ranked.length
-      ? `<h3>오늘의 직원</h3><ol>${ranked.map(({ d, a }, i) => this.mvpRow(d, a, i)).join('')}</ol>`
+      ? `<h3>오늘 순위</h3><ol>${ranked.map(({ d, a }, i) => this.mvpRow(d, a, i)).join('')}</ol>`
       : '';
+  }
+
+  /** Employee of the day: today's race so far and the hall of fame. */
+  private renderHonors(desks: OfficeDesk[]): void {
+    const { awards } = this.data();
+    const el = this.el.querySelector<HTMLElement>('.honors')!;
+    if (!awards || (!awards.leader && !awards.hall.length)) {
+      el.innerHTML = '<h3>🏆 오늘의 우수사원</h3><p class="muted">오늘 일한 직원이 생기면 1위가 여기에 보이고, 날이 바뀌면 그날의 우수사원으로 뽑힙니다.</p>';
+      return;
+    }
+    const live = new Set(desks.flatMap((d) => d.agents.map((a) => a.id)));
+    const row = (a: Award, tag: string) => {
+      const who = `<span class="who">${esc(a.name)}</span> <span class="muted">${esc(a.repo)}</span>`;
+      const body = `<span class="medal">${tag}</span>${who}<span class="score">지시 ${a.instructions} · 도구 ${a.toolCalls}</span>`;
+      const desk = desks.find((d) => d.agents.some((x) => x.id === a.agentId));
+      return live.has(a.agentId) && desk
+        ? `<li><button type="button" class="link" data-desk="${esc(desk.id)}" data-agent="${esc(a.agentId)}">${body}</button></li>`
+        : `<li><div class="gone">${body}</div></li>`;
+    };
+    const day = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+    el.innerHTML = `<h3>🏆 오늘의 우수사원 <span class="muted">점수 = 오늘 지시 × 10 + 도구 사용</span></h3><ol>
+      ${awards.leader ? row(awards.leader, '👑 오늘 1위') : '<li class="muted">오늘은 아직 일한 직원이 없어요</li>'}
+      ${awards.hall.slice(0, 7).map((a) => row(a, `🏆 ${day(a.date)}`)).join('')}
+    </ol>`;
   }
 
   private mvpRow(d: OfficeDesk, a: OfficeAgent, i: number): string {
@@ -134,7 +164,7 @@ export class CeoDialog {
       <span class="medal">${['🥇', '🥈', '🥉'][i]}</span>
       <span class="who">${esc(who)}</span>
       <span class="muted">${esc(rank?.title ?? '')} · ${esc(d.repo || d.name)}</span>
-      <span class="score">오늘 ${a.stats!.instructionsToday}건</span></button></li>`;
+      <span class="score">${score(a)}점</span></button></li>`;
   }
 
   private renderOrg(): void {

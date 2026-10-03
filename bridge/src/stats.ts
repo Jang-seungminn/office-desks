@@ -13,6 +13,7 @@ export function agentStats(t: Pick<TranscriptResult, 'messages' | 'calls'>, now 
   let instructions = 0;
   let instructionsToday = 0;
   let toolCalls = 0;
+  let toolCallsToday = 0;
   let hiredAt: string | null = null;
   for (const m of t.messages) {
     if (!hiredAt && m.ts) hiredAt = m.ts;
@@ -21,7 +22,8 @@ export function agentStats(t: Pick<TranscriptResult, 'messages' | 'calls'>, now 
       if (m.ts && sameLocalDay(m.ts, now)) instructionsToday++;
     } else if (m.role === 'tool') {
       toolCalls++;
+      if (m.ts && sameLocalDay(m.ts, now)) toolCallsToday++;
     }
   }
-  return { instructions, instructionsToday, toolCalls, subagents: t.calls.length, hiredAt };
+  return { instructions, instructionsToday, toolCalls, toolCallsToday, subagents: t.calls.length, hiredAt };
 }

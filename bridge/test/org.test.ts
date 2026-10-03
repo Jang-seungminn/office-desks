@@ -55,6 +55,6 @@ describe('agentStats', () => {
       },
       now,
     );
-    expect(s).toEqual({ instructions: 2, instructionsToday: 1, toolCalls: 2, subagents: 1, hiredAt: before });
+    expect(s).toEqual({ instructions: 2, instructionsToday: 1, toolCalls: 2, toolCallsToday: 1, subagents: 1, hiredAt: before });
   });
 });

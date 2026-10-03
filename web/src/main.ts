@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import type { OfficeSnapshot, OrgChart } from '../../bridge/src/model';
+import type { AwardBoard, OfficeSnapshot, OrgChart } from '../../bridge/src/model';
 import { connectOffice, type ConnectionState } from './api';
 import { OfficeScene, type Selection } from './officeScene';
 import { Panel } from './panel';
@@ -36,6 +36,7 @@ void loadPixelFonts().then(() => new Phaser.Game({
 let snapshot: OfficeSnapshot | null = null;
 let org: OrgChart = { departments: [] };
 let usage: UsageSnapshot | null = null;
+let awards: AwardBoard | null = null;
 let connection: ConnectionState = 'connecting';
 const statusBar = document.getElementById('status-bar')!;
 statusBar.innerHTML = '<div class="status-left"></div><div class="usage"></div>';
@@ -137,9 +138,10 @@ setInterval(applyNight, 60_000);
 
 const hire = new HireDialog(document.getElementById('modal')!, () => snapshot);
 panel.onHire = (deskId) => hire.open({ deskId });
-const ceo = new CeoDialog(document.getElementById('modal')!, () => ({ snapshot, org, usage }));
+const ceo = new CeoDialog(document.getElementById('modal')!, () => ({ snapshot, org, usage, awards }));
 ceo.onPick = (deskId, agentId) => select({ deskId, agentId });
 scene.onCeo = () => ceo.open();
+panel.awardsOf = (agentId) => awards?.hall.filter((h) => h.agentId === agentId).length ?? 0;
 panel.department = (repoId) => org.departments.find((d) => d.repoIds.includes(repoId))?.name ?? null;
 const searchBox = new SearchDialog(document.getElementById('modal')!);
 searchBox.onOpen = (deskId, agentId, query) => {
@@ -266,7 +268,41 @@ connectOffice(
     scene.setOrg(o);
     panel.refresh(snapshot);
   },
+  (a) => {
+    awards = a;
+    scene.setAwards(a);
+    ceo.refresh();
+    panel.refresh(snapshot);
+    announceAward(a);
+  },
 );
+
+// A new employee of the day is announced once per browser (a little ceremony on the floor).
+function announceAward(a: AwardBoard): void {
+  const winner = a.hall[0];
+  if (!winner) return;
+  const store = storage();
+  const key = 'office-desks:award-seen';
+  let seen: string | null = null;
+  try {
+    seen = store?.getItem(key) ?? null;
+    store?.setItem(key, winner.date);
+  } catch {
+    /* fine */
+  }
+  if (seen === null || seen >= winner.date) return; // first visit: don't celebrate old news
+  const toast = document.getElementById('award-toast')!;
+  const day = `${Number(winner.date.slice(5, 7))}월 ${Number(winner.date.slice(8, 10))}일`;
+  toast.replaceChildren();
+  const title = document.createElement('b');
+  title.textContent = `🏆 ${day} 우수사원`;
+  const who = document.createElement('span');
+  who.textContent = `${winner.name} · ${winner.repo} (지시 ${winner.instructions}, 도구 ${winner.toolCalls})`;
+  toast.append(title, who);
+  toast.hidden = false;
+  toast.onclick = () => (toast.hidden = true);
+  setTimeout(() => (toast.hidden = true), 12_000);
+}
 
 // Clicking empty office floor closes the panel (clicking another desk switches to it).
 scene.onBackground = () => {

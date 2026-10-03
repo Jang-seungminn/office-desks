@@ -355,6 +355,8 @@ export class Panel {
   onHire: (deskId: string) => void = () => {};
   /** Department name of a project (from the org chart), for the employee card. */
   department: (repoId: string) => string | null = () => null;
+  /** How many times this agent was employee of the day. */
+  awardsOf: (agentId: string) => number = () => 0;
   /** While the comment is being edited, header refreshes must not wipe the input. */
   private editingComment = false;
 
@@ -425,7 +427,7 @@ export class Panel {
           ${!a ? `<button type="button" class="hire-here" data-hire-here>🧑 에이전트 추가</button> ` : ''}${a ? `<span class="pill">${esc(a.agentType)}</span>${modelLine(a.model, a.effort) ? ` <span class="pill model">${esc(modelLine(a.model, a.effort)!)}</span>` : ''} <span class="state state-${a.state}">${STATE_LABEL[a.state] ?? a.state}</span> <span class="muted">${esc(ago(a.since))}</span>` : '<span class="pill">빈 자리</span>'}
           ${this.statusSelect(d.workspaceStatus)}
         </p>
-        ${a ? employeeCard(a, this.department(d.repoId)) : ''}
+        ${a ? employeeCard(a, this.department(d.repoId), this.awardsOf(a.id)) : ''}
         ${a ? `<div class="activity-row"><p class="activity">${esc(a.activity)}</p>${this.stopButton(a)}</div>` : ''}
         <p class="comment" data-comment-row>💬 <span class="comment-text">${d.comment ? esc(d.comment) : '<span class="muted">코멘트 없음</span>'}</span>
           <button type="button" class="link" data-edit-comment>편집</button></p>

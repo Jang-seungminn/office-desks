@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { rankOf, tenure } from '../src/rank';
 
-const stats = (instructions: number) => ({ instructions, instructionsToday: 0, toolCalls: 0, subagents: 0, hiredAt: null });
+const stats = (instructions: number) => ({ instructions, instructionsToday: 0, toolCalls: 0, toolCallsToday: 0, subagents: 0, hiredAt: null });
 
 describe('rank', () => {
   it('climbs the ladder with instructions', () => {

@@ -5,10 +5,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { CommandCatalog } from './commands.js';
-import { createDemoRunner, demoEnrichment, demoOrg } from './demo.js';
+import { createDemoAwards, createDemoRunner, demoEnrichment, demoOrg } from './demo.js';
 import { fetchUsage } from './usage.js';
 import { agentStats } from './stats.js';
 import { loadOrg, orgFile, saveOrg, sanitizeOrg } from './org.js';
+import { AwardBook, awardsFile } from './awards.js';
 import { changeSummary, fileDiff } from './gitInfo.js';
 import { planHire } from './hire.js';
 import { charBytes, keyBytes } from './keys.js';
@@ -32,7 +33,10 @@ const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const DEMO = Boolean(process.env.OFFICE_DESKS_DEMO);
 const orca = DEMO ? createDemoRunner() : createOrcaRunner();
 const commands = new CommandCatalog();
-const poller = new OfficePoller(orca, 1500, (s) => enrichFromTranscripts(s.desks));
+const poller = new OfficePoller(orca, 1500, async (s) => {
+  await enrichFromTranscripts(s.desks);
+  updateAwards(s.desks);
+});
 // Only accept a session whose transcript actually contains what we searched for.
 const sessions = new SessionResolver(orca, async (filePath, key) => {
   const t = await readTranscript(filePath);
@@ -155,6 +159,16 @@ function cachedChanges(desk: OfficeDesk): OfficeDesk['changes'] {
       });
   }
   return changeCache.get(desk.path)!.value;
+}
+
+// Employee of the day (see awards.ts); the demo writes its own sample hall of fame.
+const awards = new AwardBook(DEMO ? createDemoAwards() : awardsFile());
+void awards.load();
+
+function updateAwards(desks: OfficeDesk[]): void {
+  if (!awards.update(desks)) return;
+  void awards.save().catch(() => {});
+  for (const ws of wss.clients) if (ws.readyState === ws.OPEN) send(ws, { type: 'awards', awards: awards.current });
 }
 
 /** Add what only transcripts know (running subagents, model, effort) to every agent. */
@@ -533,6 +547,7 @@ wss.on('connection', (ws) => {
   send(ws, { type: 'snapshot', snapshot: poller.current });
   if (usage) send(ws, { type: 'usage', usage });
   send(ws, { type: 'org', org });
+  send(ws, { type: 'awards', awards: awards.current });
 });
 
 // Departments the user set up (shared by every browser); the demo keeps its own sample chart.

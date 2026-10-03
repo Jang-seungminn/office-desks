@@ -75,7 +75,32 @@ export interface OfficeSnapshot {
 export type ServerMessage =
   | { type: 'snapshot'; snapshot: OfficeSnapshot }
   | { type: 'usage'; usage: UsageSnapshot }
-  | { type: 'org'; org: OrgChart };
+  | { type: 'org'; org: OrgChart }
+  | { type: 'awards'; awards: AwardBoard };
+
+/** One day's best employee (or today's leader so far). */
+export interface Award {
+  /** Local date, YYYY-MM-DD. */
+  date: string;
+  agentId: string;
+  deskId: string;
+  /** Session title or worktree name at the time. */
+  name: string;
+  repo: string;
+  repoId: string;
+  agentType: string;
+  instructions: number;
+  toolCalls: number;
+  /** instructions × 10 + tool calls, on that day. */
+  score: number;
+}
+
+export interface AwardBoard {
+  /** Today's leader so far (not final until the day ends). */
+  leader: Award | null;
+  /** Past winners, newest first. */
+  hall: Award[];
+}
 
 export interface AgentStats {
   /** Instructions the human gave (user messages). */
@@ -83,6 +108,7 @@ export interface AgentStats {
   /** Instructions given today (local time). */
   instructionsToday: number;
   toolCalls: number;
+  toolCallsToday: number;
   subagents: number;
   /** First message of the session (ISO), i.e. when this "employee" was hired. */
   hiredAt: string | null;
