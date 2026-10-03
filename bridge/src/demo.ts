@@ -46,6 +46,9 @@ const WORKTREES: DemoWorktree[] = [
     A('p6', 'claude', [['working', 'WebSearch', 'token bucket redis lua'], ['working', 'Read', 'docs/limits.md']]),
   ]),
   W('docs', 'docs', 'main', [A('p7', 'gemini', [['done', null, null], ['working', 'Edit', 'guide/intro.md']])], { main: true }),
+  // Finished a while ago: these take a break in the lounge.
+  W('docs', 'faq-rewrite', 'docs/faq-rewrite', [A('p8', 'claude', [['done', null, null]]), A('p9', 'claude', [['done', null, null]])]),
+  W('api-server', 'perf-tuning', 'perf/query-cache', [A('p10', 'codex', [['done', null, null]])]),
 ];
 
 const START = Date.now();
@@ -63,8 +66,9 @@ function worktreePs(now: number) {
           toolName,
           toolInput,
           prompt: `Demo task for ${w.branch}`,
-          lastAssistantMessage: state === 'done' ? `**${w.branch}** 작업을 끝냈습니다. 테스트 통과.` : null,
-          stateStartedAt: START + tick * 8000,
+          lastAssistantMessage: state === 'done' ? `${w.branch} 작업을 끝냈습니다. 테스트 통과.` : null,
+          // Agents with a single 'done' state finished long ago (they rest in the lounge).
+          stateStartedAt: a.states.length === 1 ? START - 20 * 60_000 : START + tick * 8000,
         };
       });
       const waiting = agents.some((a) => a.state === 'waiting');

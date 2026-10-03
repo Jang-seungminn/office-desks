@@ -17,6 +17,7 @@ import { modelTag } from './format';
 import { PX11, PX14, PX22B } from './fonts';
 import { arrange, type Room, type Zone } from './arrange';
 import { OfficeDecor } from './decor';
+import { LoungeCrowd, loungeSlots, restingAgents } from './lounge';
 
 export interface Selection {
   deskId: string;
@@ -123,6 +124,8 @@ class Seat {
   private shownInterns = -1;
   private shownState = '';
   private selected = false;
+  /** The agent is in the lounge (or walking there/back): the desk shows an empty chair. */
+  inLounge = false;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -213,6 +216,19 @@ class Seat {
 
   /** `nameTag`: shown above the activity when a worktree has several agents, so you can tell them apart. */
   update(agent: OfficeAgent | null, seed: number, nameTag: string | null = null): void {
+    if (agent && this.inLounge) {
+      this.glow.setFillStyle(SCREEN.away, 0);
+      this.activity.setText(nameTag ? `「${truncateTag(nameTag)}」\n라운지에서 휴식 중` : '라운지에서 휴식 중').setColor('#e8dcc4');
+      this.character.setVisible(false);
+      this.showInterns(0, seed);
+      this.modelTag.setVisible(false);
+      this.bubble.setVisible(false);
+      this.showCoffee(false);
+      this.shownState = 'lounge';
+      for (const t of this.tweens) t.remove();
+      this.tweens = [];
+      return;
+    }
     const state = agent?.state ?? 'away';
     this.glow.setFillStyle(SCREEN[state] ?? SCREEN.away, state === 'away' ? 0 : 0.9);
     const activity = agent ? agent.activity : '빈 자리';
@@ -306,6 +322,11 @@ class Seat {
   /** Where the office wants this seat; step() glides there. The latest target always wins. */
   private target = { x: 0, y: 0 };
 
+  /** Where the character sits, in office coordinates (start/end of a walk to the lounge). */
+  get home(): { x: number; y: number } {
+    return { x: this.target.x + CX, y: this.target.y + CHAR_Y };
+  }
+
   /** Set a new spot when the office rearranges (jump on first placement, glide afterwards). */
   moveTo(x: number, y: number): void {
     this.target = { x, y };
@@ -377,6 +398,10 @@ export class OfficeScene extends Phaser.Scene {
   onCeo: () => void = () => {};
   private org: OrgChart | null = null;
   private awards: AwardBoard | null = null;
+  private crowd!: LoungeCrowd;
+  private needsLayout = false;
+  private nextLoungeCheck = 0;
+  private loungeSpots: { x: number; y: number }[] = [];
   private usage: UsageSnapshot | null = null;
 
   constructor() {
@@ -399,6 +424,8 @@ export class OfficeScene extends Phaser.Scene {
       plant(1).setDepth(-5),
     ];
     this.podLayer = this.add.container(0, 0);
+    this.crowd = new LoungeCrowd(this, (deskId, agentId) => this.onSelect({ deskId, agentId }));
+    this.crowd.onReturned = () => (this.needsLayout = true);
 
     this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
       const ev = p.event as WheelEvent | undefined;
@@ -427,6 +454,22 @@ export class OfficeScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     this.interior?.update(new Date());
     for (const seat of this.seats.values()) seat.step(delta);
+    this.crowd?.step(delta, _time);
+    // Resting turns into lounging with time alone (no snapshot change), so check now and then.
+    if (_time >= this.nextLoungeCheck) {
+      this.nextLoungeCheck = _time + 5000;
+      const ids = this.restingNow().map((r) => r.agent.id);
+      if (!this.crowd.sameAs(ids)) this.needsLayout = true;
+    }
+    if (this.needsLayout) {
+      this.needsLayout = false;
+      this.layout();
+    }
+  }
+
+  private restingNow() {
+    if (!this.loungeSpots.length) return [];
+    return restingAgents(this.snapshot?.desks ?? [], new Set(this.attention.keys()), Date.now(), this.loungeSpots.length);
   }
 
   private usageLine: string | null = null;
@@ -551,19 +594,25 @@ export class OfficeScene extends Phaser.Scene {
     // idle); rooms per repo inside a floor.
     const zones = arrange(desks, this.org, new Set(this.attention.keys()));
     const podH = LABEL_H + SEAT_H + POD_PAD * 2;
-    // A lounge corner on the right when the office is wide enough; rooms flow beside it.
-    const lounge = width >= 1100 ? { x: width - MARGIN - LOUNGE_W, y: FIRST_ROW_Y + 4, w: LOUNGE_W, h: LOUNGE_H } : null;
-    const usable = lounge ? width - LOUNGE_W - ROOM_GAP : width;
+    const usable = width;
     const maxInner = Math.max(SEAT_W + POD_PAD * 2, usable - MARGIN * 2 - ROOM_PAD * 2);
     let ry = FIRST_ROW_Y;
     let rowH = 0;
 
-    // The CEO's corner office comes first (top-left: never under the side panel), with the
-    // company board beside it when there's room.
-    this.drawCeo(MARGIN, ry);
-    const boardW = Math.min(BOARD_MAX_W, usable - MARGIN * 2 - CEO_W - ROOM_GAP);
-    if (boardW >= 240) this.drawBoard(MARGIN + CEO_W + ROOM_GAP, ry, boardW);
-    ry += CEO_H + ZONE_GAP + 6;
+    // Top row, left to right so the side panel never hides it: the CEO's corner office, the
+    // lounge (resting agents hang out there) and the company board, as far as the width allows.
+    let tx = MARGIN;
+    this.drawCeo(tx, ry);
+    tx += CEO_W + ROOM_GAP;
+    const lounge = width - MARGIN - tx >= LOUNGE_W ? { x: tx, y: ry, w: LOUNGE_W, h: LOUNGE_H } : null;
+    if (lounge) tx += LOUNGE_W + ROOM_GAP;
+    const boardW = Math.min(BOARD_MAX_W, width - MARGIN - tx);
+    if (boardW >= 240) this.drawBoard(tx, ry, boardW);
+    ry += Math.max(CEO_H, lounge ? LOUNGE_H : 0) + ZONE_GAP + 6;
+    this.loungeSpots = lounge ? loungeSlots(lounge) : [];
+    const resting = this.restingNow();
+    const lounging = new Set(resting.map((r) => r.agent.id));
+    this.isLounging = (id) => lounging.has(id) || this.crowd.has(id);
 
     for (const zone of zones) {
       const dept = zone.theme !== undefined;
@@ -648,6 +697,14 @@ export class OfficeScene extends Phaser.Scene {
     }
     ry -= ZONE_GAP;
     rowH = 0; // already included in ry
+
+    // Send resting agents to the lounge (and bring back the ones with work), now that every
+    // seat knows where it is.
+    const homeOf = (agentId: string) => {
+      for (const [key, seat] of this.seats) if (key.endsWith(`|${agentId}`) && alive.has(key)) return seat.home;
+      return null;
+    };
+    this.crowd.sync(resting, this.loungeSpots, homeOf);
 
     for (const [key, seat] of this.seats) {
       if (!alive.has(key)) {
@@ -786,6 +843,8 @@ export class OfficeScene extends Phaser.Scene {
     this.podLayer.add([...objs, glow, this.hotspot(x, y, w, h, glow)]);
   }
 
+  private isLounging: (agentId: string) => boolean = () => false;
+
   private plateWidths = new Map<string, number>();
 
   /** Pixel width the room's name plate needs (measured once per text). */
@@ -880,6 +939,7 @@ export class OfficeScene extends Phaser.Scene {
         this.seats.set(key, seat);
       }
       seat.moveTo(x + POD_PAD + i * SEAT_W, y + LABEL_H + POD_PAD);
+      seat.inLounge = Boolean(agent && this.isLounging(agent.id));
       // Several agents in one worktree: label each with its session title (or its type and number).
       const tag = seatsHere.length > 1 && agent ? (agent.terminalTitle ?? `${agent.agentType} ${i + 1}`) : null;
       seat.update(agent, hash(agent?.id ?? key), tag);
