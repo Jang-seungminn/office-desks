@@ -1,0 +1,742 @@
+import type {
+  ConversationMessage,
+  ConversationResponse,
+  SubagentInfo,
+  ImageUpload,
+  OfficeAgent,
+  OfficeDesk,
+  OfficeSnapshot,
+  SlashCommand,
+  TerminalKey,
+  TerminalScreen,
+} from '../../bridge/src/model';
+import { ApiError, postJson } from './api';
+import { renderMarkdown } from './markdown';
+import type { Selection } from './officeScene';
+
+const STATE_LABEL: Record<string, string> = {
+  typing: '⌨️ 작업 중',
+  reading: '🔎 읽는 중',
+  running: '▶️ 명령 실행 중',
+  waiting: '🙋 확인 필요',
+  done: '☕ 완료 · 대기',
+  away: '💤 자리 비움',
+};
+
+const CONVERSATION_POLL_MS = 2000;
+const TERMINAL_POLL_MS = 1000;
+const MENU_CHECK_MS = 2500;
+const SLASH_MENU_SIZE = 8;
+// Keys offered under the terminal view, for TUI menus and permission prompts.
+const KEYS: [TerminalKey, string][] = [
+  ['up', '↑'],
+  ['down', '↓'],
+  ['left', '←'],
+  ['right', '→'],
+  ['enter', 'Enter'],
+  ['esc', 'Esc'],
+  ['tab', 'Tab'],
+  ['shift-tab', '⇧Tab'],
+  ['space', 'Space'],
+  ['1', '1'],
+  ['2', '2'],
+  ['3', '3'],
+  ['y', 'y'],
+  ['n', 'n'],
+  ['ctrl-c', 'Ctrl+C'],
+];
+const SOURCE_LABEL: Record<SlashCommand['source'], string> = { builtin: '기본', user: '내 스킬', project: '프로젝트', plugin: '플러그인' };
+const MAX_ATTACH = 6;
+const ACCEPTED = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+// Paths of images sent from this UI (see bridge/src/uploads.ts), shown inline instead of as text.
+const UPLOAD_PATH = /^\s*\S*office-desks(?:-\d+)?[\\/]uploads[\\/]([\w-]+\.(?:png|jpg|gif|webp))\s*$/gm;
+
+function esc(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+function ago(ts: number | null): string {
+  if (!ts) return '';
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return `${s}초 전부터`;
+  if (s < 3600) return `${Math.round(s / 60)}분 전부터`;
+  return `${Math.round(s / 3600)}시간 전부터`;
+}
+
+function clock(ts: string | null): string {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function readAsUpload(file: File): Promise<ImageUpload & { url: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      resolve({ mediaType: file.type, data: url.slice(url.indexOf(',') + 1), url });
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Side panel: seat details, the agent's whole conversation, and a command box into its Orca terminal. */
+export class Panel {
+  private selection: Selection | null = null;
+  private desk: OfficeDesk | null = null;
+  private agent: OfficeAgent | null = null;
+  private readonly info: HTMLDivElement;
+  private readonly convo: HTMLDivElement;
+  private readonly compose: HTMLFormElement;
+  private readonly textarea: HTMLTextAreaElement;
+  private readonly attachments: HTMLDivElement;
+  private readonly fileInput: HTMLInputElement;
+  private readonly sendBtn: HTMLButtonElement;
+  private readonly focusBtn: HTMLButtonElement;
+  private readonly feedback: HTMLDivElement;
+  private pending: (ImageUpload & { url: string })[] = [];
+  // Conversation stream state: which session file we're showing and how many messages are rendered.
+  private convoFileId: string | null = null;
+  private convoCount = 0;
+  private convoTimer: number | null = null;
+  private convoFor: string | null = null;
+  /** When set, the conversation view shows this subagent's transcript instead of the main one. */
+  private subView: SubagentInfo | null = null;
+  private subagents: SubagentInfo[] = [];
+  private readonly tabs: HTMLDivElement;
+  private readonly term: HTMLDivElement;
+  private readonly screen: HTMLPreElement;
+  private readonly slashMenu: HTMLDivElement;
+  private tab: 'convo' | 'term' = 'convo';
+  private termTimer: number | null = null;
+  private menuMode = false;
+  private autoSwitched = false;
+  private readonly menuBanner: HTMLDivElement;
+  private commands: SlashCommand[] = [];
+  private slashItems: SlashCommand[] = [];
+  private slashIndex = 0;
+
+  constructor(
+    private readonly el: HTMLElement,
+    private readonly onClose: () => void,
+  ) {
+    el.innerHTML = `
+      <button class="close" title="닫기 (Esc)">✕</button>
+      <div class="info"></div>
+      <div class="tabs" role="tablist">
+        <button type="button" data-tab="convo" class="active">💬 대화</button>
+        <button type="button" data-tab="term">🖥️ 터미널<span class="tab-alert" hidden>!</span></button>
+      </div>
+      <div class="convo"></div>
+      <div class="term" hidden>
+        <p class="term-hint">화면을 클릭한 뒤 키보드로 조작할 수 있어요 (↑↓ Enter Esc, 글자 입력)</p>
+        <pre class="screen" tabindex="0"></pre>
+        <div class="keys">${KEYS.map(([k, label]) => `<button type="button" data-key="${k}">${label}</button>`).join('')}</div>
+      </div>
+      <form class="compose">
+        <div class="menu-banner" hidden>
+          🧭 에이전트 화면에 메뉴가 열려 있어요. 지금 보내는 메시지는 전달되지 않습니다.
+          <button type="button" data-menu="esc">Esc로 닫기</button>
+        </div>
+        <div class="slash-menu" hidden></div>
+        <div class="attachments"></div>
+        <textarea rows="3" placeholder="메시지 입력 · Enter 전송, Shift+Enter 줄바꿈 · 이미지는 붙여넣기/드래그"></textarea>
+        <div class="row">
+          <label class="attach" title="이미지 첨부">🖼️<input type="file" accept="${ACCEPTED.join(',')}" multiple hidden /></label>
+          <div class="feedback"></div>
+          <button type="button" class="focus">Orca에서 열기</button>
+          <button type="submit" class="primary">보내기</button>
+        </div>
+      </form>`;
+    this.info = el.querySelector('.info')!;
+    this.convo = el.querySelector('.convo')!;
+    this.compose = el.querySelector('.compose')!;
+    this.textarea = el.querySelector('textarea')!;
+    this.attachments = el.querySelector('.attachments')!;
+    this.fileInput = el.querySelector('input[type=file]')!;
+    this.sendBtn = el.querySelector('button.primary')!;
+    this.focusBtn = el.querySelector('button.focus')!;
+    this.feedback = el.querySelector('.feedback')!;
+    this.tabs = el.querySelector('.tabs')!;
+    this.term = el.querySelector('.term')!;
+    this.screen = el.querySelector('.screen')!;
+    this.slashMenu = el.querySelector('.slash-menu')!;
+    this.menuBanner = el.querySelector('.menu-banner')!;
+    this.screen.addEventListener('keydown', (e) => this.onScreenKey(e));
+    this.convo.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('[data-back]')) return this.openSubagent(null);
+      const card = t.closest<HTMLElement>('.subagent-card.openable');
+      if (card) this.openSubagent(card.dataset.tool ?? null);
+    });
+    this.menuBanner.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('[data-menu=esc]')) void this.pressKey('esc');
+    });
+
+    this.tabs.addEventListener('click', (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]')?.dataset.tab;
+      if (t === 'convo' || t === 'term') this.showTab(t);
+    });
+    this.term.addEventListener('click', (e) => {
+      const key = (e.target as HTMLElement).closest<HTMLElement>('[data-key]')?.dataset.key as TerminalKey | undefined;
+      if (key) void this.pressKey(key);
+    });
+    this.textarea.addEventListener('input', () => this.updateSlashMenu());
+    this.textarea.addEventListener('click', () => this.updateSlashMenu());
+    this.textarea.addEventListener('blur', () => window.setTimeout(() => this.hideSlashMenu(), 150));
+    this.slashMenu.addEventListener('mousedown', (e) => {
+      const i = (e.target as HTMLElement).closest<HTMLElement>('[data-i]')?.dataset.i;
+      if (i !== undefined) {
+        e.preventDefault();
+        this.acceptSlash(Number(i));
+      }
+    });
+
+    el.querySelector('.close')!.addEventListener('click', () => this.onClose());
+    this.compose.addEventListener('submit', (e) => {
+      e.preventDefault();
+      void this.send();
+    });
+    this.textarea.addEventListener('keydown', (e) => {
+      if (!this.slashMenu.hidden && this.slashItems.length && !e.isComposing) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const n = this.slashItems.length;
+          this.slashIndex = (this.slashIndex + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+          this.renderSlashMenu();
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.hideSlashMenu();
+          return;
+        }
+        const exact = this.slashItems[this.slashIndex]?.name === this.slashQuery();
+        if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !exact)) {
+          e.preventDefault();
+          this.acceptSlash(this.slashIndex);
+          return;
+        }
+      }
+      // Enter sends, Shift+Enter is a newline; never send while a Korean/Japanese IME is composing.
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+        e.preventDefault();
+        void this.send();
+      }
+    });
+    this.textarea.addEventListener('paste', (e) => {
+      const files = [...(e.clipboardData?.files ?? [])].filter((f) => ACCEPTED.includes(f.type));
+      if (files.length) {
+        e.preventDefault();
+        void this.attach(files);
+      }
+    });
+    this.compose.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      this.compose.classList.add('dragging');
+    });
+    this.compose.addEventListener('dragleave', () => this.compose.classList.remove('dragging'));
+    this.compose.addEventListener('drop', (e) => {
+      e.preventDefault();
+      this.compose.classList.remove('dragging');
+      void this.attach([...(e.dataTransfer?.files ?? [])]);
+    });
+    this.fileInput.addEventListener('change', () => {
+      void this.attach([...(this.fileInput.files ?? [])]);
+      this.fileInput.value = '';
+    });
+    this.attachments.addEventListener('click', (e) => {
+      const i = (e.target as HTMLElement).closest<HTMLElement>('[data-remove]')?.dataset.remove;
+      if (i !== undefined) {
+        this.pending.splice(Number(i), 1);
+        this.renderAttachments();
+      }
+    });
+    this.focusBtn.addEventListener('click', () => void this.focus());
+    this.feedback.addEventListener('click', (e) => {
+      const id = (e.target as HTMLElement).closest<HTMLElement>('[data-retry]')?.dataset.retry;
+      if (id) void this.send(id);
+    });
+  }
+
+  get isOpen(): boolean {
+    return !this.el.hidden;
+  }
+
+  open(sel: Selection, snapshot: OfficeSnapshot | null): void {
+    const changed = sel.deskId !== this.selection?.deskId || sel.agentId !== this.selection?.agentId;
+    this.selection = sel;
+    if (changed) {
+      this.textarea.value = '';
+      this.pending = [];
+      this.renderAttachments();
+      this.feedback.textContent = '';
+      this.subView = null;
+      this.subagents = [];
+      this.resetConversation('<p class="muted">대화를 불러오는 중…</p>');
+      this.screen.textContent = '';
+      this.commands = [];
+      this.hideSlashMenu();
+      this.showTab('convo');
+      if (sel.agentId) void this.loadCommands(sel.agentId);
+    }
+    this.el.hidden = false;
+    this.refresh(snapshot);
+    this.startConversation();
+    if (changed || this.termTimer === null) {
+      this.menuMode = false;
+      this.menuBanner.hidden = true;
+      this.startTerminal();
+    }
+    this.textarea.focus();
+  }
+
+  close(): void {
+    this.selection = null;
+    this.el.hidden = true;
+    this.stopConversation();
+    this.stopTerminal();
+  }
+
+  /** Re-render the header only, so the conversation scroll and a half-typed command survive live updates. */
+  refresh(snapshot: OfficeSnapshot | null): void {
+    if (!this.selection) return;
+    this.desk = snapshot?.desks.find((d) => d.id === this.selection!.deskId) ?? null;
+    this.agent = this.desk?.agents.find((a) => a.id === this.selection!.agentId) ?? null;
+    const d = this.desk;
+    const a = this.agent;
+    if (!d) {
+      this.info.innerHTML = `<h2>사라진 자리</h2><p class="muted">이 워크트리는 더 이상 Orca에 없습니다.</p>`;
+    } else {
+      this.info.innerHTML = `
+        <h2>${esc(d.name)}</h2>
+        <p class="muted">${d.branch ? `<code>${esc(d.branch)}</code> · ` : ''}<span class="path">${esc(d.path)}</span></p>
+        <p>
+          ${a ? `<span class="pill">${esc(a.agentType)}</span> <span class="state state-${a.state}">${STATE_LABEL[a.state] ?? a.state}</span> <span class="muted">${esc(ago(a.since))}</span>` : '<span class="pill">빈 자리</span>'}
+          ${d.workspaceStatus ? ` <span class="pill">${esc(d.workspaceStatus)}</span>` : ''}
+        </p>
+        ${a ? `<p class="activity">${esc(a.activity)}</p>` : ''}
+        ${d.comment ? `<p class="comment">💬 ${esc(d.comment)}</p>` : ''}`;
+    }
+    const handle = a?.terminalHandle ?? null;
+    // A waiting agent usually shows a menu or permission prompt in its terminal.
+    this.tabs.querySelector<HTMLElement>('.tab-alert')!.hidden = a?.state !== 'waiting';
+    this.tabs.hidden = !a;
+    this.sendBtn.disabled = !handle;
+    this.focusBtn.disabled = !handle;
+    this.textarea.disabled = !handle;
+    if (!a && this.selection.agentId === null) {
+      this.convo.innerHTML = '<p class="muted">이 워크트리에서 실행 중인 에이전트가 없습니다.</p>';
+    }
+  }
+
+  // --- tabs, terminal mirror & menu mode ---
+
+  private showTab(tab: 'convo' | 'term'): void {
+    this.tab = tab;
+    for (const b of this.tabs.querySelectorAll<HTMLElement>('[data-tab]')) b.classList.toggle('active', b.dataset.tab === tab);
+    this.convo.hidden = tab !== 'convo';
+    this.term.hidden = tab !== 'term';
+    if (tab === 'term') {
+      this.startTerminal();
+      if (this.menuMode) this.screen.focus();
+    }
+  }
+
+  /**
+   * Poll the agent's rendered screen while the panel is open: fast when the terminal tab is
+   * visible, slower otherwise, just to notice dialogs (/usage, /config, permission prompts)
+   * that take over the agent's keyboard.
+   */
+  private startTerminal(): void {
+    this.stopTerminal();
+    const agentId = this.selection?.agentId;
+    if (!agentId) return;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/terminal?agentId=${encodeURIComponent(agentId)}`);
+        const data = (await res.json()) as TerminalScreen;
+        if (this.selection?.agentId !== agentId) return;
+        // Trim trailing blank rows so the prompt sits at the bottom of the view.
+        const lines = [...data.lines];
+        while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+        if (this.tab === 'term') {
+          this.screen.textContent = data.found ? lines.join('\n') : '터미널을 찾을 수 없습니다.';
+          this.screen.scrollTop = this.screen.scrollHeight;
+        }
+        this.setMenuMode(data.composer === 'menu');
+      } catch {
+        /* retry next tick */
+      }
+      if (this.selection?.agentId === agentId && !this.el.hidden) {
+        this.termTimer = window.setTimeout(tick, this.tab === 'term' ? TERMINAL_POLL_MS : MENU_CHECK_MS);
+      }
+    };
+    this.termTimer = window.setTimeout(tick, 0);
+  }
+
+  private stopTerminal(): void {
+    if (this.termTimer !== null) window.clearTimeout(this.termTimer);
+    this.termTimer = null;
+  }
+
+  /** A dialog owns the agent's keyboard: show it, route keys to it, and hold back messages. */
+  private setMenuMode(on: boolean): void {
+    if (on === this.menuMode) return;
+    this.menuMode = on;
+    this.menuBanner.hidden = !on;
+    this.term.classList.toggle('menu-mode', on);
+    if (on) {
+      this.autoSwitched = this.tab === 'convo';
+      this.showTab('term');
+    } else if (this.autoSwitched) {
+      this.autoSwitched = false;
+      this.showTab('convo');
+      this.textarea.focus();
+    }
+  }
+
+  private async pressKey(key: TerminalKey | { char: string }): Promise<void> {
+    const handle = this.agent?.terminalHandle;
+    if (!handle) return;
+    try {
+      await postJson('/api/keys', typeof key === 'string' ? { terminalHandle: handle, key } : { terminalHandle: handle, char: key.char });
+      this.startTerminal(); // refresh right away
+    } catch (err) {
+      this.feedback.textContent = `⚠️ ${(err as Error).message}`;
+    }
+  }
+
+  /** Keyboard passthrough while the terminal view has focus. */
+  private onScreenKey(e: KeyboardEvent): void {
+    if (e.isComposing) return;
+    const named: Record<string, TerminalKey> = {
+      ArrowUp: 'up',
+      ArrowDown: 'down',
+      ArrowLeft: 'left',
+      ArrowRight: 'right',
+      Enter: 'enter',
+      Escape: 'esc',
+      Backspace: 'backspace',
+      ' ': 'space',
+    };
+    let key: TerminalKey | { char: string } | null = null;
+    if (e.key === 'Tab') key = e.shiftKey ? 'shift-tab' : 'tab';
+    else if (e.ctrlKey && e.key.toLowerCase() === 'c') key = 'ctrl-c';
+    else if (named[e.key]) key = named[e.key];
+    else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) key = { char: e.key };
+    if (!key) return;
+    e.preventDefault();
+    e.stopPropagation(); // Esc goes to the agent, not to closing the panel
+    void this.pressKey(key);
+  }
+
+  // --- slash commands ---
+
+  private async loadCommands(agentId: string): Promise<void> {
+    try {
+      const res = await fetch(`/api/commands?agentId=${encodeURIComponent(agentId)}`);
+      const list = (await res.json()) as SlashCommand[];
+      if (this.selection?.agentId === agentId) this.commands = list;
+    } catch {
+      this.commands = [];
+    }
+  }
+
+  /** The `/word` being typed, if the caret is still inside the first token of the message. */
+  private slashQuery(): string | null {
+    const v = this.textarea.value;
+    if (!v.startsWith('/')) return null;
+    const end = v.search(/\s/);
+    const tokenEnd = end === -1 ? v.length : end;
+    if (this.textarea.selectionStart > tokenEnd) return null;
+    return v.slice(1, tokenEnd);
+  }
+
+  private updateSlashMenu(): void {
+    const q = this.slashQuery();
+    if (q === null || !this.commands.length) return this.hideSlashMenu();
+    const ql = q.toLowerCase();
+    // Rank: name prefix, then prefix after a plugin namespace ("brain" → superpowers:brainstorming),
+    // then substring, then description match.
+    const rank = (c: SlashCommand): number => {
+      const n = c.name.toLowerCase();
+      if (n.startsWith(ql)) return 0;
+      if (n.split(':').some((part) => part.startsWith(ql))) return 1;
+      if (n.includes(ql)) return 2;
+      if (ql.length > 2 && c.description.toLowerCase().includes(ql)) return 3;
+      return 9;
+    };
+    const ranked = this.commands.map((c) => [rank(c), c] as const).filter(([r]) => r < 9);
+    ranked.sort((x, y) => x[0] - y[0] || x[1].name.length - y[1].name.length);
+    const starts = ranked.map(([, c]) => c);
+    const rest: SlashCommand[] = [];
+    this.slashItems = [...starts, ...rest].slice(0, 50);
+    this.slashIndex = 0;
+    if (!this.slashItems.length) return this.hideSlashMenu();
+    this.renderSlashMenu();
+  }
+
+  private renderSlashMenu(): void {
+    const start = Math.max(0, Math.min(this.slashIndex - SLASH_MENU_SIZE + 1, this.slashItems.length - SLASH_MENU_SIZE));
+    const view = this.slashItems.slice(start, start + SLASH_MENU_SIZE);
+    this.slashMenu.innerHTML =
+      view
+        .map((c, k) => {
+          const i = start + k;
+          return `<div class="item${i === this.slashIndex ? ' active' : ''}" data-i="${i}">
+            <span class="name">/${esc(c.name)}</span><span class="src">${SOURCE_LABEL[c.source]}</span>
+            <span class="desc">${esc(c.description)}</span></div>`;
+        })
+        .join('') + `<div class="hint">↑↓ 이동 · Tab/Enter 선택 · Esc 닫기 · ${this.slashItems.length}개</div>`;
+    this.slashMenu.hidden = false;
+  }
+
+  private hideSlashMenu(): void {
+    this.slashMenu.hidden = true;
+    this.slashItems = [];
+  }
+
+  private acceptSlash(i: number): void {
+    const c = this.slashItems[i];
+    if (!c) return;
+    const v = this.textarea.value;
+    const end = v.search(/\s/);
+    const rest = end === -1 ? '' : v.slice(end).replace(/^\s+/, '');
+    this.textarea.value = `/${c.name} ${rest}`;
+    const caret = c.name.length + 2;
+    this.textarea.setSelectionRange(caret, caret);
+    this.hideSlashMenu();
+    this.textarea.focus();
+  }
+
+  // --- conversation ---
+
+  private resetConversation(html: string): void {
+    this.convoFileId = null;
+    this.convoCount = 0;
+    this.convo.innerHTML = html;
+  }
+
+  private startConversation(): void {
+    const agentId = this.selection?.agentId ?? null;
+    if (this.convoFor === agentId && this.convoTimer !== null) return;
+    this.stopConversation();
+    this.convoFor = agentId;
+    if (!agentId) return;
+    const tick = async () => {
+      await this.loadConversation(agentId);
+      if (this.convoFor === agentId) this.convoTimer = window.setTimeout(tick, CONVERSATION_POLL_MS);
+    };
+    this.convoTimer = window.setTimeout(tick, 0);
+  }
+
+  private stopConversation(): void {
+    if (this.convoTimer !== null) window.clearTimeout(this.convoTimer);
+    this.convoTimer = null;
+    this.convoFor = null;
+  }
+
+  private async loadConversation(agentId: string): Promise<void> {
+    let data: ConversationResponse;
+    try {
+      const sub = this.subView?.agentId ? `&sub=${encodeURIComponent(this.subView.agentId)}` : '';
+      const res = await fetch(`/api/conversation?agentId=${encodeURIComponent(agentId)}&after=${this.convoCount}${sub}`);
+      data = (await res.json()) as ConversationResponse;
+    } catch {
+      return; // bridge hiccup; next tick retries
+    }
+    if (this.convoFor !== agentId) return;
+    this.subagents = data.subagents ?? [];
+    this.updateSubagentCards();
+
+    if (!data.found) {
+      if (this.convoFileId === null && this.convoCount === 0 && this.convo.dataset.reason === data.reason) return;
+      const fallback = this.agent?.lastMessage
+        ? `<div class="msg msg-assistant"><div class="meta">마지막 메시지</div><div class="md">${renderMarkdown(this.agent.lastMessage)}</div></div>`
+        : '';
+      this.resetConversation(`<p class="muted">${esc(data.reason ?? '대화 기록을 찾지 못했습니다.')}</p>${fallback}`);
+      this.convo.dataset.reason = data.reason ?? '';
+      return;
+    }
+    delete this.convo.dataset.reason;
+
+    if (data.fileId !== this.convoFileId || data.after !== this.convoCount) {
+      // New session (or our view is out of sync): start over from the first message.
+      if (data.after !== 0) {
+        this.convoFileId = null;
+        this.convoCount = 0;
+        return this.loadConversation(agentId);
+      }
+      this.convo.innerHTML = this.subView
+        ? `<div class="sub-header"><button type="button" data-back>← 메인 대화</button>
+             <span>🤖 <b>${esc(this.subView.description)}</b> <span class="muted">${esc(this.subView.agentType)}</span></span></div>`
+        : data.title
+          ? `<p class="convo-title">📝 ${esc(data.title)}</p>`
+          : '';
+      if (!data.messages.length) this.convo.innerHTML += '<p class="muted empty">아직 대화가 없습니다.</p>';
+      this.convoFileId = data.fileId;
+      this.convoCount = 0;
+    }
+    if (!data.messages.length) return;
+
+    const el = this.convo;
+    const atBottom = this.convoCount === 0 || el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    el.querySelector('.empty')?.remove();
+    this.appendMessages(data.messages, agentId, this.convoCount);
+    this.convoCount = data.after + data.messages.length;
+    if (atBottom) el.scrollTop = el.scrollHeight;
+  }
+
+  /** Refresh status badges on subagent cards (status changes long after the card was appended). */
+  private updateSubagentCards(): void {
+    const label = { running: '진행 중', done: '완료', failed: '실패' } as const;
+    for (const card of this.convo.querySelectorAll<HTMLElement>('.subagent-card')) {
+      const info = this.subagents.find((s) => s.toolUseId === card.dataset.tool);
+      if (!info) continue;
+      card.dataset.status = info.status;
+      card.classList.toggle('openable', Boolean(info.agentId));
+      card.title = info.agentId ? '눌러서 이 서브에이전트의 대화 보기' : '';
+      card.querySelector('.badge')!.textContent = `${label[info.status]} · ${info.agentType}`;
+    }
+  }
+
+  private openSubagent(toolUseId: string | null): void {
+    const info = toolUseId ? this.subagents.find((s) => s.toolUseId === toolUseId && s.agentId) : null;
+    if (toolUseId && !info) return;
+    this.subView = info ?? null;
+    this.resetConversation('<p class="muted">대화를 불러오는 중…</p>');
+    this.stopConversation();
+    this.startConversation();
+  }
+
+  /** Append messages, folding runs of tool calls into one collapsible line (continuing the last run). */
+  private appendMessages(messages: ConversationMessage[], agentId: string, firstIndex: number): void {
+    messages.forEach((m, k) => {
+      if (m.role === 'subagent' && m.toolUseId) {
+        const card = document.createElement('div');
+        card.className = 'subagent-card';
+        card.dataset.tool = m.toolUseId;
+        card.innerHTML = `<span class="who">🤖 서브에이전트</span> <span class="desc"></span> <span class="badge"></span>`;
+        card.querySelector('.desc')!.textContent = m.text;
+        this.convo.append(card);
+        this.updateSubagentCards();
+        return;
+      }
+      if (m.role === 'tool') {
+        let group = this.convo.lastElementChild;
+        if (!group?.matches('details.tools')) {
+          group = document.createElement('details');
+          group.className = 'tools';
+          group.innerHTML = '<summary></summary><ol></ol>';
+          this.convo.append(group);
+        }
+        const list = group.querySelector('ol')!;
+        const li = document.createElement('li');
+        li.textContent = m.text;
+        list.append(li);
+        group.querySelector('summary')!.textContent = `🔧 도구 ${list.childElementCount}회 · ${m.text}`;
+        return;
+      }
+      const index = firstIndex + k;
+      const imgs = (m.images ?? []).map(
+        (i) => `<img class="shot" loading="lazy" src="/api/conversation/image?agentId=${encodeURIComponent(agentId)}&i=${i}" alt="이미지 ${i + 1}" />`,
+      );
+      const uploads: string[] = [];
+      const text = m.text.replace(UPLOAD_PATH, (_line, name: string) => {
+        uploads.push(`<img class="shot" loading="lazy" src="/api/uploads/${encodeURIComponent(name)}" alt="첨부 이미지" />`);
+        return '';
+      });
+      const localImage = (p: string) =>
+        /^(\/|[A-Za-z]:[\\/])/.test(p) ? `/api/local-image?agentId=${encodeURIComponent(agentId)}&path=${encodeURIComponent(p)}` : null;
+      const div = document.createElement('div');
+      div.className = `msg msg-${m.role}`;
+      div.dataset.index = String(index);
+      div.innerHTML = `<div class="meta">${m.role === 'user' ? (m.queued ? '나 · 작업 중 추가' : '나') : '에이전트'} <time>${clock(m.ts)}</time></div>
+        ${text.trim() ? `<div class="md">${renderMarkdown(text, { localImage })}</div>` : ''}
+        ${[...imgs, ...uploads].length ? `<div class="shots">${[...imgs, ...uploads].join('')}</div>` : ''}`;
+      this.convo.append(div);
+    });
+  }
+
+  // --- compose ---
+
+  private async attach(files: File[]): Promise<void> {
+    const images = files.filter((f) => ACCEPTED.includes(f.type));
+    if (!images.length) {
+      this.feedback.textContent = '⚠️ png, jpg, gif, webp 이미지만 첨부할 수 있습니다';
+      return;
+    }
+    const room = MAX_ATTACH - this.pending.length;
+    if (images.length > room) this.feedback.textContent = `⚠️ 이미지는 ${MAX_ATTACH}장까지 첨부됩니다`;
+    for (const f of images.slice(0, room)) {
+      if (f.size > 10 * 1024 * 1024) {
+        this.feedback.textContent = '⚠️ 10MB를 넘는 이미지는 첨부할 수 없습니다';
+        continue;
+      }
+      this.pending.push(await readAsUpload(f));
+    }
+    this.renderAttachments();
+    this.textarea.focus();
+  }
+
+  private renderAttachments(): void {
+    this.attachments.innerHTML = this.pending
+      .map((p, i) => `<span class="thumb"><img src="${p.url}" alt="" /><button type="button" data-remove="${i}" title="빼기">✕</button></span>`)
+      .join('');
+    this.attachments.hidden = this.pending.length === 0;
+  }
+
+  private async send(retryId?: string): Promise<void> {
+    const handle = this.agent?.terminalHandle;
+    const text = this.textarea.value.trim();
+    if (!handle || (!retryId && !text && !this.pending.length)) return;
+    this.sendBtn.disabled = true;
+    this.feedback.textContent = retryId ? '다시 보내는 중…' : '보내는 중…';
+    try {
+      if (retryId) await postJson('/api/send/retry', { requestId: retryId });
+      else {
+        await postJson('/api/send', {
+          terminalHandle: handle,
+          text,
+          images: this.pending.map(({ mediaType, data }) => ({ mediaType, data })),
+        });
+      }
+      this.textarea.value = '';
+      this.pending = [];
+      this.renderAttachments();
+      this.hideSlashMenu();
+      this.feedback.textContent = '✅ 전달됨';
+      // Built-in slash commands (/config, /model, …) answer with a menu in the terminal, not in the chat.
+      const cmd = /^\/([\w:-]+)/.exec(text)?.[1];
+      if (cmd && this.commands.find((c) => c.name === cmd)?.source === 'builtin') this.showTab('term');
+    } catch (err) {
+      const e = err as ApiError;
+      if (e.code === 'agent_busy' && e.requestId) {
+        // Orca held the prompt back; offer a safe retry of the very same message.
+        this.feedback.innerHTML = `⏳ ${esc(e.message)} <button type="button" class="retry" data-retry="${esc(e.requestId)}">다시 보내기</button>`;
+      } else if (/메뉴가 열려/.test(e.message)) {
+        // The bridge refused because a dialog is open: show it so it can be closed first.
+        this.setMenuMode(true);
+        this.feedback.textContent = '⚠️ 메뉴를 닫은 뒤 다시 보내주세요 (입력한 내용은 그대로 있어요)';
+      } else {
+        this.feedback.textContent = `⚠️ ${e.message}`;
+      }
+    } finally {
+      this.sendBtn.disabled = false;
+    }
+  }
+
+  private async focus(): Promise<void> {
+    const handle = this.agent?.terminalHandle;
+    if (!handle) return;
+    try {
+      await postJson('/api/focus', { terminalHandle: handle });
+      this.feedback.textContent = '↗ Orca에서 열었습니다';
+    } catch (err) {
+      this.feedback.textContent = `⚠️ ${(err as Error).message}`;
+    }
+  }
+}

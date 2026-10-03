@@ -1,0 +1,8 @@
+{
+  "terminals": [
+    { "handle": "term_1", "tabId": "tab1", "leafId": "leaf1", "title": "✳ Fix login" },
+    { "handle": "term_2", "tabId": "tab2", "leafId": "leaf2" },
+    { "handle": "term_3", "tabId": "tab3", "leafId": "leaf3" },
+    { "handle": "term_x", "tabId": "tabX", "leafId": "leafX" }
+  ]
+}

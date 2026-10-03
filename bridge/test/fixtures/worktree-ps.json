@@ -1,0 +1,65 @@
+{
+  "worktrees": [
+    {
+      "worktreeId": "repoA::/Users/me/proj/office_desks",
+      "repoId": "repoA",
+      "repo": "office_desks",
+      "path": "/Users/me/proj/office_desks",
+      "branch": "",
+      "displayName": "office_desks",
+      "status": "permission",
+      "workspaceStatus": "in-progress",
+      "comment": "",
+      "preview": "Honking…   8",
+      "isActive": true,
+      "isArchived": false,
+      "agents": [
+        {
+          "paneKey": "tab1:leaf1",
+          "agentType": "claude",
+          "state": "waiting",
+          "toolName": "ExitPlanMode",
+          "toolInput": null,
+          "prompt": "build an office view",
+          "lastAssistantMessage": null,
+          "stateStartedAt": 1790997660310
+        }
+      ]
+    },
+    {
+      "worktreeId": "repoB::C:\\Users\\me\\secretary",
+      "repoId": "repoB",
+      "repo": "secretary",
+      "path": "C:\\Users\\me\\secretary",
+      "branch": "refs/heads/knowledge-graph",
+      "displayName": "",
+      "status": "working",
+      "workspaceStatus": "in-progress",
+      "comment": "running tests",
+      "isActive": false,
+      "agents": [
+        { "paneKey": "tab2:leaf2", "agentType": "codex", "state": "working", "toolName": "Bash", "toolInput": "npm   test\n --watch=false" },
+        { "paneKey": "tab3:leaf3", "agentType": "claude", "state": "working", "toolName": "Grep", "toolInput": "TODO" },
+        { "paneKey": "tab4:leaf4", "agentType": "claude", "state": "working", "toolName": null },
+        { "paneKey": "tab5:leaf5", "agentType": "claude", "state": "done", "lastAssistantMessage": "All green." }
+      ]
+    },
+    {
+      "worktreeId": "repoC::/Users/me/old",
+      "repo": "old",
+      "displayName": "old",
+      "status": "inactive",
+      "isArchived": true,
+      "agents": []
+    },
+    {
+      "worktreeId": "repoD::/Users/me/empty",
+      "repo": "empty",
+      "displayName": "empty",
+      "status": "inactive",
+      "agents": []
+    }
+  ],
+  "totalCount": 4,
+  "truncated": false
+}

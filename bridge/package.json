@@ -1,0 +1,25 @@
+{
+  "name": "@office-desks/bridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "demo": "cross-env OFFICE_DESKS_DEMO=1 tsx src/server.ts"
+  },
+  "dependencies": {
+    "cross-spawn": "^7.0.6",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "cross-env": "^10.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^5.0.3"
+  }
+}

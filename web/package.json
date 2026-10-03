@@ -1,0 +1,22 @@
+{
+  "name": "@office-desks/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.16",
+    "marked": "^18.0.14",
+    "phaser": "^3.88.0"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.1",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vitest": "^5.0.3"
+  }
+}

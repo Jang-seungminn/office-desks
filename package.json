@@ -1,0 +1,25 @@
+{
+  "name": "office-desks",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pixel-art top-down office view over Orca worktrees and agents",
+  "workspaces": [
+    "bridge",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n bridge,web -c blue,magenta \"npm run dev -w bridge\" \"npm run dev -w web\"",
+    "build": "npm run build -w web",
+    "start": "npm run build && npm run start -w bridge",
+    "test": "npm test -w bridge && npm test -w web",
+    "typecheck": "npm run typecheck -w bridge && npm run typecheck -w web",
+    "demo": "npm run build && npm run demo -w bridge"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}

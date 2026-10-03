@@ -1,0 +1,335 @@
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { WebSocketServer, type WebSocket } from 'ws';
+import { CommandCatalog } from './commands.js';
+import { createDemoRunner, demoSubagentsRunning } from './demo.js';
+import { charBytes, keyBytes } from './keys.js';
+import { composerState } from './screen.js';
+import type { ConversationResponse, FocusRequest, KeyRequest, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen } from './model.js';
+import { createOrcaRunner, OrcaCliError, resolveOrcaCommand } from './orcaCli.js';
+import { OfficePoller } from './poller.js';
+import { isAllowedRequest, setSecurityHeaders } from './security.js';
+import { isLinkedImage, readLocalImage } from './localImage.js';
+import { SessionResolver } from './sessionResolver.js';
+import { readTranscript } from './transcript.js';
+import { subagentFile, subagentIds, subagentInfos } from './subagents.js';
+import { cleanOldUploads, composePrompt, IMAGE_TYPES, saveImages, UploadError, uploadPath } from './uploads.js';
+
+const HOST = '127.0.0.1'; // never expose: this server types into local terminals
+const PORT = Number(process.env.OFFICE_DESKS_PORT ?? 4317);
+const DEV_WEB_PORT = 5173;
+const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+
+const DEMO = Boolean(process.env.OFFICE_DESKS_DEMO);
+const orca = DEMO ? createDemoRunner() : createOrcaRunner();
+const commands = new CommandCatalog();
+const poller = new OfficePoller(orca, 1500, (s) => countSubagents(s.desks));
+// Only accept a session whose transcript actually contains what we searched for.
+const sessions = new SessionResolver(orca, async (filePath, key) => {
+  const t = await readTranscript(filePath);
+  if (key.title) return t.title?.toLowerCase() === key.title.toLowerCase() || t.messages.length > 0;
+  const needle = key.phrase.slice(0, 40);
+  return t.messages.some((m) => m.role !== 'tool' && m.text.replace(/\s+/g, ' ').includes(needle));
+});
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.png': 'image/png',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+};
+
+function json(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+async function readJson<T>(req: IncomingMessage, maxBytes = 64_000): Promise<T> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    size += chunk.length;
+    if (size > maxBytes) throw new UploadError('요청이 너무 큽니다');
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
+}
+
+function sendBinary(res: ServerResponse, contentType: string, buf: Buffer): void {
+  res.writeHead(200, { 'content-type': contentType, 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff' });
+  res.end(buf);
+}
+
+/** Only allow terminals that are currently in the office, so the API can't target arbitrary handles. */
+function knownHandle(handle: unknown): handle is string {
+  return (
+    typeof handle === 'string' &&
+    poller.current.desks.some((d) => d.agents.some((a) => a.terminalHandle === handle))
+  );
+}
+
+async function readScreen(handle: string): Promise<string[]> {
+  const r = (await orca(['terminal', 'read', '--terminal', handle, '--screen'])) as { terminal?: { tail?: string[] } };
+  return r?.terminal?.tail ?? [];
+}
+
+function findAgent(agentId: string | null): { desk: OfficeDesk; agent: OfficeAgent } | null {
+  for (const desk of poller.current.desks) {
+    const agent = desk.agents.find((a) => a.id === agentId);
+    if (agent) return { desk, agent };
+  }
+  return null;
+}
+
+async function conversation(agentId: string | null, after: number, sub: string | null): Promise<ConversationResponse> {
+  const empty = (reason: string): ConversationResponse => ({
+    found: false,
+    reason,
+    fileId: null,
+    title: null,
+    total: 0,
+    after: 0,
+    messages: [],
+    subagents: [],
+  });
+  const found = findAgent(agentId);
+  if (!found) return empty('이 에이전트는 더 이상 사무실에 없습니다.');
+  // The file path only ever comes from Orca's session index, never from the client.
+  const filePath = await sessions.resolve(found.desk, found.agent).catch(() => null);
+  if (!filePath) return empty('Orca 세션 검색에서 이 에이전트의 대화 기록을 찾지 못했습니다. (Orca Settings → Agent Session History가 켜져 있어야 합니다)');
+  const main = await readTranscript(filePath);
+  const subagents = subagentInfos(main.calls, await subagentIds(filePath));
+  let t = main;
+  if (sub) {
+    // A subagent's own conversation: only ids this session actually started.
+    const file = subagents.some((s) => s.agentId === sub) ? subagentFile(filePath, sub) : null;
+    if (!file || !existsSync(file)) return { ...empty('서브에이전트 기록을 찾지 못했습니다.'), subagents };
+    t = await readTranscript(file, { sidechain: true });
+  }
+  const from = Number.isInteger(after) && after >= 0 && after <= t.messages.length ? after : 0;
+  return { found: true, fileId: t.fileId, title: sub ? null : t.title, total: t.messages.length, after: from, messages: t.messages.slice(from), subagents };
+}
+
+/** Count running subagents for every Claude agent, so the office can show them. */
+async function countSubagents(desks: OfficeDesk[]): Promise<void> {
+  if (DEMO) {
+    for (const a of desks.flatMap((d) => d.agents)) a.subagentsRunning = demoSubagentsRunning(a.id);
+    return;
+  }
+  await Promise.all(
+    desks.flatMap((desk) =>
+      desk.agents
+        .filter((a) => a.agentType === 'claude')
+        .map(async (agent) => {
+          // Never block the office poll on a search: use what we know, refresh in the background.
+          void sessions.resolve(desk, agent).catch(() => null);
+          const filePath = sessions.cached(agent.id);
+          if (!filePath) return;
+          const t = await readTranscript(filePath).catch(() => null);
+          agent.subagentsRunning = t ? t.calls.filter((c) => c.status === 'running').length : 0;
+        }),
+    ),
+  );
+}
+
+/**
+ * Orca refuses a prompt while the agent can't take one (mid-transition, dialog, …) and hands
+ * back a request id; the exact same command plus that id may be retried later. Keep the
+ * command server-side so the client only ever names the id.
+ */
+const blockedPrompts = new Map<string, { args: string[]; at: number }>();
+const BLOCKED_TTL_MS = 10 * 60_000;
+
+async function deliver(res: ServerResponse, args: string[], retryOf?: string): Promise<void> {
+  try {
+    const result = await orca(args);
+    if (retryOf) blockedPrompts.delete(retryOf);
+    void poller.refresh();
+    return json(res, 200, { ok: true, result });
+  } catch (err) {
+    const e = err as OrcaCliError;
+    const requestId = /request ID:\s*([0-9a-f-]{8,64})/i.exec(e.message)?.[1] ?? retryOf;
+    if ((e.code === 'agent_prompt_blocked' || /agent_prompt_blocked/.test(e.message)) && requestId) {
+      const base = retryOf ? blockedPrompts.get(retryOf)?.args : args;
+      if (base) blockedPrompts.set(requestId, { args: base, at: Date.now() });
+      for (const [id, p] of blockedPrompts) if (Date.now() - p.at > BLOCKED_TTL_MS) blockedPrompts.delete(id);
+      return json(res, 409, {
+        code: 'agent_busy',
+        requestId,
+        error: '에이전트가 지금 새 메시지를 받을 수 없는 상태예요 (질문·권한 확인 중이거나 화면 전환 중). 잠시 후 다시 보내기를 눌러 주세요',
+      });
+    }
+    throw err;
+  }
+}
+
+async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  const pathname = url.pathname;
+  if (req.method === 'GET' && pathname === '/api/snapshot') {
+    return json(res, 200, poller.current);
+  }
+  if (req.method === 'GET' && pathname === '/api/conversation/image') {
+    // Images embedded in the agent's transcript (e.g. screenshots pasted into Claude Code).
+    const agentId = url.searchParams.get('agentId');
+    const desk = poller.current.desks.find((d) => d.agents.some((a) => a.id === agentId));
+    const agent = desk?.agents.find((a) => a.id === agentId);
+    const filePath = desk && agent ? await sessions.resolve(desk, agent).catch(() => null) : null;
+    const img = filePath ? (await readTranscript(filePath)).images[Number(url.searchParams.get('i'))] : undefined;
+    if (!img || !IMAGE_TYPES[img.mediaType]) return json(res, 404, { error: 'no such image' });
+    return sendBinary(res, img.mediaType, Buffer.from(img.data, 'base64'));
+  }
+  if (req.method === 'GET' && pathname === '/api/local-image') {
+    // Local screenshots an agent linked in its own messages (e.g. ![shot](/tmp/x.png)).
+    const found = findAgent(url.searchParams.get('agentId'));
+    const want = url.searchParams.get('path') ?? '';
+    if (!found || !path.isAbsolute(want)) return json(res, 404, { error: 'no such image' });
+    const filePath = await sessions.resolve(found.desk, found.agent).catch(() => null);
+    const t = filePath ? await readTranscript(filePath) : null;
+    if (!t || !isLinkedImage(t.messages, want)) return json(res, 404, { error: 'image not referenced by this agent' });
+    const image = readLocalImage(want);
+    if (!image) return json(res, 404, { error: 'no such image' });
+    return sendBinary(res, image.type, image.buf);
+  }
+  if (req.method === 'GET' && pathname.startsWith('/api/uploads/')) {
+    // Images sent from this UI, referenced by path in the agent's transcript.
+    const file = uploadPath(pathname.slice('/api/uploads/'.length));
+    const image = file && existsSync(file) ? readLocalImage(file) : null;
+    if (!image) return json(res, 404, { error: 'no such upload' });
+    return sendBinary(res, image.type, image.buf);
+  }
+  if (req.method === 'GET' && pathname === '/api/commands') {
+    const found = findAgent(url.searchParams.get('agentId'));
+    return json(res, 200, found ? await commands.get(found.agent.agentType, found.desk.path) : []);
+  }
+  if (req.method === 'GET' && pathname === '/api/terminal') {
+    // The rendered screen, for TUI menus (/config, /model) and permission prompts.
+    const found = findAgent(url.searchParams.get('agentId'));
+    if (!found?.agent.terminalHandle) return json(res, 200, { found: false, lines: [], composer: 'unknown' } satisfies TerminalScreen);
+    const lines = await readScreen(found.agent.terminalHandle);
+    return json(res, 200, { found: true, lines, composer: composerState(lines, found.agent.agentType) } satisfies TerminalScreen);
+  }
+  if (req.method === 'GET' && pathname === '/api/conversation') {
+    return json(res, 200, await conversation(url.searchParams.get('agentId'), Number(url.searchParams.get('after') ?? 0), url.searchParams.get('sub')));
+  }
+  if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
+  if (!req.headers['content-type']?.startsWith('application/json')) {
+    return json(res, 415, { error: 'expected application/json' });
+  }
+
+  if (pathname === '/api/send') {
+    const body = await readJson<SendRequest>(req, 80 * 1024 * 1024);
+    if (!knownHandle(body.terminalHandle)) return json(res, 404, { error: 'unknown terminal' });
+    // A dialog (/usage, /config, permission prompt) would swallow the text: refuse unless forced.
+    const owner = poller.current.desks.flatMap((d) => d.agents).find((a) => a.terminalHandle === body.terminalHandle);
+    if (!body.force && owner && composerState(await readScreen(body.terminalHandle), owner.agentType) === 'menu') {
+      return json(res, 409, { error: '에이전트 터미널에 메뉴가 열려 있어 메시지가 전달되지 않습니다', code: 'menu_open' });
+    }
+    const text = typeof body.text === 'string' ? body.text : '';
+    if (!text.trim() && !body.images?.length) return json(res, 400, { error: 'empty message' });
+    const imagePaths = await saveImages(body.images);
+    // cmd.exe shims can't carry newlines in an argument on Windows; send those lines space-joined.
+    const composed = composePrompt(text, imagePaths);
+    const prompt = process.platform === 'win32' ? composed.replace(/\s*\r?\n\s*/g, ' ') : composed;
+    const args = ['terminal', 'send', '--terminal', body.terminalHandle, `--text=${prompt}`, '--enter'];
+    return deliver(res, args);
+  }
+
+  if (pathname === '/api/send/retry') {
+    // Re-issue a prompt Orca blocked, with its request id, so it can't be typed twice.
+    const body = await readJson<{ requestId?: string }>(req);
+    const pending = typeof body.requestId === 'string' ? blockedPrompts.get(body.requestId) : undefined;
+    if (!pending || !knownHandle(pending.args[3])) return json(res, 404, { error: '다시 보낼 메시지를 찾지 못했습니다. 새로 보내주세요' });
+    return deliver(res, [...pending.args, `--retry-request=${body.requestId}`, '--wait-submit=10'], body.requestId);
+  }
+
+  if (pathname === '/api/keys') {
+    const body = await readJson<KeyRequest>(req);
+    if (!knownHandle(body.terminalHandle)) return json(res, 404, { error: 'unknown terminal' });
+    const bytes = body.char !== undefined ? charBytes(body.char) : keyBytes(body.key);
+    if (!bytes) return json(res, 400, { error: 'unsupported key' });
+    // `--text=value` so text starting with `--` can never be parsed as another flag.
+    await orca(['terminal', 'send', '--terminal', body.terminalHandle, ...(body.key === 'enter' ? ['--enter'] : [`--text=${bytes}`])]);
+    void poller.refresh();
+    return json(res, 200, { ok: true });
+  }
+
+  if (pathname === '/api/focus') {
+    const body = await readJson<FocusRequest>(req);
+    if (!knownHandle(body.terminalHandle)) return json(res, 404, { error: 'unknown terminal' });
+    await orca(['terminal', 'switch', '--terminal', body.terminalHandle]);
+    return json(res, 200, { ok: true });
+  }
+
+  return json(res, 404, { error: 'not found' });
+}
+
+function serveStatic(res: ServerResponse, pathname: string): void {
+  if (!existsSync(WEB_DIST)) {
+    res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end(`Office Desks bridge is running. Build the web UI with "npm run build", or use "npm run dev" and open http://localhost:${DEV_WEB_PORT}`);
+    return;
+  }
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return json(res, 400, { error: 'bad path' });
+  }
+  let file = path.resolve(WEB_DIST, `.${path.sep}${path.normalize(decoded)}`);
+  const rel = path.relative(WEB_DIST, file);
+  if (rel.startsWith('..') || path.isAbsolute(rel) || !existsSync(file) || statSync(file).isDirectory()) {
+    file = path.join(WEB_DIST, 'index.html');
+  }
+  res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
+  createReadStream(file).pipe(res);
+}
+
+const allowedPorts = [PORT, DEV_WEB_PORT];
+
+const server = createServer((req, res) => {
+  setSecurityHeaders(res);
+  try {
+    if (!isAllowedRequest(req.headers, allowedPorts)) return json(res, 403, { error: 'forbidden origin' });
+    const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`);
+    if (url.pathname.startsWith('/api/')) {
+      handleApi(req, res, url).catch((err: Error) => {
+        const status = err instanceof SyntaxError || err instanceof UploadError ? 400 : 502;
+        if (!res.headersSent) json(res, status, { error: err.message, code: (err as OrcaCliError).code });
+      });
+      return;
+    }
+    serveStatic(res, url.pathname);
+  } catch (err) {
+    // Never let one malformed request take the bridge down.
+    if (!res.headersSent) json(res, 400, { error: (err as Error).message });
+  }
+});
+
+const wss = new WebSocketServer({ noServer: true });
+server.on('upgrade', (req, socket, head) => {
+  if (req.url !== '/ws' || !isAllowedRequest(req.headers, allowedPorts)) {
+    socket.destroy();
+    return;
+  }
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+});
+
+function send(ws: WebSocket, msg: ServerMessage): void {
+  ws.send(JSON.stringify(msg));
+}
+
+wss.on('connection', (ws) => send(ws, { type: 'snapshot', snapshot: poller.current }));
+
+poller.onChange((snapshot) => {
+  for (const ws of wss.clients) if (ws.readyState === ws.OPEN) send(ws, { type: 'snapshot', snapshot });
+});
+
+poller.start();
+void cleanOldUploads();
+server.listen(PORT, HOST, () => {
+  console.log(`[office-desks] bridge on http://${HOST}:${PORT} (${DEMO ? 'DEMO data' : `orca cli: ${resolveOrcaCommand()}`})`);
+});

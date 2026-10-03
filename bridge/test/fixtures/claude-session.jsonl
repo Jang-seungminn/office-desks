@@ -1,0 +1,14 @@
+{"type":"ai-title","aiTitle":"Office desks project","sessionId":"s1"}
+{"type":"user","isSidechain":false,"message":{"role":"user","content":[{"type":"text","text":"Build an **office** view"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"xx"}}]},"timestamp":"2026-10-03T03:00:00.000Z"}
+{"type":"user","isMeta":true,"message":{"role":"user","content":"[Image: original 2794x632]"},"timestamp":"2026-10-03T03:00:00.100Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"secret","signature":"x"}]},"timestamp":"2026-10-03T03:00:01.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Sure.\n\n```ts\nconst a = 1;\n```"}]},"timestamp":"2026-10-03T03:00:02.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm   test\n--run","description":"Run tests"}}]},"timestamp":"2026-10-03T03:00:03.000Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"huge output"}]},"timestamp":"2026-10-03T03:00:04.000Z"}
+{"type":"user","message":{"role":"user","content":"<command-name>/clear</command-name>"},"timestamp":"2026-10-03T03:00:05.000Z"}
+{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"subagent chatter"}]},"timestamp":"2026-10-03T03:00:06.000Z"}
+{"type":"attachment","attachment":{}}
+{"type":"user","message":{"role":"user","content":"next: add pixel assets"},"timestamp":"2026-10-03T03:00:07.000Z"}
+{"type":"attachment","attachment":{"type":"queued_command","prompt":"also check usage","source_uuid":"q1","origin":{"kind":"human"},"humanTurn":true},"timestamp":"2026-10-03T03:00:08.000Z"}
+{"type":"attachment","attachment":{"type":"queued_command","prompt":"also check usage","source_uuid":"q1","origin":{"kind":"human"},"humanTurn":true},"timestamp":"2026-10-03T03:00:09.000Z"}
+{"type":"attachment","attachment":{"type":"queued_command","prompt":"<task-notification>done</task-notification>","source_uuid":"q2","origin":{"kind":"task-notification"}},"timestamp":"2026-10-03T03:00:10.000Z"}

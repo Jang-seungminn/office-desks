@@ -1,0 +1,13 @@
+{"timestamp":"2026-03-29T06:38:20.561Z","type":"session_meta","payload":{"id":"x","cwd":"/Users/me/proj","originator":"Codex Desktop"}}
+{"timestamp":"2026-03-29T06:38:20.562Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<permissions instructions>..."}]}}
+{"timestamp":"2026-03-29T06:38:20.562Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/Users/me/proj</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-03-29T06:38:20.563Z","type":"event_msg","payload":{"type":"user_message","message":"Make a terminal usage monitor"}}
+{"timestamp":"2026-03-29T06:38:20.570Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Make a terminal usage monitor"}]}}
+{"timestamp":"2026-03-29T06:38:24.042Z","type":"response_item","payload":{"type":"reasoning","summary":[],"content":null,"encrypted_content":"gAAA"}}
+{"timestamp":"2026-03-29T06:38:30.623Z","type":"event_msg","payload":{"type":"agent_message","message":"Checking the repo first.","phase":"commentary"}}
+{"timestamp":"2026-03-29T06:38:30.623Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Checking the repo first."}],"phase":"commentary"}}
+{"timestamp":"2026-03-29T06:38:30.624Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pwd && rg --files\",\"workdir\":\"/Users/me/proj\"}","call_id":"c1"}}
+{"timestamp":"2026-03-29T06:38:31.064Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"lots of output"}}
+{"timestamp":"2026-03-29T06:38:47.722Z","type":"response_item","payload":{"type":"web_search_call","status":"completed","action":{"type":"search","query":"claude code otel"}}}
+{"timestamp":"2026-03-29T06:42:54.940Z","type":"response_item","payload":{"type":"custom_tool_call","status":"completed","call_id":"c2","name":"apply_patch","input":"*** Begin Patch\n*** Add File: docs/plan.md\n+# Plan"}}
+{"timestamp":"2026-03-29T06:38:20.562Z","type":"event_msg","payload":{"type":"token_count","info":null}}

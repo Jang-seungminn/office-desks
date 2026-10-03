@@ -1,0 +1,8 @@
+Pixel art in this folder is by Kenney (www.kenney.nl), released under
+Creative Commons Zero (CC0): http://creativecommons.org/publicdomain/zero/1.0/
+
+- roguelike-indoor.png        Roguelike Indoors pack     https://kenney.nl/assets/roguelike-indoors
+- roguelike-characters.png    Roguelike Characters pack  https://kenney.nl/assets/roguelike-characters
+- roguelike-modern-city.png   Roguelike Modern City pack https://kenney.nl/assets/roguelike-modern-city
+
+Credit is not required by the license, but thank you Kenney!
