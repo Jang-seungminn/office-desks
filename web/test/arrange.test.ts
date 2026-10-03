@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OfficeAgent, OfficeDesk } from '../../bridge/src/model';
-import { arrangeOffice, zoneOf } from '../src/arrange';
+import { arrange, arrangeOffice, arrangeOrg, zoneOf } from '../src/arrange';
 
 const agent = (state: OfficeAgent['state'], since: number): OfficeAgent => ({
   id: `${state}${since}`,
@@ -82,5 +82,39 @@ describe('arrangeOffice', () => {
 
   it('skips empty floors', () => {
     expect(arrangeOffice([desk('x', 'X', [])]).map((z) => z.key)).toEqual(['idle']);
+  });
+});
+
+describe('arrangeOrg', () => {
+  const org = {
+    departments: [
+      { id: 'a', name: '개발팀', theme: 'dev' as const, repoIds: ['web', 'gone', 'api'] },
+      { id: 'b', name: '빈 팀', theme: 'ops' as const, repoIds: [] },
+    ],
+  };
+  const seats = (z: ReturnType<typeof arrangeOrg>) => z.map((x) => [x.label, x.rooms.map((r) => r.desks.map((d) => d.name))]);
+
+  it('keeps seats fixed no matter what agents are doing', () => {
+    const calm = [desk('z', 'web', [agent('done', 1)]), desk('a', 'web', []), desk('m', 'api', [agent('done', 2)])];
+    const busy = [desk('z', 'web', [agent('typing', 9)]), desk('a', 'web', [agent('waiting', 8)]), desk('m', 'api', [])];
+    expect(seats(arrangeOrg(calm, org))).toEqual(seats(arrangeOrg(busy, org)));
+    expect(seats(arrangeOrg(calm, org))).toEqual([
+      ['개발팀', [['a', 'z'], ['m']]],
+      ['빈 팀', []],
+    ]);
+  });
+
+  it('puts the main checkout first, unassigned projects last, and tallies status', () => {
+    const main = { ...desk('w2', 'web', [agent('typing', 1)]), isMain: true };
+    const zones = arrangeOrg([desk('w1', 'web', [agent('waiting', 1)]), main, desk('x', 'misc', [agent('done', 1)])], org);
+    expect(zones[0].rooms[0].desks.map((d) => d.name)).toEqual(['w2', 'w1']);
+    expect(zones[0].tally).toEqual({ working: 1, waiting: 1, resting: 0 });
+    expect(zones.at(-1)).toMatchObject({ key: 'dept:none', label: '미배정', count: 1 });
+  });
+
+  it('uses status floors until a department exists', () => {
+    const d = [desk('a', 'web', [agent('typing', 1)])];
+    expect(arrange(d, { departments: [] })[0].key).toBe('working');
+    expect(arrange(d, org)[0].key).toBe('dept:a');
   });
 });

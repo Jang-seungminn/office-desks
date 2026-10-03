@@ -16,6 +16,7 @@ import { modelLine } from './format';
 import { ChangesView } from './panel/changesView';
 import { QuestionCards } from './panel/questionCards';
 import { SlashMenu } from './panel/slashMenu';
+import { applyCardWidths, employeeCard } from './panel/employeeCard';
 import { ago, clock, esc, readAsUpload, terminalKeyFromEvent } from './panel/util';
 import type { Selection } from './officeScene';
 
@@ -352,6 +353,8 @@ export class Panel {
 
   /** Opens the "add an agent to this worktree" dialog. */
   onHire: (deskId: string) => void = () => {};
+  /** Department name of a project (from the org chart), for the employee card. */
+  department: (repoId: string) => string | null = () => null;
   /** While the comment is being edited, header refreshes must not wipe the input. */
   private editingComment = false;
 
@@ -422,11 +425,13 @@ export class Panel {
           ${!a ? `<button type="button" class="hire-here" data-hire-here>🧑 에이전트 추가</button> ` : ''}${a ? `<span class="pill">${esc(a.agentType)}</span>${modelLine(a.model, a.effort) ? ` <span class="pill model">${esc(modelLine(a.model, a.effort)!)}</span>` : ''} <span class="state state-${a.state}">${STATE_LABEL[a.state] ?? a.state}</span> <span class="muted">${esc(ago(a.since))}</span>` : '<span class="pill">빈 자리</span>'}
           ${this.statusSelect(d.workspaceStatus)}
         </p>
+        ${a ? employeeCard(a, this.department(d.repoId)) : ''}
         ${a ? `<div class="activity-row"><p class="activity">${esc(a.activity)}</p>${this.stopButton(a)}</div>` : ''}
         <p class="comment" data-comment-row>💬 <span class="comment-text">${d.comment ? esc(d.comment) : '<span class="muted">코멘트 없음</span>'}</span>
           <button type="button" class="link" data-edit-comment>편집</button></p>
         ${d.pr ? `<p class="pr">🔀 ${d.pr.url ? `<a href="${esc(d.pr.url)}" target="_blank" rel="noopener noreferrer">PR${d.pr.number ? ` #${d.pr.number}` : ''}</a>` : `PR${d.pr.number ? ` #${d.pr.number}` : ''}`}${d.pr.title ? ` · ${esc(d.pr.title)}` : ''}${d.pr.state ? ` <span class="pill">${esc(d.pr.state)}</span>` : ''}</p>` : ''}`;
     }
+    applyCardWidths(this.info);
     const files = d?.changes?.files ?? 0;
     this.tabs.querySelector<HTMLElement>('.tab-count')!.textContent = files ? ` ${files}` : '';
     const handle = a?.terminalHandle ?? null;

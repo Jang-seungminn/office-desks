@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import type { OfficeSnapshot } from '../../bridge/src/model';
+import type { OfficeSnapshot, OrgChart } from '../../bridge/src/model';
 import { connectOffice, type ConnectionState } from './api';
 import { OfficeScene, type Selection } from './officeScene';
 import { Panel } from './panel';
@@ -7,6 +7,8 @@ import { modelLine } from './format';
 import { loadPixelFonts } from './fonts';
 import { HireDialog } from './hireDialog';
 import { SearchDialog } from './searchDialog';
+import { CeoDialog } from './ceoDialog';
+import { rankOf } from './rank';
 import { skyAt } from './decor';
 import { Notices, type Attention } from './notices';
 import type { UsageSnapshot } from '../../bridge/src/model';
@@ -32,6 +34,8 @@ void loadPixelFonts().then(() => new Phaser.Game({
 }));
 
 let snapshot: OfficeSnapshot | null = null;
+let org: OrgChart = { departments: [] };
+let usage: UsageSnapshot | null = null;
 let connection: ConnectionState = 'connecting';
 const statusBar = document.getElementById('status-bar')!;
 statusBar.innerHTML = '<div class="status-left"></div><div class="usage"></div>';
@@ -40,6 +44,9 @@ const usageEl = statusBar.querySelector<HTMLElement>('.usage')!;
 
 /** Plan usage like Orca's status bar: 5-hour session, weekly, Fable weekly. */
 function renderUsage(u: UsageSnapshot): void {
+  usage = u;
+  scene.setUsage(u);
+  ceo.refresh();
   const claude = u.providers[0];
   scene.setUsageLine(claude ? claude.windows.slice(0, 2).map((w) => `${w.label} ${w.usedPercent}%`).join(' · ') : null);
   usageEl.innerHTML = u.providers
@@ -130,6 +137,10 @@ setInterval(applyNight, 60_000);
 
 const hire = new HireDialog(document.getElementById('modal')!, () => snapshot);
 panel.onHire = (deskId) => hire.open({ deskId });
+const ceo = new CeoDialog(document.getElementById('modal')!, () => ({ snapshot, org, usage }));
+ceo.onPick = (deskId, agentId) => select({ deskId, agentId });
+scene.onCeo = () => ceo.open();
+panel.department = (repoId) => org.departments.find((d) => d.repoIds.includes(repoId))?.name ?? null;
 const searchBox = new SearchDialog(document.getElementById('modal')!);
 searchBox.onOpen = (deskId, agentId, query) => {
   select({ deskId, agentId });
@@ -145,7 +156,9 @@ scene.onHover = (info) => {
     return;
   }
   const agent = desk.agents.find((a) => a.id === info.agentId);
-  tooltip.innerHTML = `<b>${esc(desk.name)}</b>${desk.branch ? ` <span class="dim">⎇ ${esc(desk.branch)}</span>` : ''}<br>
+  const rank = rankOf(agent?.stats ?? null);
+  const dept = org.departments.find((d) => d.repoIds.includes(desk.repoId));
+  tooltip.innerHTML = `${rank || dept ? `<span class="dim">${esc([dept?.name, rank?.title].filter(Boolean).join(' · '))}</span><br>` : ''}<b>${esc(desk.name)}</b>${desk.branch ? ` <span class="dim">⎇ ${esc(desk.branch)}</span>` : ''}<br>
     ${agent ? `${esc(agent.agentType)}${modelLine(agent.model, agent.effort) ? ` <span class="dim">(${esc(modelLine(agent.model, agent.effort)!)})</span>` : ''} · ${esc(agent.activity)}` : '<span class="dim">빈 자리</span>'}
     ${agent?.subagentsRunning ? `<br>🤖 서브에이전트 ${agent.subagentsRunning}명 작업 중` : ''}
     ${desk.comment ? `<br>💬 ${esc(desk.comment)}` : ''}<br><span class="dim">클릭해서 대화 보기</span>`;
@@ -176,6 +189,10 @@ statusLeft.addEventListener('click', (e) => {
   const t = e.target as HTMLElement;
   if (t.closest('[data-help]')) {
     helpEl.hidden = false;
+    return;
+  }
+  if (t.closest('[data-ceo]')) {
+    ceo.open();
     return;
   }
   if (t.closest('[data-search]')) {
@@ -217,6 +234,7 @@ function renderStatus(): void {
   statusLeft.innerHTML = `
     <span>${conn}</span>
     <button class="hire" data-hire title="새 워크트리를 만들고 에이전트를 띄웁니다">➕ 새 작업</button>
+    <button class="search" data-ceo title="회사 현황과 조직도(부서) 관리">👑 사장실</button>
     <button class="search" data-search title="모든 에이전트 대화 검색 (단축키 Ctrl/⌘+K)">🔍 검색</button>
     <button class="search" data-help title="단축키 보기 (?)">⌨ ?</button>
     <span>🏢 워크트리 ${snapshot?.desks.length ?? 0}</span>
@@ -236,12 +254,18 @@ connectOffice(
     panel.refresh(s);
     notify(notices.transitions(s));
     refreshAttention();
+    ceo.refresh();
   },
   (c) => {
     connection = c;
     renderStatus();
   },
   renderUsage,
+  (o) => {
+    org = o;
+    scene.setOrg(o);
+    panel.refresh(snapshot);
+  },
 );
 
 // Clicking empty office floor closes the panel (clicking another desk switches to it).

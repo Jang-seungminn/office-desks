@@ -1515,3 +1515,234 @@ body.night #panel .pr a,
 body.night #panel button.link {
   color: #f0a58a;
 }
+
+/* Employee card (panel) */
+.employee-card {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: #fff8e6;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.employee-card .ec-top {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.employee-card .rank {
+  font-weight: 700;
+  color: #fff;
+  background: #6e4fb3;
+  border-radius: 4px;
+  padding: 0 6px;
+}
+.employee-card .dept {
+  font-weight: 700;
+}
+.employee-card .dept.none {
+  color: var(--muted);
+  font-weight: 400;
+}
+.employee-card .ec-xp {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.employee-card .xp {
+  flex: 0 0 90px;
+  height: 7px;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: #e8dcc4;
+  overflow: hidden;
+}
+.employee-card .xp-fill {
+  display: block;
+  height: 100%;
+  background: #d9a441;
+}
+body.night .employee-card {
+  background: #2a2a38;
+  border-color: #5a6378;
+}
+body.night .employee-card .xp {
+  background: #1b1f2a;
+  border-color: #5a6378;
+}
+
+/* CEO office dialog */
+#modal .dialog.ceo {
+  width: min(640px, calc(100% - 32px));
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+}
+#modal .dialog.ceo h3 {
+  margin: 6px 0 4px;
+  font-size: 14px;
+}
+#modal .dialog.ceo h3 .muted {
+  font-size: 11px;
+}
+#modal .ceo .kpis {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+#modal .ceo .kpis > div {
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  padding: 6px 4px;
+  background: #fff;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+}
+#modal .ceo .kpis b {
+  font-size: 20px;
+}
+#modal .ceo .kpis span {
+  font-size: 11px;
+  color: var(--muted);
+}
+#modal .ceo .kpis .warn {
+  background: #fff1c2;
+}
+#modal .ceo .budget {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+#modal .ceo .b-row {
+  display: grid;
+  grid-template-columns: 70px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+#modal .ceo .bar {
+  height: 9px;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: #e8dcc4;
+  overflow: hidden;
+}
+#modal .ceo .fill {
+  display: block;
+  height: 100%;
+}
+#modal .ceo .fill.low {
+  background: #3f8f4a;
+}
+#modal .ceo .fill.mid {
+  background: #e0a800;
+}
+#modal .ceo .fill.high {
+  background: #e5484d;
+}
+#modal .ceo ol,
+#modal .ceo ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#modal .ceo .mvp button {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 5px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+#modal .ceo .mvp .who {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+#modal .ceo .mvp .score {
+  margin-left: auto;
+  font-weight: 700;
+}
+#modal .ceo .depts li,
+#modal .ceo .repos li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+}
+#modal .ceo .depts input {
+  flex: 1;
+  min-width: 0;
+}
+#modal .ceo .depts button,
+#modal .ceo .repos button,
+#modal .ceo .add-dept {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+#modal .ceo .depts button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+#modal .ceo .add-dept {
+  align-self: flex-start;
+  margin-top: 4px;
+  font-weight: 700;
+}
+#modal .ceo .repos .r-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#modal .ceo .repos select {
+  width: 180px;
+}
+#modal .ceo li.empty {
+  font-size: 12px;
+}
+body.night #modal .ceo .kpis > div,
+body.night #modal .ceo .mvp button,
+body.night #modal .ceo .depts button,
+body.night #modal .ceo .repos button,
+body.night #modal .ceo .add-dept {
+  background: #2a3040;
+  color: var(--ink);
+  border-color: #5a6378;
+}
+body.night #modal .ceo .kpis .warn {
+  background: #3a3220;
+}
+body.night #modal .ceo .bar {
+  background: #1b1f2a;
+  border-color: #5a6378;
+}
+/* Dialog status line shares the chat bubble's class name; keep it plain at night. */
+body.night #modal .msg {
+  background: none;
+  border: none;
+}

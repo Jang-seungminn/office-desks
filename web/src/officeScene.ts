@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import type { OfficeAgent, OfficeDesk, OfficeSnapshot } from '../../bridge/src/model';
+import type { OfficeAgent, OfficeDesk, OfficeSnapshot, OrgChart, UsageSnapshot } from '../../bridge/src/model';
 import {
   characterTexture,
   deskTexture,
@@ -15,7 +15,7 @@ import {
 import { buildTextures, iconKey, pixelIconKey, SCREEN } from './sprites';
 import { modelTag } from './format';
 import { PX11, PX14, PX22B } from './fonts';
-import { arrangeOffice, type Room } from './arrange';
+import { arrange, type Room, type Zone } from './arrange';
 import { OfficeDecor } from './decor';
 
 export interface Selection {
@@ -43,6 +43,19 @@ const LOUNGE_H = 230;
 const MARGIN = 28;
 const WALL_H = 2 * PX;
 const FIRST_ROW_Y = WALL_H + 40;
+const CEO_W = 300;
+const CEO_H = 156;
+const BOARD_MAX_W = 470;
+
+// Department interiors: carpet, its border, and a prop by the sign.
+const THEME: Record<NonNullable<Zone['theme']>, { carpet: number; edge: number; prop: string | null }> = {
+  dev: { carpet: 0x34506b, edge: 0x22374d, prop: 'whiteboard' },
+  design: { carpet: 0x7a4a68, edge: 0x55304a, prop: 'easel' },
+  research: { carpet: 0x3d6650, edge: 0x284836, prop: 'bookshelf' },
+  ops: { carpet: 0x565c6b, edge: 0x3a3f4b, prop: 'server-rack' },
+  etc: { carpet: 0x7a6248, edge: 0x56432f, prop: null },
+  none: { carpet: 0xa89c8a, edge: 0x857a69, prop: null },
+};
 
 // Team carpet colour per Orca worktree status.
 const POD_TINT: Record<string, number> = {
@@ -348,6 +361,10 @@ export class OfficeScene extends Phaser.Scene {
   onHover: (info: HoverInfo | null) => void = () => {};
   /** A click on empty floor (not on any desk). */
   onBackground: () => void = () => {};
+  /** A click on the CEO's office or the company board. */
+  onCeo: () => void = () => {};
+  private org: OrgChart | null = null;
+  private usage: UsageSnapshot | null = null;
 
   constructor() {
     super('office');
@@ -438,7 +455,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Agents in the order the office shows them (top floor first, left to right). */
   agentOrder(): Selection[] {
     const unseen = new Set(this.attention.keys());
-    return arrangeOffice(this.snapshot?.desks ?? [], unseen).flatMap((z) =>
+    return arrange(this.snapshot?.desks ?? [], this.org, unseen).flatMap((z) =>
       z.rooms.flatMap((r) => r.desks.flatMap((d) => d.agents.map((a) => ({ deskId: d.id, agentId: a.id })))),
     );
   }
@@ -453,6 +470,17 @@ export class OfficeScene extends Phaser.Scene {
   setUsageLine(line: string | null): void {
     this.usageLine = line;
     this.updateTv();
+  }
+
+  setUsage(usage: UsageSnapshot): void {
+    this.usage = usage;
+    if (this.sys.isActive()) this.layout();
+  }
+
+  /** Departments changed: the office is rearranged by department (or back to status floors). */
+  setOrg(org: OrgChart): void {
+    this.org = org;
+    if (this.sys.isActive()) this.layout();
   }
 
   private updateTv(): void {
@@ -476,8 +504,9 @@ export class OfficeScene extends Phaser.Scene {
 
   /** agentId → 'done' | 'waiting' for agents with an unopened report. */
   setAttention(attention: Map<string, string>): void {
-    // Unopened reports keep their desk on the top floor, so a change can move desks.
-    const moved = [...attention.keys()].sort().join() !== [...this.attention.keys()].sort().join();
+    // Unopened reports keep their desk on the top floor, so a change can move desks
+    // (department seats are fixed and don't care).
+    const moved = !this.org?.departments.length && [...attention.keys()].sort().join() !== [...this.attention.keys()].sort().join();
     this.attention = attention;
     if (moved && this.sys.isActive()) this.layout();
     for (const [key, seat] of this.seats) seat.setAttention(this.attention.get(key.split('|')[1]) ?? null);
@@ -500,8 +529,9 @@ export class OfficeScene extends Phaser.Scene {
     this.podLayer.removeAll(true);
     const alive = new Set<string>();
 
-    // Floors by activity (working / waiting / idle); rooms per repo inside a floor, newest left.
-    const zones = arrangeOffice(desks, new Set(this.attention.keys()));
+    // Floors by department once the user has set some up, else by activity (working / waiting /
+    // idle); rooms per repo inside a floor.
+    const zones = arrange(desks, this.org, new Set(this.attention.keys()));
     const podH = LABEL_H + SEAT_H + POD_PAD * 2;
     // A lounge corner on the right when the office is wide enough; rooms flow beside it.
     const lounge = width >= 1100 ? { x: width - MARGIN - LOUNGE_W, y: FIRST_ROW_Y + 4, w: LOUNGE_W, h: LOUNGE_H } : null;
@@ -510,7 +540,16 @@ export class OfficeScene extends Phaser.Scene {
     let ry = FIRST_ROW_Y;
     let rowH = 0;
 
+    // The CEO's corner office comes first (top-left: never under the side panel), with the
+    // company board beside it when there's room.
+    this.drawCeo(MARGIN, ry);
+    const boardW = Math.min(BOARD_MAX_W, usable - MARGIN * 2 - CEO_W - ROOM_GAP);
+    if (boardW >= 240) this.drawBoard(MARGIN + CEO_W + ROOM_GAP, ry, boardW);
+    ry += CEO_H + ZONE_GAP + 6;
+
     for (const zone of zones) {
+      const dept = zone.theme !== undefined;
+      const zoneTop = ry;
       // Floor sign: a wooden plaque with the floor name, and a rail across the room.
       const title = this.add.text(MARGIN + 34, ry, `${zone.label} · ${zone.count}`, {
         ...PX14,
@@ -524,8 +563,30 @@ export class OfficeScene extends Phaser.Scene {
       plaque.lineStyle(2, 0x3d2b1f, 1).strokeRoundedRect(MARGIN, ry - 6, plaqueW, 26, 6);
       plaque.fillStyle(0xc9a25a, 1).fillCircle(MARGIN + 5, ry + 7, 2).fillCircle(MARGIN + plaqueW - 5, ry + 7, 2);
       const rule = this.add.graphics();
-      rule.lineStyle(3, 0x6b5038, 0.45).lineBetween(MARGIN + plaqueW + 10, ry + 7, usable - MARGIN, ry + 7);
+      let ruleX = MARGIN + plaqueW + 10;
+      let ruleEnd = usable - MARGIN;
       this.podLayer.add([rule, plaque, icon, title]);
+      if (dept && zone.tally) {
+        // Department status at a glance, next to the sign.
+        const { working, waiting, resting } = zone.tally;
+        const parts: [string, string][] = [
+          [`작업 ${working}`, '#9fd3ff'],
+          [`확인 ${waiting}`, waiting ? '#ffd166' : '#e8dcc4'],
+          [`휴식 ${resting}`, '#e8dcc4'],
+        ];
+        for (const [label, color] of parts) {
+          const t = this.add.text(ruleX + 4, ry, label, { ...PX11, color }).setShadow(1, 1, '#2b2118', 0, false, true);
+          this.podLayer.add(t);
+          ruleX += t.width + 14;
+        }
+        const prop = THEME[zone.theme!].prop;
+        if (prop) {
+          const img = this.add.image(usable - MARGIN - 8, ry + 24, prop).setOrigin(1, 1).setScale(3);
+          this.podLayer.add(img);
+          ruleEnd = img.x - img.displayWidth - 10;
+        }
+      }
+      if (ruleEnd > ruleX) rule.lineStyle(3, dept ? 0xfdf6e3 : 0x6b5038, dept ? 0.25 : 0.45).lineBetween(ruleX, ry + 7, ruleEnd, ry + 7);
       ry += ZONE_HEADER;
       let rx = MARGIN;
       rowH = 0;
@@ -559,6 +620,12 @@ export class OfficeScene extends Phaser.Scene {
         rx += roomW + ROOM_GAP;
         rowH = Math.max(rowH, roomH);
       }
+      if (dept && !zone.rooms.length) {
+        const hint = zone.key === 'dept:none' ? '' : '빈 부서 · 사장실에서 프로젝트를 배치하세요';
+        this.podLayer.add(this.add.text(MARGIN + 8, ry + 4, hint, { ...PX11, color: '#fdf6e3' }).setShadow(1, 1, '#2b2118', 0, false, true));
+        rowH = 24;
+      }
+      if (dept) this.drawCarpet(zone.theme!, zoneTop, ry + rowH, usable);
       ry += rowH + ZONE_GAP;
     }
     ry -= ZONE_GAP;
@@ -577,7 +644,7 @@ export class OfficeScene extends Phaser.Scene {
 
     if (!desks.length) {
       this.podLayer.add(
-        this.add.text(MARGIN, FIRST_ROW_Y, 'Orca 워크트리를 기다리는 중…', { ...PX14, color: '#2b2118' }),
+        this.add.text(MARGIN, ry + ZONE_GAP, 'Orca 워크트리를 기다리는 중…', { ...PX14, color: '#2b2118' }),
       );
     }
 
@@ -591,6 +658,106 @@ export class OfficeScene extends Phaser.Scene {
     this.roomHeight = roomH;
     this.cameras.main.setScroll(0, this.cameras.main.scrollY);
     this.scrollTo(this.cameras.main.scrollY);
+  }
+
+  /** A department's floor: a carpet in its theme colour under the sign and its rooms. */
+  private drawCarpet(theme: NonNullable<Zone['theme']>, top: number, bottom: number, usable: number): void {
+    const { carpet, edge } = THEME[theme];
+    const x = MARGIN - 14;
+    const y = top - 16;
+    const w = usable - MARGIN * 2 + 28;
+    const h = bottom - y + 14;
+    const g = this.add.graphics();
+    g.fillStyle(0x2b1d14, 0.25).fillRoundedRect(x + 4, y + 5, w, h, 16);
+    g.fillStyle(edge, 1).fillRoundedRect(x, y, w, h, 16);
+    g.fillStyle(carpet, 1).fillRoundedRect(x + 5, y + 5, w - 10, h - 10, 12);
+    // A woven dot pattern so it reads as carpet, not a flat box.
+    g.fillStyle(0xffffff, 0.06);
+    for (let yy = y + 14; yy < y + h - 10; yy += 12) {
+      for (let xx = x + 14 + ((yy / 12) % 2) * 6; xx < x + w - 10; xx += 12) g.fillRect(xx, yy, 2, 2);
+    }
+    this.podLayer.addAt(g, 0);
+  }
+
+  /** The CEO's corner office: wood floor, red carpet, a big desk, the boss and a trophy. Click it to manage the company. */
+  private drawCeo(x: number, y: number): void {
+    const w = CEO_W;
+    const h = CEO_H;
+    const g = this.add.graphics();
+    g.fillStyle(0x2b1d14, 0.3).fillRoundedRect(x + 4, y + 5, w, h, 12);
+    g.fillStyle(0x6b4429, 1).fillRoundedRect(x, y, w, h, 12);
+    g.lineStyle(1, 0x55331d, 0.9);
+    for (let yy = y + 12; yy < y + h - 4; yy += 12) g.lineBetween(x + 6, yy, x + w - 6, yy);
+    g.fillStyle(0x8c3b2b, 1).fillRoundedRect(x + w / 2 - 74, y + 34, 148, h - 44, 8);
+    g.lineStyle(3, 0xd9a441, 1).strokeRoundedRect(x + w / 2 - 68, y + 40, 136, h - 56, 6);
+    g.lineStyle(4, 0x3d2b1f, 1).strokeRoundedRect(x, y, w, h, 12);
+    const crown = this.add.image(x + 22, y + 19, pixelIconKey('crown')).setScale(2);
+    const sign = this.add.text(x + 38, y + 11, '사장실', { ...PX14, color: '#ffe39a' }).setShadow(1, 1, '#2b1d14', 0, false, true);
+    const shelf = this.add.image(x + w - 10, y + 8, 'bookshelf').setOrigin(1, 0).setScale(2);
+    const trophy = this.add.image(x + 30, y + 70, pixelIconKey('trophy')).setScale(3);
+    const plant = this.add.image(x + 24, y + h - 6, 'indoor', frameIndex('indoor', FRAMES.plants[1])).setOrigin(0.5, 1).setScale(SCALE);
+    const chair = this.add.image(x + w / 2, y + 46, 'indoor', frameIndex('indoor', FRAMES.chair)).setOrigin(0.5, 0).setScale(SCALE);
+    const boss = this.add.image(x + w / 2, y + 34, characterTexture(this, 'boss', 0x5eed)).setOrigin(0.5, 0).setScale(SCALE);
+    const desk = this.add.image(x + w / 2 - 1.5 * PX, y + 80, deskTexture(this)).setOrigin(0).setScale(SCALE);
+    const mug = this.add.image(x + w / 2 + 40, y + 96, 'mug').setOrigin(0.5, 1).setScale(SCALE);
+    const caption = this.add
+      .text(x + w / 2, y + h - 10, '클릭: 회사 현황 · 조직도', { ...PX11, color: '#fdf6e3' })
+      .setOrigin(0.5, 1)
+      .setShadow(1, 1, '#2b1d14', 0, false, true);
+    const glow = this.add.rectangle(x, y, w, h, 0xffd166, 0.18).setOrigin(0).setVisible(false);
+    this.podLayer.add([g, crown, sign, shelf, trophy, plant, chair, boss, desk, mug, caption, glow, this.hotspot(x, y, w, h, glow)]);
+  }
+
+  /** A clickable area that opens the CEO's office. */
+  private hotspot(x: number, y: number, w: number, h: number, glow: Phaser.GameObjects.Rectangle): Phaser.GameObjects.Zone {
+    const onCanvas = (p: Phaser.Input.Pointer) => (p.event?.target ?? null) === this.game.canvas;
+    const hit = this.add.zone(x, y, w, h).setOrigin(0).setInteractive({ useHandCursor: true });
+    hit.on('pointerdown', (p: Phaser.Input.Pointer) => onCanvas(p) && this.onCeo());
+    hit.on('pointerover', (p: Phaser.Input.Pointer) => glow.setVisible(onCanvas(p)));
+    hit.on('pointerout', () => glow.setVisible(false));
+    return hit;
+  }
+
+  /** The company board: headcount, today's work and plan usage as the budget. */
+  private drawBoard(x: number, y: number, w: number): void {
+    const h = CEO_H;
+    const g = this.add.graphics();
+    g.fillStyle(0x2b1d14, 0.3).fillRoundedRect(x + 4, y + 5, w, h, 10);
+    g.fillStyle(0x3a3f4b, 1).fillRoundedRect(x, y, w, h, 10);
+    g.fillStyle(0x12161d, 1).fillRoundedRect(x + 6, y + 6, w - 12, h - 12, 6);
+    const agents = this.snapshot?.desks.flatMap((d) => d.agents) ?? [];
+    const busy = agents.filter((a) => ['typing', 'reading', 'running'].includes(a.state)).length;
+    const waiting = agents.filter((a) => a.state === 'waiting').length;
+    const today = agents.reduce((n, a) => n + (a.stats?.instructionsToday ?? 0), 0);
+    const subs = agents.reduce((n, a) => n + a.subagentsRunning, 0);
+    const led = { ...PX11, color: '#7cf0a0' };
+    const objs: Phaser.GameObjects.GameObject[] = [g];
+    objs.push(this.add.text(x + 16, y + 14, '회사 현황판', { ...PX14, color: '#7cf0a0' }));
+    objs.push(this.add.text(x + 16, y + 36, `직원 ${agents.length}명 · 일하는 중 ${busy} · 결재 대기 ${waiting}`, waiting ? { ...led, color: '#ffd166' } : led));
+    objs.push(this.add.text(x + 16, y + 52, `오늘 지시 ${today}건 · 외주(서브에이전트) ${subs}명`, led));
+    const noOrg = !this.org?.departments.length;
+    const windows = (this.usage?.providers ?? []).flatMap((p) => p.windows).slice(0, noOrg ? 2 : 3);
+    let by = y + 76;
+    if (windows.length) {
+      const barX = x + 96;
+      const barW = Math.max(60, w - 96 - 70);
+      objs.push(this.add.text(x + 16, by - 2, '예산', { ...led, color: '#9aa3b2' }));
+      by += 14;
+      for (const win of windows) {
+        const pct = Math.max(0, Math.min(100, win.usedPercent));
+        const color = pct >= 85 ? 0xe5484d : pct >= 60 ? 0xe0a800 : 0x6fd08c;
+        objs.push(this.add.text(x + 16, by, win.label, { ...led, color: '#c9d1dc' }));
+        g.fillStyle(0x2a3040, 1).fillRect(barX, by + 2, barW, 9);
+        g.fillStyle(color, 1).fillRect(barX, by + 2, Math.round((barW * pct) / 100), 9);
+        objs.push(this.add.text(barX + barW + 8, by, `${pct}%`, { ...led, color: '#c9d1dc' }));
+        by += 16;
+      }
+    }
+    if (noOrg) {
+      objs.push(this.add.text(x + 16, y + h - 26, '▶ 사장실을 눌러 부서를 만들어 보세요', { ...led, color: '#ffd166' }));
+    }
+    const glow = this.add.rectangle(x, y, w, h, 0x7cf0a0, 0.08).setOrigin(0).setVisible(false);
+    this.podLayer.add([...objs, glow, this.hotspot(x, y, w, h, glow)]);
   }
 
   private plateWidths = new Map<string, number>();
