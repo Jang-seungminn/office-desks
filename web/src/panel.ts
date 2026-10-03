@@ -359,6 +359,28 @@ export class Panel {
 
   /** Re-render the header only, so the conversation scroll and a half-typed command survive live updates. */
   private lastSnapshot: OfficeSnapshot | null = null;
+  /** Text to find and highlight once the conversation has loaded (from search). */
+  private pendingHighlight: string | null = null;
+
+  /** Scroll to and flash the last chat message containing `text` (case-insensitive). */
+  highlight(text: string): void {
+    this.pendingHighlight = text.toLowerCase();
+    this.showTab('convo');
+    this.tryHighlight();
+  }
+
+  private tryHighlight(): void {
+    const want = this.pendingHighlight;
+    if (!want) return;
+    const msgs = [...this.convo.querySelectorAll<HTMLElement>('.msg')];
+    const hit = msgs.reverse().find((m) => m.textContent?.toLowerCase().includes(want));
+    if (!hit) return;
+    this.pendingHighlight = null;
+    hit.scrollIntoView({ block: 'center' });
+    hit.classList.add('hit');
+    window.setTimeout(() => hit.classList.remove('hit'), 2500);
+  }
+
   /** Opens the "add an agent to this worktree" dialog. */
   onHire: (deskId: string) => void = () => {};
   /** While the comment is being edited, header refreshes must not wipe the input. */
@@ -805,6 +827,7 @@ export class Panel {
     el.querySelector('.empty')?.remove();
     this.appendMessages(data.messages, agentId, this.convoCount);
     this.renderPending(data.pending ?? [], true);
+    this.tryHighlight();
     if (!atBottom && this.convoCount > 0) this.unseen += data.messages.filter((m) => m.role === 'user' || m.role === 'assistant').length;
     this.convoCount = data.after + data.messages.length;
     if (atBottom) el.scrollTop = el.scrollHeight;

@@ -258,3 +258,19 @@ export interface HireRequest {
   agent: string;
   prompt?: string;
 }
+
+export interface SearchResult {
+  title: string;
+  agent: string;
+  /** Project folder name of the session's cwd. */
+  project: string;
+  updatedAt: string | null;
+  /** Matched text with [[highlights]], as Orca returns it. */
+  snippet: string;
+  role: string | null;
+  /** Set when the hit is the current session of an agent in the office (click opens it). */
+  deskId: string | null;
+  agentId: string | null;
+  /** For other sessions: the command that resumes them. */
+  resumeCommand: string | null;
+}

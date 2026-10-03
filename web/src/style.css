@@ -1205,3 +1205,104 @@ details.tools ol {
   color: #2f7a32;
   cursor: pointer;
 }
+
+#status-bar button.search {
+  font: inherit;
+  font-weight: 700;
+  color: var(--paper);
+  background: none;
+  border: 1px solid #a8957c;
+  border-radius: 999px;
+  padding: 1px 10px;
+  cursor: pointer;
+}
+#modal .dialog.search {
+  width: min(680px, calc(100% - 32px));
+  max-height: 80vh;
+}
+#modal .search-row {
+  display: flex;
+  gap: 8px;
+}
+#modal .search-row input {
+  flex: 1;
+}
+#modal .search-row button {
+  font: inherit;
+  font-weight: 700;
+  padding: 6px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+#modal .results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#modal .results li {
+  padding: 8px 10px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+}
+#modal .results li.live {
+  cursor: pointer;
+  border-color: #2f7a32;
+}
+#modal .results li.live:hover {
+  background: #f1faf1;
+}
+#modal .r-title {
+  margin: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#modal .r-snip mark {
+  background: #ffd166;
+  padding: 0 2px;
+}
+#modal .tag {
+  float: right;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #eee4d2;
+}
+#modal .tag.live {
+  background: #2f7a32;
+  color: #fff;
+}
+#modal .r-resume {
+  margin-top: 4px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+#modal .r-resume code {
+  flex: 1;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#modal .r-resume button {
+  font: inherit;
+  font-size: 11px;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.msg.hit {
+  outline: 3px solid #ffd166;
+  outline-offset: 2px;
+}

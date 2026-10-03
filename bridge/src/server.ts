@@ -11,7 +11,7 @@ import { planHire } from './hire.js';
 import { charBytes, keyBytes } from './keys.js';
 import { answerQuestions, validateChoices } from './answer.js';
 import { composerState, screenSupport } from './screen.js';
-import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, WorktreeUpdate, HireRequest, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot, FileDiffResponse } from './model.js';
+import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, WorktreeUpdate, HireRequest, SearchResult, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot, FileDiffResponse } from './model.js';
 import { createOrcaRunner, OrcaCliError, resolveOrcaCommand } from './orcaCli.js';
 import { OfficePoller } from './poller.js';
 import { isAllowedRequest, setSecurityHeaders } from './security.js';
@@ -258,6 +258,39 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     const file = summary.files.find((f) => f.path === url.searchParams.get('file'));
     if (!file) return json(res, 404, { error: 'not a changed file' });
     return json(res, 200, { file, ...(await fileDiff(desk.path, file)) } satisfies FileDiffResponse);
+  }
+  if (req.method === 'GET' && pathname === '/api/search') {
+    const q = (url.searchParams.get('q') ?? '').trim();
+    if (!q || q.length > 200) return json(res, 400, { error: '검색어를 1~200자로 입력해 주세요' });
+    if (DEMO) return json(res, 200, { results: [] });
+    const r = (await orca(['search', `--query=${q}`, '--scope=conversation', '--limit=30'])) as {
+      hits?: { agent?: string; title?: string; cwd?: string; updatedAt?: string; evidence?: { snippet?: string; role?: string }; source?: { filePath?: string }; resumeCommand?: string }[];
+    };
+    const results: SearchResult[] = (r?.hits ?? []).map((h) => {
+      // Is this the session an agent in the office is running right now?
+      let deskId: string | null = null;
+      let agentId: string | null = null;
+      for (const d of poller.current.desks) {
+        const a = d.agents.find((x) => h.source?.filePath && sessions.cached(x.id) === h.source.filePath);
+        if (a) {
+          deskId = d.id;
+          agentId = a.id;
+          break;
+        }
+      }
+      return {
+        title: String(h.title ?? ''),
+        agent: String(h.agent ?? ''),
+        project: path.basename(h.cwd ?? ''),
+        updatedAt: h.updatedAt ?? null,
+        snippet: String(h.evidence?.snippet ?? ''),
+        role: h.evidence?.role ?? null,
+        deskId,
+        agentId,
+        resumeCommand: agentId ? null : (h.resumeCommand ?? null),
+      };
+    });
+    return json(res, 200, { results });
   }
   if (req.method === 'GET' && pathname === '/api/commands') {
     const found = findAgent(url.searchParams.get('agentId'));
