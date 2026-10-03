@@ -1379,3 +1379,45 @@ body.night .question-card[data-status='answered'] {
 body.night .slash-menu .item.active {
   background: #3a3040;
 }
+
+#help {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 16, 12, 0.55);
+}
+#help[hidden] {
+  display: none;
+}
+#help .dialog {
+  padding: 18px 22px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 6px 6px 0 rgba(43, 33, 24, 0.35);
+}
+#help h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+#help td {
+  padding: 4px 12px 4px 0;
+  font-size: 13px;
+}
+#help kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--ink);
+  border-bottom-width: 3px;
+  border-radius: 4px;
+  font: 12px ui-monospace, Menlo, Consolas, monospace;
+  background: #fff;
+}
+#help .muted {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}

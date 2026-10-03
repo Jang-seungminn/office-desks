@@ -64,10 +64,10 @@ const panel = new Panel(document.getElementById('panel')!, () => {
   openSelection = null;
 });
 
-function select(sel: Selection): void {
+function select(sel: Selection, focusInput = true): void {
   openSelection = sel;
   scene.setSelection(sel);
-  panel.open(sel, snapshot);
+  panel.open(sel, snapshot, focusInput);
   tooltip.hidden = true;
   if (sel.agentId) {
     notices.markSeen(sel.agentId);
@@ -174,6 +174,10 @@ let waitingCursor = 0;
 let reportCursor = 0;
 statusLeft.addEventListener('click', (e) => {
   const t = e.target as HTMLElement;
+  if (t.closest('[data-help]')) {
+    helpEl.hidden = false;
+    return;
+  }
   if (t.closest('[data-search]')) {
     searchBox.open();
     return;
@@ -214,6 +218,7 @@ function renderStatus(): void {
     <span>${conn}</span>
     <button class="hire" data-hire title="새 워크트리를 만들고 에이전트를 띄웁니다">➕ 새 작업</button>
     <button class="search" data-search title="모든 에이전트 대화 검색 (단축키 Ctrl/⌘+K)">🔍 검색</button>
+    <button class="search" data-help title="단축키 보기 (?)">⌨ ?</button>
     <span>🏢 워크트리 ${snapshot?.desks.length ?? 0}</span>
     <span>⌨️ 일하는 중 ${busy}</span>
     ${attention.length ? `<button class="report" data-reports title="완료하거나 확인을 요청한 에이전트로 이동">📬 새 보고 ${attention.length}</button>` : ''}
@@ -246,10 +251,45 @@ scene.onBackground = () => {
   openSelection = null;
 };
 
+const helpEl = document.getElementById('help')!;
+helpEl.addEventListener('click', () => (helpEl.hidden = true));
+
 document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
     searchBox.open();
+    return;
+  }
+  // Single-key shortcuts only when not typing somewhere and no dialog is open.
+  const typing = (e.target as HTMLElement).closest('input, textarea, select, [contenteditable], .screen');
+  const dialogOpen = !document.getElementById('modal')!.hidden;
+  if (!typing && !dialogOpen && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const order = scene.agentOrder();
+    const step = (dir: number) => {
+      if (!order.length) return;
+      const i = order.findIndex((o) => o.agentId === openSelection?.agentId);
+      select(order[(i + dir + order.length) % order.length], false);
+    };
+    const keys: Record<string, () => void> = {
+      j: () => step(1),
+      k: () => step(-1),
+      '/': () => document.querySelector<HTMLTextAreaElement>('#panel textarea')?.focus(),
+      n: () => hire.open({}),
+      '=': () => scene.setZoom(scene.zoomLevel * 1.1),
+      '+': () => scene.setZoom(scene.zoomLevel * 1.1),
+      '-': () => scene.setZoom(scene.zoomLevel / 1.1),
+      '0': () => scene.setZoom(1),
+      '?': () => (helpEl.hidden = !helpEl.hidden),
+    };
+    const run = keys[e.key];
+    if (run) {
+      e.preventDefault();
+      run();
+      return;
+    }
+  }
+  if (e.key === 'Escape' && !helpEl.hidden) {
+    helpEl.hidden = true;
     return;
   }
   if (e.key === 'Escape' && !lightbox.hidden) {

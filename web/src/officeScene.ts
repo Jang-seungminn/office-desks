@@ -370,9 +370,23 @@ export class OfficeScene extends Phaser.Scene {
     ];
     this.podLayer = this.add.container(0, 0);
 
-    this.input.on('wheel', (_p: unknown, _o: unknown, _dx: number, dy: number) => {
-      this.cameras.main.scrollY += dy;
+    this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
+      const ev = p.event as WheelEvent | undefined;
+      if (ev?.ctrlKey || ev?.metaKey) return; // handled as zoom below
+      this.scrollTo(this.cameras.main.scrollY + dy / this.zoom);
     });
+    // Ctrl/⌘ + wheel zooms the office (and must not zoom the whole page).
+    this.game.canvas.addEventListener(
+      'wheel',
+      (e) => {
+        if (!e.ctrlKey && !e.metaKey) return;
+        e.preventDefault();
+        this.setZoom(this.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+      },
+      { passive: false },
+    );
+    this.cameras.main.setOrigin(0, 0);
+    this.cameras.main.setZoom(this.zoom);
     this.scale.on('resize', () => this.layout());
     this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
       if (!over.length && (p.event?.target ?? null) === this.game.canvas) this.onBackground();
@@ -388,6 +402,47 @@ export class OfficeScene extends Phaser.Scene {
   private usageLine: string | null = null;
 
   /** Plan usage line for the wall TV, e.g. "5시간 22% · 주간 24%". */
+  private zoom = (() => {
+    try {
+      return Number(window.localStorage.getItem('office-desks:zoom')) || 1;
+    } catch {
+      return 1;
+    }
+  })();
+
+  private roomHeight = 0;
+
+  private scrollTo(y: number): void {
+    const max = Math.max(0, this.roomHeight - this.scale.height / this.zoom);
+    this.cameras.main.setScroll(0, Math.max(0, Math.min(y, max)));
+  }
+
+  /** Zoom the office between 60% and 160% (remembered per browser). */
+  setZoom(z: number): void {
+    const next = Math.round(Math.max(0.6, Math.min(1.6, z)) * 100) / 100;
+    if (next === this.zoom) return;
+    this.zoom = next;
+    this.cameras.main.setZoom(next);
+    try {
+      window.localStorage.setItem('office-desks:zoom', String(next));
+    } catch {
+      /* fine */
+    }
+    this.layout();
+  }
+
+  get zoomLevel(): number {
+    return this.zoom;
+  }
+
+  /** Agents in the order the office shows them (top floor first, left to right). */
+  agentOrder(): Selection[] {
+    const unseen = new Set(this.attention.keys());
+    return arrangeOffice(this.snapshot?.desks ?? [], unseen).flatMap((z) =>
+      z.rooms.flatMap((r) => r.desks.flatMap((d) => d.agents.map((a) => ({ deskId: d.id, agentId: a.id })))),
+    );
+  }
+
   /** The chat panel was resized: keep the wall clock and TV out from under it. */
   setPanelCover(px: number): void {
     if (!this.interior || this.interior.panelCover === px) return;
@@ -439,7 +494,8 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private layout(): void {
-    const width = this.scale.width;
+    // With zoom, the office is laid out for the width the camera actually shows.
+    const width = Math.round(this.scale.width / this.zoom);
     const desks: OfficeDesk[] = this.snapshot?.desks ?? [];
     this.podLayer.removeAll(true);
     const alive = new Set<string>();
@@ -525,13 +581,16 @@ export class OfficeScene extends Phaser.Scene {
       );
     }
 
-    const roomH = Math.max(this.scale.height, ry + rowH + MARGIN * 2, FIRST_ROW_Y + LOUNGE_H + MARGIN * 2);
+    const roomH = Math.max(this.scale.height / this.zoom, ry + rowH + MARGIN * 2, FIRST_ROW_Y + LOUNGE_H + MARGIN * 2);
     this.floor.setSize(width, roomH);
     this.wall.setSize(width, WALL_H);
     this.decor[1].setX(width - MARGIN - PX);
     this.decor[2].setX(width - MARGIN - 20);
     this.interior.layout(width, roomH - WALL_H, WALL_H, lounge);
-    this.cameras.main.setBounds(0, 0, width, roomH);
+    // Bounds are kept by hand: Phaser's camera bounds assume a centred zoom origin.
+    this.roomHeight = roomH;
+    this.cameras.main.setScroll(0, this.cameras.main.scrollY);
+    this.scrollTo(this.cameras.main.scrollY);
   }
 
   private plateWidths = new Map<string, number>();

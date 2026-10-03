@@ -318,7 +318,8 @@ export class Panel {
     return !this.el.hidden;
   }
 
-  open(sel: Selection, snapshot: OfficeSnapshot | null): void {
+  /** `focusInput` is off when moving between agents with j/k, so the next key isn't typed into the box. */
+  open(sel: Selection, snapshot: OfficeSnapshot | null, focusInput = true): void {
     const changed = sel.deskId !== this.selection?.deskId || sel.agentId !== this.selection?.agentId;
     this.selection = sel;
     if (changed) {
@@ -343,12 +344,13 @@ export class Panel {
     this.el.hidden = false;
     this.refresh(snapshot);
     this.startConversation();
+    if (!focusInput && this.el.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
     if (changed || this.termTimer === null) {
       this.menuMode = false;
       this.menuBanner.hidden = true;
       this.startTerminal();
     }
-    this.textarea.focus();
+    if (focusInput) this.textarea.focus();
   }
 
   close(): void {
