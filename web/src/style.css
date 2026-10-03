@@ -1059,3 +1059,39 @@ details.tools ol {
 .question-card .to-term[hidden] {
   display: none;
 }
+
+#panel .board-status {
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  cursor: pointer;
+}
+#panel .comment {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+#panel .comment-text {
+  flex: 1;
+  min-width: 0;
+}
+#panel .comment-input {
+  flex: 1;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+}
+#panel button.link {
+  font: inherit;
+  font-size: 11px;
+  border: none;
+  background: none;
+  color: #b34d2b;
+  cursor: pointer;
+  padding: 0 2px;
+}

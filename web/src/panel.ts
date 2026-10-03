@@ -214,7 +214,15 @@ export class Panel {
     });
 
     this.info.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('[data-stop]')) void this.stopAgent();
+      const t = e.target as HTMLElement;
+      if (t.closest('[data-stop]')) void this.stopAgent();
+      if (t.closest('[data-edit-comment]')) this.editComment();
+      if (t.closest('[data-save-comment]')) void this.saveComment();
+      if (t.closest('[data-cancel-comment]')) this.cancelComment();
+    });
+    this.info.addEventListener('change', (e) => {
+      const sel = (e.target as HTMLElement).closest<HTMLSelectElement>('[data-board-status]');
+      if (sel) void this.updateWorktree({ workspaceStatus: sel.value });
     });
     this.tabs.addEventListener('click', (e) => {
       const t = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]')?.dataset.tab;
@@ -316,6 +324,7 @@ export class Panel {
       this.renderAttachments();
       this.feedback.textContent = '';
       this.subView = null;
+      this.editingComment = false;
       this.openFile = null;
       this.changesEl.querySelector<HTMLElement>('.diff-view')!.hidden = true;
       this.subagents = [];
@@ -349,10 +358,62 @@ export class Panel {
 
   /** Re-render the header only, so the conversation scroll and a half-typed command survive live updates. */
   private lastSnapshot: OfficeSnapshot | null = null;
+  /** While the comment is being edited, header refreshes must not wipe the input. */
+  private editingComment = false;
+
+  /** Orca board column as a dropdown (default columns plus whatever is set now). */
+  private statusSelect(current: string | null): string {
+    const labels: Record<string, string> = { todo: '할 일', 'in-progress': '진행 중', 'in-review': '리뷰 중', completed: '완료' };
+    const ids = [...new Set([...Object.keys(labels), ...(current ? [current] : [])])];
+    return `<select class="board-status" data-board-status title="Orca 보드 상태">${ids
+      .map((id) => `<option value="${esc(id)}"${id === current ? ' selected' : ''}>📋 ${esc(labels[id] ?? id)}</option>`)
+      .join('')}</select>`;
+  }
+
+  private async updateWorktree(update: { workspaceStatus?: string; comment?: string }): Promise<void> {
+    if (!this.desk) return;
+    try {
+      await postJson('/api/worktree', { deskId: this.desk.id, ...update });
+      this.feedback.textContent = '✅ Orca에 저장했습니다';
+    } catch (err) {
+      this.feedback.textContent = `⚠️ ${(err as Error).message}`;
+    }
+  }
+
+  private editComment(): void {
+    const row = this.info.querySelector<HTMLElement>('[data-comment-row]');
+    if (!row || !this.desk) return;
+    this.editingComment = true;
+    row.innerHTML = `💬 <input class="comment-input" maxlength="200" placeholder="워크트리 코멘트 (Orca 카드에 표시)" />
+      <button type="button" class="link" data-save-comment>저장</button><button type="button" class="link" data-cancel-comment>취소</button>`;
+    const input = row.querySelector<HTMLInputElement>('input')!;
+    input.value = this.desk.comment;
+    input.focus();
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) void this.saveComment();
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        this.cancelComment();
+      }
+    });
+  }
+
+  private async saveComment(): Promise<void> {
+    const input = this.info.querySelector<HTMLInputElement>('.comment-input');
+    if (!input) return;
+    this.editingComment = false;
+    await this.updateWorktree({ comment: input.value });
+    this.refresh(this.lastSnapshot);
+  }
+
+  private cancelComment(): void {
+    this.editingComment = false;
+    this.refresh(this.lastSnapshot);
+  }
 
   refresh(snapshot: OfficeSnapshot | null): void {
     this.lastSnapshot = snapshot;
-    if (!this.selection) return;
+    if (!this.selection || this.editingComment) return;
     this.desk = snapshot?.desks.find((d) => d.id === this.selection!.deskId) ?? null;
     this.agent = this.desk?.agents.find((a) => a.id === this.selection!.agentId) ?? null;
     const d = this.desk;
@@ -365,10 +426,11 @@ export class Panel {
         <p class="muted">${d.branch ? `<code>${esc(d.branch)}</code> · ` : ''}<span class="path">${esc(d.path)}</span></p>
         <p>
           ${a ? `<span class="pill">${esc(a.agentType)}</span>${modelLine(a.model, a.effort) ? ` <span class="pill model">${esc(modelLine(a.model, a.effort)!)}</span>` : ''} <span class="state state-${a.state}">${STATE_LABEL[a.state] ?? a.state}</span> <span class="muted">${esc(ago(a.since))}</span>` : '<span class="pill">빈 자리</span>'}
-          ${d.workspaceStatus ? ` <span class="pill">${esc(d.workspaceStatus)}</span>` : ''}
+          ${this.statusSelect(d.workspaceStatus)}
         </p>
         ${a ? `<div class="activity-row"><p class="activity">${esc(a.activity)}</p>${this.stopButton(a)}</div>` : ''}
-        ${d.comment ? `<p class="comment">💬 ${esc(d.comment)}</p>` : ''}
+        <p class="comment" data-comment-row>💬 <span class="comment-text">${d.comment ? esc(d.comment) : '<span class="muted">코멘트 없음</span>'}</span>
+          <button type="button" class="link" data-edit-comment>편집</button></p>
         ${d.pr ? `<p class="pr">🔀 ${d.pr.url ? `<a href="${esc(d.pr.url)}" target="_blank" rel="noopener noreferrer">PR${d.pr.number ? ` #${d.pr.number}` : ''}</a>` : `PR${d.pr.number ? ` #${d.pr.number}` : ''}`}${d.pr.title ? ` · ${esc(d.pr.title)}` : ''}${d.pr.state ? ` <span class="pill">${esc(d.pr.state)}</span>` : ''}</p>` : ''}`;
     }
     const files = d?.changes?.files ?? 0;

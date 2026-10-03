@@ -139,7 +139,7 @@ export function toSnapshot(
         path: w.path ?? '',
         status: w.status ?? 'unknown',
         workspaceStatus: w.workspaceStatus ?? null,
-        comment: w.comment ?? '',
+        comment: (w.comment ?? '').trim(), // a lone space is how a comment gets cleared (see /api/worktree)
         preview: oneLine(w.preview, 120),
         isActive: Boolean(w.isActive),
         unread: Boolean(w.unread),

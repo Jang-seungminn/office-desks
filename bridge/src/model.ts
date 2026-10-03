@@ -238,3 +238,11 @@ export interface FileDiffResponse {
   diff: string;
   truncated: boolean;
 }
+
+/** Edit Orca's board status and/or comment for a worktree. */
+export interface WorktreeUpdate {
+  deskId: string;
+  workspaceStatus?: string;
+  /** Empty string clears the comment. */
+  comment?: string;
+}

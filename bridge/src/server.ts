@@ -10,7 +10,7 @@ import { changeSummary, fileDiff } from './gitInfo.js';
 import { charBytes, keyBytes } from './keys.js';
 import { answerQuestions, validateChoices } from './answer.js';
 import { composerState, screenSupport } from './screen.js';
-import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot, FileDiffResponse } from './model.js';
+import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, WorktreeUpdate, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot, FileDiffResponse } from './model.js';
 import { createOrcaRunner, OrcaCliError, resolveOrcaCommand } from './orcaCli.js';
 import { OfficePoller } from './poller.js';
 import { isAllowedRequest, setSecurityHeaders } from './security.js';
@@ -358,6 +358,27 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       await orca(['terminal', 'send', '--terminal', body.terminalHandle, `--text=${keyBytes(key)}`]);
       await new Promise((r) => setTimeout(r, 300));
     }
+    void poller.refresh();
+    return json(res, 200, { ok: true });
+  }
+
+  if (pathname === '/api/worktree') {
+    const body = await readJson<WorktreeUpdate>(req);
+    const desk = poller.current.desks.find((d) => d.id === body.deskId);
+    if (!desk || DEMO) return json(res, 404, { error: 'unknown worktree' });
+    const args = ['worktree', 'set', `--worktree=id:${desk.id}`];
+    if (body.workspaceStatus !== undefined) {
+      if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(body.workspaceStatus)) return json(res, 400, { error: 'invalid status' });
+      args.push(`--workspace-status=${body.workspaceStatus}`);
+    }
+    if (body.comment !== undefined) {
+      const c = String(body.comment).replace(/\s+/g, ' ').trim();
+      if (c.length > 200) return json(res, 400, { error: '코멘트는 200자까지 쓸 수 있어요' });
+      // Orca can't clear a comment; a single space is the closest (shown as empty everywhere).
+      args.push(`--comment=${c || ' '}`);
+    }
+    if (args.length === 3) return json(res, 400, { error: 'nothing to change' });
+    await orca(args);
     void poller.refresh();
     return json(res, 200, { ok: true });
   }
