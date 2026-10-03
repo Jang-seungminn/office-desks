@@ -387,6 +387,8 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 }
 
 wss.on('connection', (ws) => {
+  poller.setIdle(false);
+  ws.on('close', () => poller.setIdle(wss.clients.size === 0));
   send(ws, { type: 'snapshot', snapshot: poller.current });
   if (usage) send(ws, { type: 'usage', usage });
 });
@@ -410,6 +412,7 @@ poller.onChange((snapshot) => {
   for (const ws of wss.clients) if (ws.readyState === ws.OPEN) send(ws, { type: 'snapshot', snapshot });
 });
 
+poller.setIdle(true); // until a browser connects
 poller.start();
 void cleanOldUploads();
 server.listen(PORT, HOST, () => {
