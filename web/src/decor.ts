@@ -7,7 +7,7 @@ import { coffeeTableTexture, FRAMES, frameIndex, mapPosterTexture, PX, SCALE, so
 // PC's clock: dawn, day, sunset, night with stars), pictures on the wall and machines along it.
 
 const WALL_ROW = PX; // the window row starts one tile down
-/** Width the chat panel covers on the right when open. */
+/** Default width the chat panel covers on the right when open (the panel can be resized). */
 const PANEL_COVER = 630;
 const PERIOD = 4 * PX; // wall strip pattern: brick pillar + three window tiles
 
@@ -222,6 +222,8 @@ export class OfficeDecor {
   private lastMinute = -1;
   private lastSecond = -1;
   private clockX = 0;
+  /** Current width the chat panel covers (it's resizable). */
+  panelCover = PANEL_COVER;
 
   constructor(private readonly scene: Phaser.Scene) {
     const s = scene;
@@ -259,7 +261,7 @@ export class OfficeDecor {
     this.width = width;
     this.lounge.layout(lounge);
     // Keep the clock and TV left of where the chat panel opens (≈600px on the right).
-    const visible = Math.max(width - PANEL_COVER, 560);
+    const visible = Math.max(width - this.panelCover, 560);
     this.clockX = Math.round(Math.max(230, Math.min(visible / 2 - 60, width / 2)));
     this.tvX = this.clockX + 190;
     this.tv.layout(this.tvX);

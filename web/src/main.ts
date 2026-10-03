@@ -7,6 +7,7 @@ import { modelLine } from './format';
 import { loadPixelFonts } from './fonts';
 import { HireDialog } from './hireDialog';
 import { SearchDialog } from './searchDialog';
+import { skyAt } from './decor';
 import { Notices, type Attention } from './notices';
 import type { UsageSnapshot } from '../../bridge/src/model';
 import './style.css';
@@ -116,6 +117,16 @@ scene.onSelect = (sel) => {
   openSelection = sel;
   select(sel);
 };
+
+panel.onResize = (w) => scene.setPanelCover(w + 30);
+// A width restored from a previous visit was applied before this hook existed.
+const savedPanel = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--panel-w'), 10);
+if (savedPanel) scene.setPanelCover(savedPanel + 30);
+
+// Night theme for the panel follows the office windows (PC clock).
+const applyNight = () => document.body.classList.toggle('night', skyAt(new Date()).stars);
+applyNight();
+setInterval(applyNight, 60_000);
 
 const hire = new HireDialog(document.getElementById('modal')!, () => snapshot);
 panel.onHire = (deskId) => hire.open({ deskId });

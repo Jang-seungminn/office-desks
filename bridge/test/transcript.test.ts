@@ -113,4 +113,9 @@ describe('queued messages', () => {
     );
     expect(st.queue!.map((x) => x.text)).toEqual(['second']);
   });
+
+  it('treats an empty dequeue as taking the oldest queued message', () => {
+    const q = (operation: string, content?: string) => JSON.stringify({ type: 'queue-operation', operation, content });
+    expect(parseTranscript([q('enqueue', 'ok keep going'), q('dequeue', '')].join('\n')).queue).toEqual([]);
+  });
 });

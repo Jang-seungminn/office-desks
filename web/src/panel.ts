@@ -134,6 +134,7 @@ export class Panel {
     private readonly onClose: () => void,
   ) {
     el.innerHTML = `
+      <div class="resize" title="끌어서 패널 크기 조절"></div>
       <button class="close" title="닫기 (Esc)">✕</button>
       <div class="info"></div>
       <div class="tabs" role="tablist">
@@ -245,6 +246,7 @@ export class Panel {
     });
 
     el.querySelector('.close')!.addEventListener('click', () => this.onClose());
+    this.setupResize(el.querySelector<HTMLElement>('.resize')!);
     this.compose.addEventListener('submit', (e) => {
       e.preventDefault();
       void this.send();
@@ -379,6 +381,45 @@ export class Panel {
     hit.scrollIntoView({ block: 'center' });
     hit.classList.add('hit');
     window.setTimeout(() => hit.classList.remove('hit'), 2500);
+  }
+
+  /** Called with the panel's width whenever it changes (the office keeps decor out from under it). */
+  onResize: (width: number) => void = () => {};
+
+  private setupResize(handle: HTMLElement): void {
+    const KEY = 'office-desks:panel-width';
+    const apply = (w: number) => {
+      const clamped = Math.round(Math.max(420, Math.min(w, window.innerWidth - 80, 1100)));
+      document.documentElement.style.setProperty('--panel-w', `${clamped}px`);
+      this.onResize(clamped);
+      return clamped;
+    };
+    try {
+      const saved = Number(window.localStorage.getItem(KEY));
+      if (saved) apply(saved);
+    } catch {
+      /* storage blocked: default width */
+    }
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+      handle.classList.add('dragging');
+      const right = window.innerWidth - this.el.getBoundingClientRect().right;
+      const move = (ev: PointerEvent) => apply(window.innerWidth - right - ev.clientX);
+      const up = (ev: PointerEvent) => {
+        handle.classList.remove('dragging');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        const w = apply(window.innerWidth - right - ev.clientX);
+        try {
+          window.localStorage.setItem(KEY, String(w));
+        } catch {
+          /* fine */
+        }
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+    });
   }
 
   /** Opens the "add an agent to this worktree" dialog. */

@@ -120,7 +120,8 @@ function applyQueueOperation(r: Json, st: ParseState): void {
   if (r.operation === 'enqueue') {
     if (text && !text.includes('<task-notification>')) st.queue.push({ text, ts: typeof r.timestamp === 'string' ? r.timestamp : null });
   } else if (r.operation === 'remove' || r.operation === 'dequeue') {
-    const i = st.queue.findIndex((q) => q.text === text);
+    // dequeue (message picked up while idle) carries no content: it takes the oldest entry.
+    const i = text ? st.queue.findIndex((q) => q.text === text) : 0;
     if (i >= 0) st.queue.splice(i, 1);
   } else if (r.operation === 'popAll' || r.operation === 'clear') {
     // popAll moves queued messages back into the input box (e.g. to edit them); they're no longer queued.

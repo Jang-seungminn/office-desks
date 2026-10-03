@@ -68,7 +68,7 @@ body,
   top: 12px;
   right: 12px;
   bottom: 44px;
-  width: min(600px, calc(100% - 24px));
+  width: min(var(--panel-w, 600px), calc(100% - 24px));
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -1305,4 +1305,77 @@ details.tools ol {
 .msg.hit {
   outline: 3px solid #ffd166;
   outline-offset: 2px;
+}
+
+/* Panel resize handle (left edge) */
+#panel .resize {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: ew-resize;
+  z-index: 3;
+}
+#panel .resize:hover,
+#panel .resize.dragging {
+  background: rgba(217, 119, 87, 0.35);
+}
+
+/* Night theme: follows the office windows (PC clock) */
+body.night {
+  --paper: #232836;
+  --ink: #e8e2d6;
+  --line: #3d4456;
+  --muted: #9aa3b5;
+  --accent: #e08a6a;
+  color: var(--ink);
+}
+body.night #panel {
+  border-color: #0f1117;
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.45);
+}
+body.night .convo,
+body.night .changes {
+  background: #1b1f2a;
+}
+body.night .msg {
+  background: #2a3040;
+  border-color: #0f1117;
+}
+body.night .msg-user {
+  background: #3a3040;
+}
+body.night .md code,
+body.night #panel .activity {
+  background: #313849;
+}
+body.night .compose textarea,
+body.night #panel .pill,
+body.night #panel .board-status,
+body.night .compose button:not(.primary),
+body.night #panel .tabs button.active,
+body.night .question-card .opt,
+body.night .changes li[data-file]:hover,
+body.night .changes li.open,
+body.night .slash-menu,
+body.night #modal .dialog input,
+body.night #modal .dialog select,
+body.night #modal .dialog textarea,
+body.night #modal .results li {
+  background: #2a3040;
+  color: var(--ink);
+}
+body.night #panel .tabs button {
+  background: #1b1f2a;
+  border-color: #0f1117;
+}
+body.night .question-card {
+  background: #2f2a1c;
+}
+body.night .question-card[data-status='answered'] {
+  background: #1f2d22;
+}
+body.night .slash-menu .item.active {
+  background: #3a3040;
 }

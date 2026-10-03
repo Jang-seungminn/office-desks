@@ -388,6 +388,13 @@ export class OfficeScene extends Phaser.Scene {
   private usageLine: string | null = null;
 
   /** Plan usage line for the wall TV, e.g. "5시간 22% · 주간 24%". */
+  /** The chat panel was resized: keep the wall clock and TV out from under it. */
+  setPanelCover(px: number): void {
+    if (!this.interior || this.interior.panelCover === px) return;
+    this.interior.panelCover = px;
+    if (this.sys.isActive()) this.layout();
+  }
+
   setUsageLine(line: string | null): void {
     this.usageLine = line;
     this.updateTv();
