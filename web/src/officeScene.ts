@@ -124,8 +124,8 @@ class Seat {
   private shownInterns = -1;
   private shownState = '';
   private selected = false;
-  /** The agent is in the lounge (or walking there/back): the desk shows an empty chair. */
-  inLounge = false;
+  /** Where the agent went (lounge, CEO's office): the desk shows an empty chair and this. */
+  awayText: string | null = null;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -156,9 +156,10 @@ class Seat {
       .setOrigin(0.5, 0)
       .setShadow(1, 1, '#2b2118', 0, false, true);
 
-    // Model and effort of this agent's latest turn, as a small tag in the seat's corner.
+    // Model and effort of this agent's latest turn, as a nameplate on the front of the desk
+    // (anywhere higher would cover the character).
     this.modelTag = s.add
-      .text(4, 2, '', { ...PX11, color: '#fdf6e3', backgroundColor: '#2b2118cc', padding: { x: 4, y: 2 } })
+      .text(12, DESK_Y + 27, '', { ...PX11, color: '#fdf6e3', backgroundColor: '#2b2118dd', padding: { x: 4, y: 2 } })
       .setVisible(false);
 
     // Red "new report" badge, like an app icon badge, until the agent is opened.
@@ -216,9 +217,9 @@ class Seat {
 
   /** `nameTag`: shown above the activity when a worktree has several agents, so you can tell them apart. */
   update(agent: OfficeAgent | null, seed: number, nameTag: string | null = null): void {
-    if (agent && this.inLounge) {
+    if (agent && this.awayText) {
       this.glow.setFillStyle(SCREEN.away, 0);
-      this.activity.setText(nameTag ? `「${truncateTag(nameTag)}」\n라운지에서 휴식 중` : '라운지에서 휴식 중').setColor('#e8dcc4');
+      this.activity.setText(nameTag ? `「${truncateTag(nameTag)}」\n${this.awayText}` : this.awayText).setColor('#e8dcc4');
       this.character.setVisible(false);
       this.showInterns(0, seed);
       this.modelTag.setVisible(false);
@@ -244,7 +245,7 @@ class Seat {
     this.showInterns(agent && state !== 'away' ? agent.subagentsRunning : 0, seed);
     const tag = agent ? modelTag(agent.model, agent.effort) : null;
     this.modelTag.setVisible(Boolean(tag));
-    if (tag) fitText(this.modelTag, tag, SEAT_W - 8);
+    if (tag) fitText(this.modelTag, tag, SEAT_W - 54); // leave room for a trophy on the right
 
     const icon = iconKey(state);
     this.bubble.setVisible(Boolean(icon));
@@ -426,6 +427,7 @@ export class OfficeScene extends Phaser.Scene {
     this.podLayer = this.add.container(0, 0);
     this.crowd = new LoungeCrowd(this, (deskId, agentId) => this.onSelect({ deskId, agentId }));
     this.crowd.onReturned = () => (this.needsLayout = true);
+    this.crowd.department = (repoId) => this.org?.departments.find((d) => d.repoIds.includes(repoId))?.name ?? null;
 
     this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
       const ev = p.event as WheelEvent | undefined;
@@ -535,6 +537,7 @@ export class OfficeScene extends Phaser.Scene {
 
   setAwards(awards: AwardBoard): void {
     this.awards = awards;
+    this.crowd.awards = awards;
     if (this.sys.isActive()) this.layout();
   }
 
@@ -779,6 +782,9 @@ export class OfficeScene extends Phaser.Scene {
       .text(x + w / 2, y + h - 10, '클릭: 회사 현황 · 조직도', { ...PX11, color: '#fdf6e3' })
       .setOrigin(0.5, 1)
       .setShadow(1, 1, '#2b1d14', 0, false, true);
+    // Where a reporting employee stands (in front of the desk) and where the boss talks.
+    this.ceoStand = { x: x + w / 2 + 6, y: y + 102 };
+    this.bossSpot = { x: x + w / 2, y: y + 34 };
     const glow = this.add.rectangle(x, y, w, h, 0xffd166, 0.18).setOrigin(0).setVisible(false);
     this.podLayer.add([g, crown, sign, shelf, trophy, plant, chair, boss, desk, mug, caption, glow, this.hotspot(x, y, w, h, glow)]);
   }
@@ -844,6 +850,26 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private isLounging: (agentId: string) => boolean = () => false;
+  private ceoStand: { x: number; y: number } | null = null;
+  private bossSpot: { x: number; y: number } | null = null;
+  private lastReportAt = -Infinity;
+
+  /**
+   * An agent just finished real work: now and then it walks to the CEO's office to report
+   * (at most one at a time, and not more than once a minute across the office).
+   */
+  maybeReport(deskId: string, agentId: string): void {
+    const now = Date.now();
+    if (!this.ceoStand || !this.bossSpot || this.crowd.reporting || now - this.lastReportAt < 60_000 || Math.random() > 0.6) return;
+    const desk = this.snapshot?.desks.find((d) => d.id === deskId);
+    const agent = desk?.agents.find((a) => a.id === agentId);
+    const seat = this.seats.get(`${deskId}|${agentId}`);
+    if (!desk || !agent || !seat) return;
+    if (this.crowd.report({ agent, desk }, seat.home, this.ceoStand, this.bossSpot)) {
+      this.lastReportAt = now;
+      this.needsLayout = true;
+    }
+  }
 
   private plateWidths = new Map<string, number>();
 
@@ -939,7 +965,7 @@ export class OfficeScene extends Phaser.Scene {
         this.seats.set(key, seat);
       }
       seat.moveTo(x + POD_PAD + i * SEAT_W, y + LABEL_H + POD_PAD);
-      seat.inLounge = Boolean(agent && this.isLounging(agent.id));
+      seat.awayText = agent ? (this.crowd.awayText(agent.id) ?? (this.isLounging(agent.id) ? '라운지에서 휴식 중' : null)) : null;
       // Several agents in one worktree: label each with its session title (or its type and number).
       const tag = seatsHere.length > 1 && agent ? (agent.terminalTitle ?? `${agent.agentType} ${i + 1}`) : null;
       seat.update(agent, hash(agent?.id ?? key), tag);

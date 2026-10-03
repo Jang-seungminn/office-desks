@@ -254,7 +254,10 @@ connectOffice(
     snapshot = s;
     scene.setSnapshot(s);
     panel.refresh(s);
-    notify(notices.transitions(s));
+    const changes = notices.transitions(s);
+    notify(changes);
+    // Finished after real work: sometimes the employee walks over to report in person.
+    for (const c of changes) if (c.kind === 'done') scene.maybeReport(c.deskId, c.agentId);
     refreshAttention();
     ceo.refresh();
   },
