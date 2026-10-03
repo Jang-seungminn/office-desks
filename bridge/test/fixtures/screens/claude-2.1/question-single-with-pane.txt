@@ -1,0 +1,18 @@
+                                                                                             35 +
+  Ran 2 shell commands                                                                       36 +/** `unseen`: agents with a finished/waiting report not yet opened
+───────────────────────────────────────────────────────────────────────────────────────────     +— they stay on the top floor. */
+ ☐ 캡처 테스트                                                                               37 +export function zoneOf(desk: OfficeDesk, unseen: ReadonlySet<string
+                                                                                                +> = NONE): ZoneKey {
+│ [화면 캡처용 테스트] 질문이 하나일 때의 터미널 화면을 저장하는 중입니다. 30초쥐 뒤에       38 +  if (desk.agents.some((a) => ACTIVE.has(a.state) || unseen.has(a.i
+│ 터미널에서 아무거나 골라 주세요.                                                              +d))) return 'working';
+                                                                                             39    return desk.agents.length ? 'waiting' : 'idle';
+❯ 1. 확인                                                                                    40  }
+     터미널에서 선택                                                                         41
+  2. 다시                                                                                    39 -export function recency(desk: OfficeDesk): number {
+     아무거나 골라도 됩니다                                                                  40 -  const zone = zoneOf(desk);
+  3. Type something.                                                                         41 -  const relevant = zone === 'working' ? desk.agents.filter((a) => A
+───────────────────────────────────────────────────────────────────────────────────────────     -CTIVE.has(a.state)) : desk.agents;
+  4. Chat about this                                                                         42 +export function recency(desk: OfficeDesk, unseen: ReadonlySet<strin
+                                                                                                +g> = NONE): number {
+Enter to select · ↑/↓ to navigate · Esc to cancel                                            43 +  const zone = zoneOf(desk, unseen);
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── office-desks-orca-agent-view ─

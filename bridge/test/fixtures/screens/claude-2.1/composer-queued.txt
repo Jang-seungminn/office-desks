@@ -1,0 +1,12 @@
+     time.sleep(1)"; done; echo waited (11s)                                                 33
+     (ctrl+b to run in background)                                                           34 -export function zoneOf(desk: OfficeDesk): ZoneKey {
+                                                                                             35 -  if (desk.agents.some((a) => ACTIVE.has(a.state))) return 'working
+❯ (대기열 화면 캡처용 테스트 메시지입니다. 무시해 주세요)                                       -';
+  ctrl+enter to send now                                                                     34 +const NONE: ReadonlySet<string> = new Set();
+                                                                                             35 +
+✻ Inferring… (3m 47s · ↓ 14.6k tokens)                                                       36 +/** `unseen`: agents with a finished/waiting report not yet opened
+  ⎿  Tip: Use /btw to ask a quick side question without interrupting Claude's current work      +— they stay on the top floor. */
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── office-desks-orca-agent-view ─
+❯ Press up to edit queued messages
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on · 1 shell · ← for agents

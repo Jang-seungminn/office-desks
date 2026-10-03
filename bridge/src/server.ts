@@ -9,7 +9,7 @@ import { fetchUsage } from './usage.js';
 import { changeSummary, fileDiff } from './gitInfo.js';
 import { charBytes, keyBytes } from './keys.js';
 import { answerQuestions, validateChoices } from './answer.js';
-import { composerState } from './screen.js';
+import { composerState, screenSupport } from './screen.js';
 import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot, FileDiffResponse } from './model.js';
 import { createOrcaRunner, OrcaCliError, resolveOrcaCommand } from './orcaCli.js';
 import { OfficePoller } from './poller.js';
@@ -100,6 +100,8 @@ async function conversation(agentId: string | null, after: number, sub: string |
     subagents: [],
     questions: [],
     pending: [],
+    claudeVersion: null,
+    screenSupport: 'unknown',
   });
   const found = findAgent(agentId);
   if (!found) return empty('이 에이전트는 더 이상 사무실에 없습니다.');
@@ -126,6 +128,8 @@ async function conversation(agentId: string | null, after: number, sub: string |
     subagents,
     questions: main.questions,
     pending: sub ? [] : main.pending,
+    claudeVersion: main.claudeVersion,
+    screenSupport: screenSupport(found.agent.agentType, main.claudeVersion),
   };
 }
 

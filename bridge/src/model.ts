@@ -180,6 +180,9 @@ export interface ConversationResponse {
   questions: QuestionState[];
   /** Messages typed while the agent was busy that it hasn't picked up yet (Claude Code's queue). */
   pending: { text: string; ts: string | null }[];
+  /** Claude Code version from the transcript, and whether its screens are covered by tests. */
+  claudeVersion: string | null;
+  screenSupport: 'tested' | 'untested' | 'unknown';
 }
 
 export interface SlashCommand {

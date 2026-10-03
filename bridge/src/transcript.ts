@@ -70,6 +70,8 @@ interface ParseState {
   asks?: Map<string, QuestionState>;
   /** Claude Code's queue of messages typed while it works, from queue-operation records. */
   queue?: { text: string; ts: string | null }[];
+  /** Claude Code version that wrote the transcript (screen parsing depends on it). */
+  claudeVersion?: string;
   /** Model and reasoning effort of the latest turn. */
   model?: string;
   effort?: string;
@@ -150,6 +152,7 @@ function addClaude(r: Json, st: ParseState): void {
     return;
   }
   if ((r.type !== 'user' && r.type !== 'assistant') || r.isMeta || (r.isSidechain && !st.sidechain)) return;
+  if (typeof r.version === 'string') st.claudeVersion = r.version;
   if (r.type === 'assistant') {
     const model = r.message?.model;
     if (typeof model === 'string' && !model.startsWith('<')) st.model = model;
@@ -263,6 +266,7 @@ export interface TranscriptResult {
   pending: { text: string; ts: string | null }[];
   model: string | null;
   effort: string | null;
+  claudeVersion: string | null;
 }
 
 interface FileState extends ParseState {
@@ -304,7 +308,7 @@ export async function readTranscript(filePath: string, opts: { sidechain?: boole
   files.set(filePath, st);
   while (files.size > MAX_FILES) files.delete(files.keys().next().value!);
   const fileId = createHash('sha1').update(`${filePath}#${st.generation}`).digest('hex').slice(0, 12);
-  return { fileId, title: st.title, messages: st.messages, images: st.images, calls: [...(st.calls?.values() ?? [])], questions: [...(st.asks?.values() ?? [])], pending: [...(st.queue ?? [])], model: st.model ?? null, effort: st.effort ?? null };
+  return { fileId, title: st.title, messages: st.messages, images: st.images, calls: [...(st.calls?.values() ?? [])], questions: [...(st.asks?.values() ?? [])], pending: [...(st.queue ?? [])], model: st.model ?? null, effort: st.effort ?? null, claudeVersion: st.claudeVersion ?? null };
 }
 
 /** Forget cached parse state (tests). */

@@ -1,5 +1,14 @@
 import type { ComposerState } from './model.js';
 
+/** Claude Code versions whose screens are covered by test/fixtures/screens (major.minor). */
+export const TESTED_CLAUDE_VERSIONS = ['2.1'];
+
+export function screenSupport(agentType: string, version: string | null): 'tested' | 'untested' | 'unknown' {
+  if (agentType !== 'claude' || !version) return 'unknown';
+  const mm = /^(\d+\.\d+)/.exec(version)?.[1];
+  return mm && TESTED_CLAUDE_VERSIONS.includes(mm) ? 'tested' : 'untested';
+}
+
 const RULE = /^\s*[─━]{8,}/;
 const PROMPT = /^\s*❯(\s|$)/;
 

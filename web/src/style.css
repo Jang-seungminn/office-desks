@@ -1037,3 +1037,25 @@ details.tools ol {
   color: #2f7a32;
   font-weight: 700;
 }
+
+.question-card .q-warn {
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  background: #fff1c2;
+  color: #7a5a00;
+}
+.question-card .to-term {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+.question-card .to-term[hidden] {
+  display: none;
+}

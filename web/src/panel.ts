@@ -203,6 +203,7 @@ export class Panel {
         const card = opt.closest<HTMLElement>('.question-card')!;
         return this.toggleOption(card.dataset.tool!, Number(opt.dataset.q), Number(opt.dataset.o));
       }
+      if (t.closest('[data-to-term]')) return this.showTab('term');
       const send = t.closest<HTMLElement>('.question-card [data-answer]');
       if (send) return void this.sendAnswer(send.closest<HTMLElement>('.question-card')!);
       const card = t.closest<HTMLElement>('.subagent-card.openable');
@@ -519,7 +520,7 @@ export class Panel {
     const label = asking
       ? '🙋 에이전트가 질문했어요. 대화창의 질문 카드에서 답해 주세요.'
       : '🧭 에이전트 화면에 메뉴가 열려 있어요. 지금 보내는 메시지는 전달되지 않습니다.';
-    this.menuBanner.querySelector('.menu-text')!.textContent = label;
+    this.menuBanner.querySelector('.menu-text')!.textContent = this.screenWarning ? `${label} (⚠️ 검증되지 않은 Claude Code 버전)` : label;
     if (on === this.menuMode) return;
     this.menuMode = on;
     this.menuBanner.hidden = !on;
@@ -690,6 +691,10 @@ export class Panel {
     if (this.convoFor !== agentId) return;
     this.subagents = data.subagents ?? [];
     this.updateSubagentCards();
+    this.screenWarning =
+      data.screenSupport === 'untested'
+        ? `Claude Code ${data.claudeVersion}은(는) 화면 해석이 검증되지 않은 버전이에요. 질문 카드와 메뉴 감지가 틀릴 수 있으니 이상하면 터미널 탭을 써 주세요.`
+        : null;
     this.questions = data.questions ?? [];
     this.updateQuestionCards();
     this.renderPending(data.pending ?? []);
@@ -753,6 +758,8 @@ export class Panel {
   }
 
   private pendingKey = '';
+  /** Set when the agent runs a Claude Code version our screen parsing wasn't tested against. */
+  private screenWarning: string | null = null;
   /** "Stop" needs a second click within a few seconds, so a stray click can't interrupt an agent. */
   private stopArmedUntil = 0;
 
@@ -863,9 +870,10 @@ export class Panel {
     const ready = q.questions.every((item, qi) => (item.multiSelect ? (picks[qi]?.length ?? 0) > 0 : picks[qi]?.length === 1));
     const foot =
       q.status === 'pending'
-        ? `<div class="q-foot"><span class="q-msg"></span><button type="button" class="send-answer" data-answer ${ready ? '' : 'disabled'}>답변 보내기</button></div>`
+        ? `<div class="q-foot"><span class="q-msg"></span><button type="button" class="to-term" data-to-term hidden>🖥️ 터미널에서 답하기</button><button type="button" class="send-answer" data-answer ${ready ? '' : 'disabled'}>답변 보내기</button></div>`
         : '';
-    return `<div class="q-head">${head}</div>${body}${foot}`;
+    const warn = q.status === 'pending' && this.screenWarning ? `<p class="q-warn">⚠️ ${esc(this.screenWarning)}</p>` : '';
+    return `<div class="q-head">${head}</div>${warn}${body}${foot}`;
   }
 
   private toggleOption(toolUseId: string, qi: number, oi: number): void {
@@ -893,6 +901,9 @@ export class Panel {
     } catch (err) {
       if (msg) msg.textContent = `⚠️ ${(err as Error).message}`;
       if (btn) btn.disabled = false;
+      // Way out when the dialog couldn't be driven: answer it in the terminal view.
+      const toTerm = card.querySelector<HTMLElement>('[data-to-term]');
+      if (toTerm) toTerm.hidden = false;
     }
   }
 

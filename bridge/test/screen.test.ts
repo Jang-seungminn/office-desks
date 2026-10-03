@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { charBytes, keyBytes } from '../src/keys.js';
-import { composerState } from '../src/screen.js';
+import { composerState, screenSupport } from '../src/screen.js';
 
 const rule = '─'.repeat(60);
 const composer = ['⏺ Done.', '', `${rule} command context logging ─`, '❯ ', rule, '  ⏵⏵ auto mode on · 1 shell'];
@@ -39,5 +39,14 @@ describe('queue keys', () => {
   it('uses CSI-u Ctrl+Enter and Ctrl+U', () => {
     expect(keyBytes('ctrl-enter')).toBe('\x1b[13;5u');
     expect(keyBytes('ctrl-u')).toBe('\x15');
+  });
+});
+
+describe('screenSupport', () => {
+  it('marks Claude versions without captured screens as untested', () => {
+    expect(screenSupport('claude', '2.1.288')).toBe('tested');
+    expect(screenSupport('claude', '2.2.0')).toBe('untested');
+    expect(screenSupport('claude', null)).toBe('unknown');
+    expect(screenSupport('codex', '0.118.0')).toBe('unknown');
   });
 });
