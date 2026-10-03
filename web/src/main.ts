@@ -151,6 +151,11 @@ statusLeft.addEventListener('click', (e) => {
     void Notification.requestPermission().then(renderStatus);
     return;
   }
+  if (t.closest('[data-bell-test]')) {
+    // If this doesn't appear, the OS is blocking the browser's notifications (e.g. macOS Focus / System Settings).
+    new Notification('Office Desks 테스트 알림', { body: '이 알림이 보이면 에이전트 완료 알림도 받을 수 있어요.' });
+    return;
+  }
   if (t.closest('[data-reports]') && attention.length) {
     const a = attention[reportCursor++ % attention.length];
     openSelection = { deskId: a.deskId, agentId: a.agentId };
@@ -175,7 +180,7 @@ function renderStatus(): void {
     <span>🏢 워크트리 ${snapshot?.desks.length ?? 0}</span>
     <span>⌨️ 일하는 중 ${busy}</span>
     ${attention.length ? `<button class="report" data-reports title="완료하거나 확인을 요청한 에이전트로 이동">📬 새 보고 ${attention.length}</button>` : ''}
-    ${'Notification' in window && Notification.permission === 'default' ? '<button class="bell" data-bell title="에이전트가 끝나면 데스크톱 알림">🔔 알림 켜기</button>' : ''}
+    ${!('Notification' in window) ? '' : Notification.permission === 'default' ? '<button class="bell" data-bell title="에이전트가 끝나면 데스크톱 알림">🔔 알림 켜기</button>' : Notification.permission === 'granted' ? '<button class="bell on" data-bell-test title="눌러서 테스트 알림 보내기">🔔 알림 켜짐</button>' : '<span class="bell-off" title="브라우저 설정에서 이 사이트의 알림을 허용해야 합니다">🔕 알림 차단됨</span>'}
     ${waiting ? `<button class="alert" data-waiting title="확인이 필요한 에이전트로 이동">🙋 확인 필요 ${waiting}</button>` : '<span>🙋 확인 필요 0</span>'}
     ${snapshot?.error ? `<span class="alert" title="${esc(snapshot.error)}">⚠️ Orca 오류</span>` : ''}`;
   const badge = new Set([...attention.map((a) => a.agentId), ...agents.filter((a) => a.state === 'waiting').map((a) => a.id)]).size;

@@ -833,3 +833,11 @@ details.tools ol {
   color: var(--paper);
   border: 1px dashed #a8957c;
 }
+
+#status-bar button.bell.on {
+  border-style: solid;
+  border-color: #7cc47f;
+}
+#status-bar .bell-off {
+  opacity: 0.7;
+}
