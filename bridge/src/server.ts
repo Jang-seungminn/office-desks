@@ -9,7 +9,7 @@ import { fetchUsage } from './usage.js';
 import { charBytes, keyBytes } from './keys.js';
 import { answerQuestions, validateChoices } from './answer.js';
 import { composerState } from './screen.js';
-import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot } from './model.js';
+import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot } from './model.js';
 import { createOrcaRunner, OrcaCliError, resolveOrcaCommand } from './orcaCli.js';
 import { OfficePoller } from './poller.js';
 import { isAllowedRequest, setSecurityHeaders } from './security.js';
@@ -307,6 +307,19 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       return json(res, 409, { error: (err as Error).message });
     } finally {
       answering.delete(handle);
+    }
+    void poller.refresh();
+    return json(res, 200, { ok: true });
+  }
+
+  if (pathname === '/api/queue') {
+    const body = await readJson<QueueRequest>(req);
+    if (!knownHandle(body.terminalHandle)) return json(res, 404, { error: 'unknown terminal' });
+    const keys: TerminalKey[] = body.action === 'send-now' ? ['ctrl-enter'] : body.action === 'cancel' ? ['up', 'ctrl-u'] : [];
+    if (!keys.length) return json(res, 400, { error: 'unknown action' });
+    for (const key of keys) {
+      await orca(['terminal', 'send', '--terminal', body.terminalHandle, `--text=${keyBytes(key)}`]);
+      await new Promise((r) => setTimeout(r, 300));
     }
     void poller.refresh();
     return json(res, 200, { ok: true });

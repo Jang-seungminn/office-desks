@@ -180,6 +180,8 @@ export class Panel {
     this.convo.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('[data-back]')) return this.openSubagent(null);
+      const q = t.closest<HTMLElement>('[data-queue]')?.dataset.queue;
+      if (q === 'send-now' || q === 'cancel') return void this.queueAction(q);
       const opt = t.closest<HTMLElement>('.question-card .opt');
       if (opt) {
         const card = opt.closest<HTMLElement>('.question-card')!;
@@ -194,6 +196,9 @@ export class Panel {
       if ((e.target as HTMLElement).closest('[data-menu=esc]')) void this.pressKey('esc');
     });
 
+    this.info.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('[data-stop]')) void this.stopAgent();
+    });
     this.tabs.addEventListener('click', (e) => {
       const t = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]')?.dataset.tab;
       if (t === 'convo' || t === 'term') this.showTab(t);
@@ -323,7 +328,10 @@ export class Panel {
   }
 
   /** Re-render the header only, so the conversation scroll and a half-typed command survive live updates. */
+  private lastSnapshot: OfficeSnapshot | null = null;
+
   refresh(snapshot: OfficeSnapshot | null): void {
+    this.lastSnapshot = snapshot;
     if (!this.selection) return;
     this.desk = snapshot?.desks.find((d) => d.id === this.selection!.deskId) ?? null;
     this.agent = this.desk?.agents.find((a) => a.id === this.selection!.agentId) ?? null;
@@ -339,7 +347,7 @@ export class Panel {
           ${a ? `<span class="pill">${esc(a.agentType)}</span>${modelLine(a.model, a.effort) ? ` <span class="pill model">${esc(modelLine(a.model, a.effort)!)}</span>` : ''} <span class="state state-${a.state}">${STATE_LABEL[a.state] ?? a.state}</span> <span class="muted">${esc(ago(a.since))}</span>` : '<span class="pill">빈 자리</span>'}
           ${d.workspaceStatus ? ` <span class="pill">${esc(d.workspaceStatus)}</span>` : ''}
         </p>
-        ${a ? `<p class="activity">${esc(a.activity)}</p>` : ''}
+        ${a ? `<div class="activity-row"><p class="activity">${esc(a.activity)}</p>${this.stopButton(a)}</div>` : ''}
         ${d.comment ? `<p class="comment">💬 ${esc(d.comment)}</p>` : ''}`;
     }
     const handle = a?.terminalHandle ?? null;
@@ -645,6 +653,44 @@ export class Panel {
   }
 
   private pendingKey = '';
+  /** "Stop" needs a second click within a few seconds, so a stray click can't interrupt an agent. */
+  private stopArmedUntil = 0;
+
+  private stopButton(a: OfficeAgent): string {
+    if (!a.terminalHandle || !['typing', 'reading', 'running'].includes(a.state)) return '';
+    const armed = Date.now() < this.stopArmedUntil;
+    return `<button type="button" class="stop${armed ? ' armed' : ''}" data-stop title="에이전트의 현재 작업을 중단합니다 (Esc)">${armed ? '한 번 더 누르면 중단' : '⏹ 중단'}</button>`;
+  }
+
+  private async stopAgent(): Promise<void> {
+    const handle = this.agent?.terminalHandle;
+    if (!handle) return;
+    if (Date.now() >= this.stopArmedUntil) {
+      this.stopArmedUntil = Date.now() + 4000;
+      this.refresh(this.lastSnapshot);
+      window.setTimeout(() => this.refresh(this.lastSnapshot), 4100);
+      return;
+    }
+    this.stopArmedUntil = 0;
+    try {
+      await postJson('/api/keys', { terminalHandle: handle, key: 'esc' });
+      this.feedback.textContent = '⏹ 중단했습니다';
+    } catch (err) {
+      this.feedback.textContent = `⚠️ ${(err as Error).message}`;
+    }
+    this.refresh(this.lastSnapshot);
+  }
+
+  private async queueAction(action: 'send-now' | 'cancel'): Promise<void> {
+    const handle = this.agent?.terminalHandle;
+    if (!handle) return;
+    try {
+      await postJson('/api/queue', { terminalHandle: handle, action });
+      this.feedback.textContent = action === 'send-now' ? '⚡ 대기 메시지를 지금 보냈습니다 (진행 중이던 작업은 멈춤)' : '🗑 대기 메시지를 취소했습니다';
+    } catch (err) {
+      this.feedback.textContent = `⚠️ ${(err as Error).message}`;
+    }
+  }
 
   /** Messages queued while the agent works: shown at the very end until the agent picks them up. */
   private renderPending(pending: { text: string; ts: string | null }[], force = false): void {
@@ -661,6 +707,14 @@ export class Panel {
       box.className = 'pending-queue';
     }
     box.innerHTML = '';
+    if (this.agent?.agentType === 'claude') {
+      const bar = document.createElement('div');
+      bar.className = 'pending-actions';
+      bar.innerHTML = `<span>⏳ 대기 중인 메시지 ${pending.length}개</span>
+        <button type="button" data-queue="send-now" title="진행 중인 작업을 멈추고 지금 보냅니다 (Ctrl+Enter)">⚡ 지금 보내기</button>
+        <button type="button" data-queue="cancel" title="대기 중인 메시지를 지웁니다">🗑 취소</button>`;
+      box.append(bar);
+    }
     for (const p of pending) {
       const div = document.createElement('div');
       div.className = 'msg msg-user msg-pending';

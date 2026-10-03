@@ -12,6 +12,9 @@ export const KEY_BYTES: Record<TerminalKey, string> = {
   'shift-tab': '\x1b[Z',
   space: ' ',
   'ctrl-c': '\x03',
+  'ctrl-u': '\x15',
+  // Ctrl+Enter in the CSI-u keyboard encoding Claude Code understands ("ctrl+enter to send now").
+  'ctrl-enter': '\x1b[13;5u',
   backspace: '\x7f',
   '1': '1',
   '2': '2',

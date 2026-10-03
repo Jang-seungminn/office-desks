@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { charBytes } from '../src/keys.js';
+import { charBytes, keyBytes } from '../src/keys.js';
 import { composerState } from '../src/screen.js';
 
 const rule = '─'.repeat(60);
@@ -32,5 +32,12 @@ describe('charBytes', () => {
     expect(charBytes('\x1b')).toBeNull();
     expect(charBytes('ab')).toBeNull();
     expect(charBytes('\n')).toBeNull();
+  });
+});
+
+describe('queue keys', () => {
+  it('uses CSI-u Ctrl+Enter and Ctrl+U', () => {
+    expect(keyBytes('ctrl-enter')).toBe('\x1b[13;5u');
+    expect(keyBytes('ctrl-u')).toBe('\x15');
   });
 });

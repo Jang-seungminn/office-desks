@@ -196,8 +196,15 @@ export interface TerminalScreen {
 
 /** Named keys the panel can press in an agent's terminal (menus, permission prompts). */
 export type TerminalKey =
-  | 'up' | 'down' | 'left' | 'right' | 'enter' | 'esc' | 'tab' | 'shift-tab' | 'space' | 'ctrl-c'
+  | 'up' | 'down' | 'left' | 'right' | 'enter' | 'esc' | 'tab' | 'shift-tab' | 'space' | 'ctrl-c' | 'ctrl-u' | 'ctrl-enter'
   | 'backspace' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'y' | 'n';
+
+/** Claude Code's message queue, driven like a person would (verified on Claude Code 2.1). */
+export interface QueueRequest {
+  terminalHandle: string;
+  /** send-now: Ctrl+Enter interrupts and sends the queue; cancel: ↑ pulls it into the input, Ctrl+U clears it. */
+  action: 'send-now' | 'cancel';
+}
 
 export interface KeyRequest {
   terminalHandle: string;
