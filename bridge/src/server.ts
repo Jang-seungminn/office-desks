@@ -98,6 +98,7 @@ async function conversation(agentId: string | null, after: number, sub: string |
     messages: [],
     subagents: [],
     questions: [],
+    pending: [],
   });
   const found = findAgent(agentId);
   if (!found) return empty('이 에이전트는 더 이상 사무실에 없습니다.');
@@ -123,6 +124,7 @@ async function conversation(agentId: string | null, after: number, sub: string |
     messages: t.messages.slice(from),
     subagents,
     questions: main.questions,
+    pending: sub ? [] : main.pending,
   };
 }
 

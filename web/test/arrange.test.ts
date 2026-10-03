@@ -69,6 +69,14 @@ describe('arrangeOffice', () => {
     expect(working.rooms[1].total).toBe(4);
   });
 
+  it('keeps finished agents with an unopened report on the top floor until they are opened', () => {
+    const finished = desk('just-done', 'D', [{ ...agent('done', 500), id: 'fresh' }]);
+    const [top] = arrangeOffice([...desks, finished], new Set(['fresh']));
+    expect(top.key).toBe('working');
+    expect(top.rooms[0].desks.map((d) => d.name)).toEqual(['just-done']); // newest (500) first
+    expect(arrangeOffice([finished]).map((z) => z.key)).toEqual(['waiting']); // once seen
+  });
+
   it('skips empty floors', () => {
     expect(arrangeOffice([desk('x', 'X', [])]).map((z) => z.key)).toEqual(['idle']);
   });

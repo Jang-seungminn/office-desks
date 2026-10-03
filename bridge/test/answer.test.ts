@@ -13,7 +13,44 @@ const q2 = [rule, '←  ☒ Color  ☐ Sizes  ✔ Submit  →', 'Which sizes?', 
 const review = ['←  ☒ Color  ☒ Sizes  ✔ Submit  →', 'Review your answers', ' ● Which color?', '   → Blue', 'Ready to submit your answers?', '❯ 1. Submit answers', '  2. Cancel'];
 const done = ['⏺ Blue; Small, Large', rule, '❯ ', rule];
 
+// One question, captured with a diff preview pane on the right (Claude Code 2.1).
+const single = [
+  '──────────────────────────────     +— they stay on the top floor. */',
+  ' ☐ 캡처 테스트                                                  37 +export function zoneOf(desk',
+  '                                                                   +> = NONE): ZoneKey {',
+  '│ [화면 캡처용 테스트] 질문이 하나일 때의 터미널 화면을 저장하는 중입니다. 30초 뒤에       38 +  if (desk.agents',
+  '│ 터미널에서 아무거나 골라 주세요.                                  +d))) return',
+  '                                                                   39    return desk',
+  '❯ 1. 확인                                                          40  }',
+  '     터미널에서 선택                                               41',
+  '  2. 다시                                                          39 -export function recency',
+  '  3. Type something.',
+  'Enter to select · ↑/↓ to navigate · Esc to cancel',
+];
+
 describe('question dialog screens', () => {
+  it('reads a single-question dialog (no tab row, │ prefix, text from another pane on the right)', () => {
+    const shown = currentQuestion(single)!;
+    expect(shown.startsWith('[화면 캡처용 테스트] 질문이 하나일 때의')).toBe(true);
+  });
+
+  it('answers a single question with one digit and no review screen', async () => {
+    let screen = single;
+    const pressed: TerminalKey[] = [];
+    const q: AskedQuestion = {
+      header: '캡처 테스트',
+      question: '[화면 캡처용 테스트] 질문이 하나일 때의 터미널 화면을 저장하는 중입니다. 30초 뒤에 터미널에서 아무거나 골라 주세요.',
+      multiSelect: false,
+      options: [{ label: '확인', description: '' }, { label: '다시', description: '' }],
+    };
+    await answerQuestions(
+      { readScreen: async () => screen, sleep: async () => {}, press: async (k) => void (pressed.push(k), (screen = done)) },
+      [q],
+      [[1]],
+    );
+    expect(pressed).toEqual(['2']);
+  });
+
   it('reads the current question from the line under the tab row (not from the echoed prompt)', () => {
     expect(currentQuestion(q1)).toBe('Which color?');
     expect(currentQuestion(q2)).toBe('Which sizes?');

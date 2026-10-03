@@ -138,7 +138,7 @@ export class Panel {
       <div class="convo"></div>
       <button type="button" class="to-latest" hidden>⬇ 최신으로</button>
       <div class="term" hidden>
-        <p class="term-hint">화면을 클릭한 뒤 키보드로 조작할 수 있어요 (↑↓ Enter Esc, 글자 입력)</p>
+        <p class="term-hint">화면을 <b>클릭하면</b> 키보드가 에이전트에게 바로 전달돼요 (↑↓ Enter Esc, 글자). 바깥을 클릭하면 해제</p>
         <pre class="screen" tabindex="0"></pre>
         <div class="keys">${KEYS.map(([k, label]) => `<button type="button" data-key="${k}">${label}</button>`).join('')}</div>
       </div>
@@ -362,10 +362,9 @@ export class Panel {
     this.convo.hidden = tab !== 'convo';
     this.term.hidden = tab !== 'term';
     this.updateToLatest();
-    if (tab === 'term') {
-      this.startTerminal();
-      if (this.menuMode) this.screen.focus();
-    }
+    // Never move keyboard focus to the terminal by itself: keys typed there go straight to the
+    // agent, so only an explicit click on the screen turns that on.
+    if (tab === 'term') this.startTerminal();
   }
 
   /**
@@ -585,6 +584,7 @@ export class Panel {
     this.updateSubagentCards();
     this.questions = data.questions ?? [];
     this.updateQuestionCards();
+    this.renderPending(data.pending ?? []);
     // We may have jumped to the terminal before learning the dialog is a question: come back to its card.
     if (this.menuMode && this.autoSwitched && this.tab === 'term' && this.questions.some((q) => q.status === 'pending')) {
       this.autoSwitched = false;
@@ -626,6 +626,7 @@ export class Panel {
     const atBottom = this.convoCount === 0 || el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     el.querySelector('.empty')?.remove();
     this.appendMessages(data.messages, agentId, this.convoCount);
+    this.renderPending(data.pending ?? [], true);
     if (!atBottom && this.convoCount > 0) this.unseen += data.messages.filter((m) => m.role === 'user' || m.role === 'assistant').length;
     this.convoCount = data.after + data.messages.length;
     if (atBottom) el.scrollTop = el.scrollHeight;
@@ -641,6 +642,33 @@ export class Panel {
     this.toLatest.textContent = this.unseen ? `⬇ 새 메시지 ${this.unseen}` : '⬇ 최신으로';
     // Float just above the compose box, whatever its current height.
     this.toLatest.style.bottom = `${this.compose.offsetHeight + 14}px`;
+  }
+
+  private pendingKey = '';
+
+  /** Messages queued while the agent works: shown at the very end until the agent picks them up. */
+  private renderPending(pending: { text: string; ts: string | null }[], force = false): void {
+    const key = JSON.stringify(pending);
+    let box = this.convo.querySelector<HTMLElement>('.pending-queue');
+    if (!force && key === this.pendingKey && box) return;
+    this.pendingKey = key;
+    if (!pending.length) {
+      box?.remove();
+      return;
+    }
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'pending-queue';
+    }
+    box.innerHTML = '';
+    for (const p of pending) {
+      const div = document.createElement('div');
+      div.className = 'msg msg-user msg-pending';
+      div.innerHTML = '<div class="meta">나 · ⏳ 전달 대기 중</div><div class="md"></div>';
+      div.querySelector('.md')!.textContent = p.text;
+      box.append(div);
+    }
+    this.convo.append(box); // always last
   }
 
   /** (Re)draw question cards whose status changed; keeps in-progress selections. */

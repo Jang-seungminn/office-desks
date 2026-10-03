@@ -68,6 +68,8 @@ interface ParseState {
   sidechain?: boolean;
   calls?: Map<string, SubagentCall>;
   asks?: Map<string, QuestionState>;
+  /** Claude Code's queue of messages typed while it works, from queue-operation records. */
+  queue?: { text: string; ts: string | null }[];
   /** Model and reasoning effort of the latest turn. */
   model?: string;
   effort?: string;
@@ -110,7 +112,24 @@ function applyTaskNotification(text: string, st: ParseState): void {
   if (call && status) call.status = /complete|success|done/i.test(status) ? 'done' : /fail|kill|error|cancel/i.test(status) ? 'failed' : call.status;
 }
 
+function applyQueueOperation(r: Json, st: ParseState): void {
+  st.queue ??= [];
+  const text = typeof r.content === 'string' ? r.content : '';
+  if (r.operation === 'enqueue') {
+    if (text && !text.includes('<task-notification>')) st.queue.push({ text, ts: typeof r.timestamp === 'string' ? r.timestamp : null });
+  } else if (r.operation === 'remove' || r.operation === 'dequeue') {
+    const i = st.queue.findIndex((q) => q.text === text);
+    if (i >= 0) st.queue.splice(i, 1);
+  } else if (r.operation === 'popAll' || r.operation === 'clear') {
+    // popAll moves queued messages back into the input box (e.g. to edit them); they're no longer queued.
+    const i = st.queue.findIndex((q) => q.text === text);
+    if (i >= 0) st.queue.splice(i, 1);
+    else if (!text) st.queue = [];
+  }
+}
+
 function addClaude(r: Json, st: ParseState): void {
+  if (r.type === 'queue-operation') return applyQueueOperation(r, st);
   if (r.type === 'ai-title' && typeof r.aiTitle === 'string') st.title = r.aiTitle;
   if (r.type === 'summary' && typeof r.summary === 'string') st.title ??= r.summary;
   // Messages typed while the agent was busy are stored as queued_command attachments, not user turns.
@@ -241,6 +260,7 @@ export interface TranscriptResult {
   images: TranscriptImage[];
   calls: SubagentCall[];
   questions: QuestionState[];
+  pending: { text: string; ts: string | null }[];
   model: string | null;
   effort: string | null;
 }
@@ -284,7 +304,7 @@ export async function readTranscript(filePath: string, opts: { sidechain?: boole
   files.set(filePath, st);
   while (files.size > MAX_FILES) files.delete(files.keys().next().value!);
   const fileId = createHash('sha1').update(`${filePath}#${st.generation}`).digest('hex').slice(0, 12);
-  return { fileId, title: st.title, messages: st.messages, images: st.images, calls: [...(st.calls?.values() ?? [])], questions: [...(st.asks?.values() ?? [])], model: st.model ?? null, effort: st.effort ?? null };
+  return { fileId, title: st.title, messages: st.messages, images: st.images, calls: [...(st.calls?.values() ?? [])], questions: [...(st.asks?.values() ?? [])], pending: [...(st.queue ?? [])], model: st.model ?? null, effort: st.effort ?? null };
 }
 
 /** Forget cached parse state (tests). */

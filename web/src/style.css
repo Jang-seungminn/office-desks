@@ -841,3 +841,11 @@ details.tools ol {
 #status-bar .bell-off {
   opacity: 0.7;
 }
+
+.msg-pending {
+  border-style: dashed;
+  opacity: 0.75;
+}
+.term .screen:focus {
+  outline: 3px solid #ffd166;
+}

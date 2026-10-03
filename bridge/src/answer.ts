@@ -10,19 +10,27 @@ import type { AskedQuestion, TerminalKey } from './model.js';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 
-/** The question the dialog is currently showing, or null if no question dialog is visible. */
+const OPTION = /^\s*(❯\s*)?\d+\.\s/;
+// Several questions: a tab row `←  ☐ Color  ☐ Sizes  ✔ Submit  →`. One question: just ` ☐ Header`.
+// Lines may carry another pane's text on their right (e.g. a diff preview), so nothing is anchored at the end.
+const TAB_ROW = /^\s*←\s.*→/;
+const HEADER_ROW = /^\s*[☐☒✔]\s+\S/;
+
+/** Text from the line under the dialog's tab/header row up to the first numbered option, or null. */
 export function currentQuestion(lines: string[]): string | null {
-  const tab = lines.findIndex((l) => /^\s*←.*→\s*$/.test(l));
-  if (tab >= 0) {
-    // The question may wrap onto several lines until the first numbered option.
-    const out: string[] = [];
-    for (let i = tab + 1; i < lines.length; i++) {
-      if (/^\s*(❯\s*)?\d+\.\s/.test(lines[i])) break;
-      if (lines[i].trim()) out.push(lines[i]);
-    }
-    return out.length ? norm(out.join(' ')) : null;
+  let start = lines.findIndex((l) => TAB_ROW.test(l));
+  if (start < 0) start = lines.findIndex((l, i) => HEADER_ROW.test(l) && lines.slice(i + 1, i + 12).some((x) => OPTION.test(x)));
+  if (start < 0) return null;
+  const out: string[] = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (OPTION.test(lines[i])) break;
+    // Only the dialog's own column: lines that start at the left edge (a pane on the right
+    // shows up as lines with lots of leading space).
+    if (/^\s{4,}/.test(lines[i])) continue;
+    const text = lines[i].replace(/^\s*│\s?/, '').trim();
+    if (text) out.push(text);
   }
-  return null;
+  return out.length ? norm(out.join(' ')) : null;
 }
 
 export function isReviewScreen(lines: string[]): boolean {
@@ -61,9 +69,10 @@ async function waitFor<T>(io: AnswerIO, check: (lines: string[]) => T | null | f
 
 const sameQuestion = (shown: string | null, q: AskedQuestion) => {
   if (!shown) return false;
+  // The question wraps and its lines may end with another pane's text, so compare the
+  // beginning only: enough to tell questions apart without depending on the layout.
   const want = norm(q.question);
-  // Long questions can be cut by the terminal width; compare a generous prefix.
-  return shown.startsWith(want.slice(0, 60)) || want.startsWith(shown.slice(0, 60));
+  return shown.startsWith(want.slice(0, Math.min(24, want.length)));
 };
 
 export async function answerQuestions(io: AnswerIO, questions: AskedQuestion[], choices: number[][]): Promise<void> {

@@ -174,6 +174,8 @@ export interface ConversationResponse {
   subagents: SubagentInfo[];
   /** Questions this session asked the human, with their current status. */
   questions: QuestionState[];
+  /** Messages typed while the agent was busy that it hasn't picked up yet (Claude Code's queue). */
+  pending: { text: string; ts: string | null }[];
 }
 
 export interface SlashCommand {

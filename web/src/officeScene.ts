@@ -343,7 +343,10 @@ export class OfficeScene extends Phaser.Scene {
 
   /** agentId → 'done' | 'waiting' for agents with an unopened report. */
   setAttention(attention: Map<string, string>): void {
+    // Unopened reports keep their desk on the top floor, so a change can move desks.
+    const moved = [...attention.keys()].sort().join() !== [...this.attention.keys()].sort().join();
     this.attention = attention;
+    if (moved && this.sys.isActive()) this.layout();
     for (const [key, seat] of this.seats) seat.setAttention(this.attention.get(key.split('|')[1]) ?? null);
   }
 
@@ -364,7 +367,7 @@ export class OfficeScene extends Phaser.Scene {
     const alive = new Set<string>();
 
     // Floors by activity (working / waiting / idle); rooms per repo inside a floor, newest left.
-    const zones = arrangeOffice(desks);
+    const zones = arrangeOffice(desks, new Set(this.attention.keys()));
     const podH = LABEL_H + SEAT_H + POD_PAD * 2;
     const maxInner = Math.max(SEAT_W + POD_PAD * 2, width - MARGIN * 2 - ROOM_PAD * 2);
     let ry = FIRST_ROW_Y;

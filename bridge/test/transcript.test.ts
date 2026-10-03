@@ -97,3 +97,20 @@ describe('model and effort', () => {
     expect([codex.model, codex.effort]).toEqual(['gpt-5.4', 'medium']);
   });
 });
+
+describe('queued messages', () => {
+  it('tracks what is still waiting in Claude Code\'s queue', () => {
+    const q = (operation: string, content?: string, reason?: string) => JSON.stringify({ type: 'queue-operation', operation, content, reason, timestamp: 't' });
+    const st = parseTranscript(
+      [
+        q('enqueue', 'first'),
+        q('enqueue', 'second'),
+        q('enqueue', '<task-notification>x</task-notification>'),
+        q('remove', 'first', 'absorbed_mid_turn'),
+        q('enqueue', 'third'),
+        q('popAll', 'third'),
+      ].join('\n'),
+    );
+    expect(st.queue!.map((x) => x.text)).toEqual(['second']);
+  });
+});
