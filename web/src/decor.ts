@@ -5,6 +5,8 @@ import { coffeeTableTexture, FRAMES, frameIndex, mapPosterTexture, PX, SCALE, so
 // PC's clock: dawn, day, sunset, night with stars), pictures on the wall and machines along it.
 
 const WALL_ROW = PX; // the window row starts one tile down
+/** Width the chat panel covers on the right when open. */
+const PANEL_COVER = 630;
 const PERIOD = 4 * PX; // wall strip pattern: brick pillar + three window tiles
 
 // 7-segment layout: which segments light for each digit (a b c d e f g).
@@ -251,21 +253,23 @@ export class OfficeDecor {
   layout(width: number, floorHeight: number, floorTop: number, lounge: LoungeRect | null): void {
     this.width = width;
     this.lounge.layout(lounge);
-    this.tvX = Math.round(width * 0.7);
+    // Keep the clock and TV left of where the chat panel opens (≈600px on the right).
+    const visible = Math.max(width - PANEL_COVER, 560);
+    this.clockX = Math.round(Math.max(230, Math.min(visible / 2 - 60, width / 2)));
+    this.tvX = this.clockX + 190;
     this.tv.layout(this.tvX);
     this.floorShade.setPosition(0, floorTop).setSize(width, floorHeight);
 
     // Pictures hang on the brick pillars of the window row; skip the ones under the clock.
     for (const p of this.pictures) p.destroy();
     this.pictures = [];
-    this.clockX = Math.round(width / 2);
     let k = 0;
     for (let x = PX / 2; x < width - PX; x += PERIOD) {
       if (Math.abs(x - this.clockX) < 140 || Math.abs(x - this.tvX) < 130 || x < 3 * PX) continue;
       const cell = FRAMES.pictures[k++ % FRAMES.pictures.length];
       this.pictures.push(this.scene.add.image(x, WALL_ROW + PX / 2, 'indoor', frameIndex('indoor', cell)).setOrigin(0.5).setScale(2).setDepth(-5));
     }
-    this.poster.setPosition(Math.max(180, this.clockX - 260), PX / 2 - 2);
+    this.poster.setPosition(Math.max(150, this.clockX - 190), PX / 2 - 2);
 
     // Machines along the wall: water cooler and printer on the left, vending machines on the right.
     const base = 2 * PX + 30;
