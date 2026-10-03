@@ -1,9 +1,6 @@
 import type {
   ConversationMessage,
   ConversationResponse,
-  QuestionState,
-  ChangeSummary,
-  FileDiffResponse,
   SubagentInfo,
   ImageUpload,
   OfficeAgent,
@@ -16,6 +13,10 @@ import type {
 import { ApiError, postJson } from './api';
 import { renderMarkdown } from './markdown';
 import { modelLine } from './format';
+import { ChangesView } from './panel/changesView';
+import { QuestionCards } from './panel/questionCards';
+import { SlashMenu } from './panel/slashMenu';
+import { ago, clock, esc, readAsUpload, terminalKeyFromEvent } from './panel/util';
 import type { Selection } from './officeScene';
 
 const STATE_LABEL: Record<string, string> = {
@@ -30,7 +31,6 @@ const STATE_LABEL: Record<string, string> = {
 const CONVERSATION_POLL_MS = 2000;
 const TERMINAL_POLL_MS = 1000;
 const MENU_CHECK_MS = 2500;
-const SLASH_MENU_SIZE = 8;
 // Keys offered under the terminal view, for TUI menus and permission prompts.
 const KEYS: [TerminalKey, string][] = [
   ['up', '↑'],
@@ -49,41 +49,10 @@ const KEYS: [TerminalKey, string][] = [
   ['n', 'n'],
   ['ctrl-c', 'Ctrl+C'],
 ];
-const SOURCE_LABEL: Record<SlashCommand['source'], string> = { builtin: '기본', user: '내 스킬', project: '프로젝트', plugin: '플러그인' };
 const MAX_ATTACH = 6;
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 // Paths of images sent from this UI (see bridge/src/uploads.ts), shown inline instead of as text.
 const UPLOAD_PATH = /^\s*\S*office-desks(?:-\d+)?[\\/]uploads[\\/]([\w-]+\.(?:png|jpg|gif|webp))\s*$/gm;
-
-function esc(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-}
-
-function ago(ts: number | null): string {
-  if (!ts) return '';
-  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}초 전부터`;
-  if (s < 3600) return `${Math.round(s / 60)}분 전부터`;
-  return `${Math.round(s / 3600)}시간 전부터`;
-}
-
-function clock(ts: string | null): string {
-  if (!ts) return '';
-  const d = new Date(ts);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function readAsUpload(file: File): Promise<ImageUpload & { url: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
-      resolve({ mediaType: file.type, data: url.slice(url.indexOf(',') + 1), url });
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
 
 /** Side panel: seat details, the agent's whole conversation, and a command box into its Orca terminal. */
 export class Panel {
@@ -108,26 +77,19 @@ export class Panel {
   /** When set, the conversation view shows this subagent's transcript instead of the main one. */
   private subView: SubagentInfo | null = null;
   private subagents: SubagentInfo[] = [];
-  private questions: QuestionState[] = [];
-  /** Selections on unanswered question cards, per toolUseId: chosen option indexes per question. */
-  private picks = new Map<string, number[][]>();
+  private readonly cards: QuestionCards;
+  private readonly slash: SlashMenu;
+  private readonly changes: ChangesView;
   private readonly tabs: HTMLDivElement;
   private readonly term: HTMLDivElement;
   private readonly screen: HTMLPreElement;
-  private readonly slashMenu: HTMLDivElement;
   private tab: 'convo' | 'term' | 'changes' = 'convo';
-  private readonly changesEl: HTMLDivElement;
-  private changesTimer: number | null = null;
-  private openFile: string | null = null;
   private termTimer: number | null = null;
   private menuMode = false;
   private autoSwitched = false;
   private readonly menuBanner: HTMLDivElement;
   private readonly toLatest: HTMLButtonElement;
   private unseen = 0;
-  private commands: SlashCommand[] = [];
-  private slashItems: SlashCommand[] = [];
-  private slashIndex = 0;
 
   constructor(
     private readonly el: HTMLElement,
@@ -180,14 +142,10 @@ export class Panel {
     this.tabs = el.querySelector('.tabs')!;
     this.term = el.querySelector('.term')!;
     this.screen = el.querySelector('.screen')!;
-    this.slashMenu = el.querySelector('.slash-menu')!;
     this.menuBanner = el.querySelector('.menu-banner')!;
-    this.changesEl = el.querySelector('.changes')!;
-    this.changesEl.addEventListener('click', (e) => {
-      const li = (e.target as HTMLElement).closest<HTMLElement>('[data-file]');
-      if (li) void this.showDiff(li.dataset.file!);
-      if ((e.target as HTMLElement).closest('[data-close-diff]')) this.showDiff(null);
-    });
+    this.changes = new ChangesView(el.querySelector('.changes')!);
+    this.slash = new SlashMenu(this.textarea, el.querySelector('.slash-menu')!);
+    this.cards = new QuestionCards(this.convo, () => this.selection?.agentId ?? null);
     this.toLatest = el.querySelector('.to-latest')!;
     this.toLatest.addEventListener('click', () => {
       this.convo.scrollTo({ top: this.convo.scrollHeight, behavior: 'smooth' });
@@ -202,11 +160,11 @@ export class Panel {
       const opt = t.closest<HTMLElement>('.question-card .opt');
       if (opt) {
         const card = opt.closest<HTMLElement>('.question-card')!;
-        return this.toggleOption(card.dataset.tool!, Number(opt.dataset.q), Number(opt.dataset.o));
+        return this.cards.toggle(card.dataset.tool!, Number(opt.dataset.q), Number(opt.dataset.o));
       }
       if (t.closest('[data-to-term]')) return this.showTab('term');
       const send = t.closest<HTMLElement>('.question-card [data-answer]');
-      if (send) return void this.sendAnswer(send.closest<HTMLElement>('.question-card')!);
+      if (send) return void this.cards.answer(send.closest<HTMLElement>('.question-card')!);
       const card = t.closest<HTMLElement>('.subagent-card.openable');
       if (card) this.openSubagent(card.dataset.tool ?? null);
     });
@@ -234,16 +192,6 @@ export class Panel {
       const key = (e.target as HTMLElement).closest<HTMLElement>('[data-key]')?.dataset.key as TerminalKey | undefined;
       if (key) void this.pressKey(key);
     });
-    this.textarea.addEventListener('input', () => this.updateSlashMenu());
-    this.textarea.addEventListener('click', () => this.updateSlashMenu());
-    this.textarea.addEventListener('blur', () => window.setTimeout(() => this.hideSlashMenu(), 150));
-    this.slashMenu.addEventListener('mousedown', (e) => {
-      const i = (e.target as HTMLElement).closest<HTMLElement>('[data-i]')?.dataset.i;
-      if (i !== undefined) {
-        e.preventDefault();
-        this.acceptSlash(Number(i));
-      }
-    });
 
     el.querySelector('.close')!.addEventListener('click', () => this.onClose());
     this.setupResize(el.querySelector<HTMLElement>('.resize')!);
@@ -252,27 +200,7 @@ export class Panel {
       void this.send();
     });
     this.textarea.addEventListener('keydown', (e) => {
-      if (!this.slashMenu.hidden && this.slashItems.length && !e.isComposing) {
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-          e.preventDefault();
-          const n = this.slashItems.length;
-          this.slashIndex = (this.slashIndex + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
-          this.renderSlashMenu();
-          return;
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          e.stopPropagation();
-          this.hideSlashMenu();
-          return;
-        }
-        const exact = this.slashItems[this.slashIndex]?.name === this.slashQuery();
-        if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !exact)) {
-          e.preventDefault();
-          this.acceptSlash(this.slashIndex);
-          return;
-        }
-      }
+      if (this.slash.handleKey(e)) return;
       // Enter sends, Shift+Enter is a newline; never send while a Korean/Japanese IME is composing.
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
         e.preventDefault();
@@ -329,15 +257,13 @@ export class Panel {
       this.feedback.textContent = '';
       this.subView = null;
       this.editingComment = false;
-      this.openFile = null;
-      this.changesEl.querySelector<HTMLElement>('.diff-view')!.hidden = true;
+      this.changes.reset();
       this.subagents = [];
-      this.questions = [];
-      this.picks.clear();
+      this.cards.reset();
       this.resetConversation('<p class="muted">대화를 불러오는 중…</p>');
       this.screen.textContent = '';
-      this.commands = [];
-      this.hideSlashMenu();
+      this.slash.setCommands([]);
+      this.slash.hide();
       this.showTab('convo');
       if (sel.agentId) void this.loadCommands(sel.agentId);
     }
@@ -358,7 +284,7 @@ export class Panel {
     this.el.hidden = true;
     this.stopConversation();
     this.stopTerminal();
-    this.stopChanges();
+    this.changes.stop();
   }
 
   /** Re-render the header only, so the conversation scroll and a half-typed command survive live updates. */
@@ -524,9 +450,9 @@ export class Panel {
     for (const b of this.tabs.querySelectorAll<HTMLElement>('[data-tab]')) b.classList.toggle('active', b.dataset.tab === tab);
     this.convo.hidden = tab !== 'convo';
     this.term.hidden = tab !== 'term';
-    this.changesEl.hidden = tab !== 'changes';
-    if (tab === 'changes') this.startChanges();
-    else this.stopChanges();
+    this.el.querySelector<HTMLElement>('.changes')!.hidden = tab !== 'changes';
+    if (tab === 'changes' && this.selection) this.changes.start(this.selection.deskId);
+    else this.changes.stop();
     this.updateToLatest();
     // Never move keyboard focus to the terminal by itself: keys typed there go straight to the
     // agent, so only an explicit click on the screen turns that on.
@@ -570,83 +496,10 @@ export class Panel {
     this.termTimer = null;
   }
 
-  // --- changes (git) ---
-
-  private startChanges(): void {
-    this.stopChanges();
-    const deskId = this.selection?.deskId;
-    if (!deskId) return;
-    const tick = async () => {
-      await this.loadChanges(deskId);
-      if (this.tab === 'changes' && this.selection?.deskId === deskId) this.changesTimer = window.setTimeout(tick, 5000);
-    };
-    void tick();
-  }
-
-  private stopChanges(): void {
-    if (this.changesTimer !== null) window.clearTimeout(this.changesTimer);
-    this.changesTimer = null;
-  }
-
-  private async loadChanges(deskId: string): Promise<void> {
-    const list = this.changesEl.querySelector<HTMLElement>('.file-list')!;
-    try {
-      const res = await fetch(`/api/changes?deskId=${encodeURIComponent(deskId)}`);
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as ChangeSummary;
-      if (this.selection?.deskId !== deskId) return;
-      const icon = { modified: 'M', added: 'A', deleted: 'D', renamed: 'R', untracked: 'U' } as const;
-      list.innerHTML = data.files.length
-        ? `<li class="sum">파일 ${data.files.length}개 · <span class="add">+${data.added}</span> <span class="del">−${data.deleted}</span> <span class="muted">(커밋 전 변경, HEAD 기준)</span></li>` +
-          data.files
-            .map(
-              (f) => `<li data-file="${esc(f.path)}" class="${f.path === this.openFile ? 'open' : ''}"><span class="st st-${f.status}">${icon[f.status]}</span>
-                <span class="fp">${esc(f.path)}</span><span class="add">+${f.added}</span><span class="del">−${f.deleted}</span></li>`,
-            )
-            .join('')
-        : '<li class="muted">커밋되지 않은 변경이 없습니다.</li>';
-    } catch {
-      list.innerHTML = '<li class="muted">변경 사항을 읽지 못했습니다 (git 저장소가 아니거나 git이 없음).</li>';
-    }
-  }
-
-  private async showDiff(file: string | null): Promise<void> {
-    const view = this.changesEl.querySelector<HTMLElement>('.diff-view')!;
-    this.openFile = file;
-    for (const li of this.changesEl.querySelectorAll<HTMLElement>('[data-file]')) li.classList.toggle('open', li.dataset.file === file);
-    if (!file || !this.selection) {
-      view.hidden = true;
-      return;
-    }
-    const head = view.querySelector<HTMLElement>('.diff-head')!;
-    const pre = view.querySelector<HTMLPreElement>('.diff')!;
-    head.innerHTML = `<b></b> <button type="button" data-close-diff>닫기</button>`;
-    head.querySelector('b')!.textContent = file;
-    pre.textContent = '불러오는 중…';
-    view.hidden = false;
-    try {
-      const res = await fetch(`/api/diff?deskId=${encodeURIComponent(this.selection.deskId)}&file=${encodeURIComponent(file)}`);
-      const data = (await res.json()) as FileDiffResponse & { error?: string };
-      if (!res.ok) throw new Error(data.error);
-      // One span per line, text only: diffs are untrusted content.
-      pre.textContent = '';
-      for (const line of data.diff.split('\n')) {
-        const span = document.createElement('span');
-        span.className = line.startsWith('+') && !line.startsWith('+++') ? 'l-add' : line.startsWith('-') && !line.startsWith('---') ? 'l-del' : line.startsWith('@@') ? 'l-hunk' : '';
-        span.textContent = `${line}\n`;
-        pre.append(span);
-      }
-      if (data.truncated) pre.append('\n… (너무 길어 잘렸습니다)');
-      if (!data.diff) pre.textContent = '(내용 없음 · 바이너리 파일일 수 있습니다)';
-    } catch (err) {
-      pre.textContent = `⚠️ ${(err as Error).message || 'diff를 불러오지 못했습니다'}`;
-    }
-  }
-
   /** A dialog owns the agent's keyboard: show it, route keys to it, and hold back messages. */
   private setMenuMode(on: boolean): void {
     // An open AskUserQuestion dialog is answered from its card in the chat, not the terminal.
-    const asking = on && this.questions.some((q) => q.status === 'pending') && !this.subView;
+    const asking = on && this.cards.hasPending && !this.subView;
     const label = asking
       ? '🙋 에이전트가 질문했어요. 대화창의 질문 카드에서 답해 주세요.'
       : '🧭 에이전트 화면에 메뉴가 열려 있어요. 지금 보내는 메시지는 전달되지 않습니다.';
@@ -681,21 +534,7 @@ export class Panel {
   /** Keyboard passthrough while the terminal view has focus. */
   private onScreenKey(e: KeyboardEvent): void {
     if (e.isComposing) return;
-    const named: Record<string, TerminalKey> = {
-      ArrowUp: 'up',
-      ArrowDown: 'down',
-      ArrowLeft: 'left',
-      ArrowRight: 'right',
-      Enter: 'enter',
-      Escape: 'esc',
-      Backspace: 'backspace',
-      ' ': 'space',
-    };
-    let key: TerminalKey | { char: string } | null = null;
-    if (e.key === 'Tab') key = e.shiftKey ? 'shift-tab' : 'tab';
-    else if (e.ctrlKey && e.key.toLowerCase() === 'c') key = 'ctrl-c';
-    else if (named[e.key]) key = named[e.key];
-    else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) key = { char: e.key };
+    const key = terminalKeyFromEvent(e);
     if (!key) return;
     e.preventDefault();
     e.stopPropagation(); // Esc goes to the agent, not to closing the panel
@@ -708,77 +547,10 @@ export class Panel {
     try {
       const res = await fetch(`/api/commands?agentId=${encodeURIComponent(agentId)}`);
       const list = (await res.json()) as SlashCommand[];
-      if (this.selection?.agentId === agentId) this.commands = list;
+      if (this.selection?.agentId === agentId) this.slash.setCommands(list);
     } catch {
-      this.commands = [];
+      this.slash.setCommands([]);
     }
-  }
-
-  /** The `/word` being typed, if the caret is still inside the first token of the message. */
-  private slashQuery(): string | null {
-    const v = this.textarea.value;
-    if (!v.startsWith('/')) return null;
-    const end = v.search(/\s/);
-    const tokenEnd = end === -1 ? v.length : end;
-    if (this.textarea.selectionStart > tokenEnd) return null;
-    return v.slice(1, tokenEnd);
-  }
-
-  private updateSlashMenu(): void {
-    const q = this.slashQuery();
-    if (q === null || !this.commands.length) return this.hideSlashMenu();
-    const ql = q.toLowerCase();
-    // Rank: name prefix, then prefix after a plugin namespace ("brain" → superpowers:brainstorming),
-    // then substring, then description match.
-    const rank = (c: SlashCommand): number => {
-      const n = c.name.toLowerCase();
-      if (n.startsWith(ql)) return 0;
-      if (n.split(':').some((part) => part.startsWith(ql))) return 1;
-      if (n.includes(ql)) return 2;
-      if (ql.length > 2 && c.description.toLowerCase().includes(ql)) return 3;
-      return 9;
-    };
-    const ranked = this.commands.map((c) => [rank(c), c] as const).filter(([r]) => r < 9);
-    ranked.sort((x, y) => x[0] - y[0] || x[1].name.length - y[1].name.length);
-    const starts = ranked.map(([, c]) => c);
-    const rest: SlashCommand[] = [];
-    this.slashItems = [...starts, ...rest].slice(0, 50);
-    this.slashIndex = 0;
-    if (!this.slashItems.length) return this.hideSlashMenu();
-    this.renderSlashMenu();
-  }
-
-  private renderSlashMenu(): void {
-    const start = Math.max(0, Math.min(this.slashIndex - SLASH_MENU_SIZE + 1, this.slashItems.length - SLASH_MENU_SIZE));
-    const view = this.slashItems.slice(start, start + SLASH_MENU_SIZE);
-    this.slashMenu.innerHTML =
-      view
-        .map((c, k) => {
-          const i = start + k;
-          return `<div class="item${i === this.slashIndex ? ' active' : ''}" data-i="${i}">
-            <span class="name">/${esc(c.name)}</span><span class="src">${SOURCE_LABEL[c.source]}</span>
-            <span class="desc">${esc(c.description)}</span></div>`;
-        })
-        .join('') + `<div class="hint">↑↓ 이동 · Tab/Enter 선택 · Esc 닫기 · ${this.slashItems.length}개</div>`;
-    this.slashMenu.hidden = false;
-  }
-
-  private hideSlashMenu(): void {
-    this.slashMenu.hidden = true;
-    this.slashItems = [];
-  }
-
-  private acceptSlash(i: number): void {
-    const c = this.slashItems[i];
-    if (!c) return;
-    const v = this.textarea.value;
-    const end = v.search(/\s/);
-    const rest = end === -1 ? '' : v.slice(end).replace(/^\s+/, '');
-    this.textarea.value = `/${c.name} ${rest}`;
-    const caret = c.name.length + 2;
-    this.textarea.setSelectionRange(caret, caret);
-    this.hideSlashMenu();
-    this.textarea.focus();
   }
 
   // --- conversation ---
@@ -825,11 +597,10 @@ export class Panel {
       data.screenSupport === 'untested'
         ? `Claude Code ${data.claudeVersion}은(는) 화면 해석이 검증되지 않은 버전이에요. 질문 카드와 메뉴 감지가 틀릴 수 있으니 이상하면 터미널 탭을 써 주세요.`
         : null;
-    this.questions = data.questions ?? [];
-    this.updateQuestionCards();
+    this.cards.set(data.questions ?? [], this.screenWarning);
     this.renderPending(data.pending ?? []);
     // We may have jumped to the terminal before learning the dialog is a question: come back to its card.
-    if (this.menuMode && this.autoSwitched && this.tab === 'term' && this.questions.some((q) => q.status === 'pending')) {
+    if (this.menuMode && this.autoSwitched && this.tab === 'term' && this.cards.hasPending) {
       this.autoSwitched = false;
       this.showTab('convo');
       this.setMenuMode(true);
@@ -963,81 +734,6 @@ export class Panel {
     this.convo.append(box); // always last
   }
 
-  /** (Re)draw question cards whose status changed; keeps in-progress selections. */
-  private updateQuestionCards(): void {
-    for (const card of this.convo.querySelectorAll<HTMLElement>('.question-card')) {
-      const q = this.questions.find((x) => x.toolUseId === card.dataset.tool);
-      if (!q) continue;
-      const key = `${q.status}|${JSON.stringify(this.picks.get(q.toolUseId) ?? [])}`;
-      if (card.dataset.key === key) continue;
-      card.dataset.key = key;
-      card.dataset.status = q.status;
-      card.innerHTML = this.questionHtml(q);
-    }
-  }
-
-  private questionHtml(q: QuestionState): string {
-    const picks = this.picks.get(q.toolUseId) ?? q.questions.map(() => []);
-    const head = { pending: '🙋 에이전트의 질문', answered: '✅ 답변함', cancelled: '✖ 취소된 질문' }[q.status];
-    const body = q.questions
-      .map((item, qi) => {
-        const answer = q.answers[item.question];
-        const options =
-          q.status === 'pending'
-            ? `<div class="options">${item.options
-                .map(
-                  (o, oi) => `<button type="button" class="opt${picks[qi]?.includes(oi) ? ' picked' : ''}" data-q="${qi}" data-o="${oi}">
-                    <span class="mark">${item.multiSelect ? (picks[qi]?.includes(oi) ? '☑' : '☐') : picks[qi]?.includes(oi) ? '◉' : '○'}</span>
-                    <span class="label">${esc(o.label)}</span>${o.description ? `<span class="hint">${esc(o.description)}</span>` : ''}</button>`,
-                )
-                .join('')}</div>`
-            : answer
-              ? `<p class="answer">→ ${esc(answer)}</p>`
-              : '';
-        return `<div class="q">${item.header ? `<span class="chip">${esc(item.header)}</span>` : ''}${item.multiSelect && q.status === 'pending' ? '<span class="multi">여러 개 선택</span>' : ''}
-          <p class="text">${esc(item.question)}</p>${options}</div>`;
-      })
-      .join('');
-    const ready = q.questions.every((item, qi) => (item.multiSelect ? (picks[qi]?.length ?? 0) > 0 : picks[qi]?.length === 1));
-    const foot =
-      q.status === 'pending'
-        ? `<div class="q-foot"><span class="q-msg"></span><button type="button" class="to-term" data-to-term hidden>🖥️ 터미널에서 답하기</button><button type="button" class="send-answer" data-answer ${ready ? '' : 'disabled'}>답변 보내기</button></div>`
-        : '';
-    const warn = q.status === 'pending' && this.screenWarning ? `<p class="q-warn">⚠️ ${esc(this.screenWarning)}</p>` : '';
-    return `<div class="q-head">${head}</div>${warn}${body}${foot}`;
-  }
-
-  private toggleOption(toolUseId: string, qi: number, oi: number): void {
-    const q = this.questions.find((x) => x.toolUseId === toolUseId);
-    if (!q || q.status !== 'pending') return;
-    const picks = this.picks.get(toolUseId) ?? q.questions.map(() => [] as number[]);
-    const cur = picks[qi] ?? [];
-    picks[qi] = q.questions[qi].multiSelect ? (cur.includes(oi) ? cur.filter((x) => x !== oi) : [...cur, oi].sort()) : [oi];
-    this.picks.set(toolUseId, picks);
-    this.updateQuestionCards();
-  }
-
-  private async sendAnswer(card: HTMLElement): Promise<void> {
-    const toolUseId = card.dataset.tool!;
-    const agentId = this.selection?.agentId;
-    const picks = this.picks.get(toolUseId);
-    const msg = card.querySelector<HTMLElement>('.q-msg');
-    const btn = card.querySelector<HTMLButtonElement>('[data-answer]');
-    if (!agentId || !picks) return;
-    if (btn) btn.disabled = true;
-    if (msg) msg.textContent = '터미널에 답을 입력하는 중…';
-    try {
-      await postJson('/api/answer', { agentId, toolUseId, choices: picks });
-      if (msg) msg.textContent = '✅ 보냈습니다';
-    } catch (err) {
-      if (msg) msg.textContent = `⚠️ ${(err as Error).message}`;
-      if (btn) btn.disabled = false;
-      // Way out when the dialog couldn't be driven: answer it in the terminal view.
-      const toTerm = card.querySelector<HTMLElement>('[data-to-term]');
-      if (toTerm) toTerm.hidden = false;
-    }
-  }
-
   /** Refresh status badges on subagent cards (status changes long after the card was appended). */
   private updateSubagentCards(): void {
     const label = { running: '진행 중', done: '완료', failed: '실패' } as const;
@@ -1068,7 +764,7 @@ export class Panel {
         card.className = 'question-card';
         card.dataset.tool = m.toolUseId;
         this.convo.append(card);
-        this.updateQuestionCards();
+        this.cards.update();
         return;
       }
       if (m.role === 'subagent' && m.toolUseId) {
@@ -1163,11 +859,11 @@ export class Panel {
       this.textarea.value = '';
       this.pending = [];
       this.renderAttachments();
-      this.hideSlashMenu();
+      this.slash.hide();
       this.feedback.textContent = '✅ 전달됨';
       // Built-in slash commands (/config, /model, …) answer with a menu in the terminal, not in the chat.
       const cmd = /^\/([\w:-]+)/.exec(text)?.[1];
-      if (cmd && this.commands.find((c) => c.name === cmd)?.source === 'builtin') this.showTab('term');
+      if (cmd && this.slash.find(cmd)?.source === 'builtin') this.showTab('term');
     } catch (err) {
       const e = err as ApiError;
       if (e.code === 'agent_busy' && e.requestId) {
