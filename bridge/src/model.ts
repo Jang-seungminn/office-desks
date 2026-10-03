@@ -246,3 +246,15 @@ export interface WorktreeUpdate {
   /** Empty string clears the comment. */
   comment?: string;
 }
+
+/** Start new work: a new worktree with an agent, or an agent in an existing worktree. */
+export interface HireRequest {
+  /** New worktree in this repo (exactly one of repoId / deskId). */
+  repoId?: string;
+  name?: string;
+  baseBranch?: string;
+  /** Existing worktree that gets another agent. */
+  deskId?: string;
+  agent: string;
+  prompt?: string;
+}

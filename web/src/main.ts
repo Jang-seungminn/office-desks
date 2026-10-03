@@ -5,6 +5,7 @@ import { OfficeScene, type Selection } from './officeScene';
 import { Panel } from './panel';
 import { modelLine } from './format';
 import { loadPixelFonts } from './fonts';
+import { HireDialog } from './hireDialog';
 import { Notices, type Attention } from './notices';
 import type { UsageSnapshot } from '../../bridge/src/model';
 import './style.css';
@@ -113,6 +114,9 @@ scene.onSelect = (sel) => {
   select(sel);
 };
 
+const hire = new HireDialog(document.getElementById('modal')!, () => snapshot);
+panel.onHire = (deskId) => hire.open({ deskId });
+
 // Hover tooltip: full names and activity that the desk labels have to shorten.
 const tooltip = document.getElementById('tooltip')!;
 scene.onHover = (info) => {
@@ -151,6 +155,10 @@ let waitingCursor = 0;
 let reportCursor = 0;
 statusLeft.addEventListener('click', (e) => {
   const t = e.target as HTMLElement;
+  if (t.closest('[data-hire]')) {
+    hire.open({ repoId: openSelection ? snapshot?.desks.find((d) => d.id === openSelection!.deskId)?.repoId : undefined });
+    return;
+  }
   if (t.closest('[data-bell]')) {
     void Notification.requestPermission().then(renderStatus);
     return;
@@ -181,6 +189,7 @@ function renderStatus(): void {
   const conn = { open: '🟢 연결됨', connecting: '🟡 연결 중', closed: '🔴 브리지 끊김' }[connection];
   statusLeft.innerHTML = `
     <span>${conn}</span>
+    <button class="hire" data-hire title="새 워크트리를 만들고 에이전트를 띄웁니다">➕ 새 작업</button>
     <span>🏢 워크트리 ${snapshot?.desks.length ?? 0}</span>
     <span>⌨️ 일하는 중 ${busy}</span>
     ${attention.length ? `<button class="report" data-reports title="완료하거나 확인을 요청한 에이전트로 이동">📬 새 보고 ${attention.length}</button>` : ''}

@@ -216,6 +216,7 @@ export class Panel {
     this.info.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('[data-stop]')) void this.stopAgent();
+      if (t.closest('[data-hire-here]') && this.desk) this.onHire(this.desk.id);
       if (t.closest('[data-edit-comment]')) this.editComment();
       if (t.closest('[data-save-comment]')) void this.saveComment();
       if (t.closest('[data-cancel-comment]')) this.cancelComment();
@@ -358,6 +359,8 @@ export class Panel {
 
   /** Re-render the header only, so the conversation scroll and a half-typed command survive live updates. */
   private lastSnapshot: OfficeSnapshot | null = null;
+  /** Opens the "add an agent to this worktree" dialog. */
+  onHire: (deskId: string) => void = () => {};
   /** While the comment is being edited, header refreshes must not wipe the input. */
   private editingComment = false;
 
@@ -425,7 +428,7 @@ export class Panel {
         <h2>${esc(d.name)}</h2>
         <p class="muted">${d.branch ? `<code>${esc(d.branch)}</code> · ` : ''}<span class="path">${esc(d.path)}</span></p>
         <p>
-          ${a ? `<span class="pill">${esc(a.agentType)}</span>${modelLine(a.model, a.effort) ? ` <span class="pill model">${esc(modelLine(a.model, a.effort)!)}</span>` : ''} <span class="state state-${a.state}">${STATE_LABEL[a.state] ?? a.state}</span> <span class="muted">${esc(ago(a.since))}</span>` : '<span class="pill">빈 자리</span>'}
+          ${!a ? `<button type="button" class="hire-here" data-hire-here>🧑 에이전트 추가</button> ` : ''}${a ? `<span class="pill">${esc(a.agentType)}</span>${modelLine(a.model, a.effort) ? ` <span class="pill model">${esc(modelLine(a.model, a.effort)!)}</span>` : ''} <span class="state state-${a.state}">${STATE_LABEL[a.state] ?? a.state}</span> <span class="muted">${esc(ago(a.since))}</span>` : '<span class="pill">빈 자리</span>'}
           ${this.statusSelect(d.workspaceStatus)}
         </p>
         ${a ? `<div class="activity-row"><p class="activity">${esc(a.activity)}</p>${this.stopButton(a)}</div>` : ''}

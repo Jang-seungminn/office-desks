@@ -1095,3 +1095,113 @@ details.tools ol {
   cursor: pointer;
   padding: 0 2px;
 }
+
+/* New work dialog */
+#modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 16, 12, 0.55);
+}
+#modal[hidden] {
+  display: none;
+}
+#modal .dialog {
+  position: relative;
+  width: min(460px, calc(100% - 32px));
+  padding: 18px 20px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 6px 6px 0 rgba(43, 33, 24, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+#modal h2 {
+  margin: 0;
+  font-size: 18px;
+}
+#modal p {
+  margin: 0;
+  font-size: 12px;
+}
+#modal .muted {
+  color: var(--muted);
+  font-weight: 400;
+}
+#modal label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+}
+#modal input,
+#modal select,
+#modal textarea {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  padding: 6px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: #fff;
+}
+#modal .row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+#modal .msg {
+  flex: 1;
+  font-size: 12px;
+}
+#modal .row button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 7px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+#modal .row button.primary {
+  background: var(--accent);
+  color: #fff;
+}
+#modal .close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  border: none;
+  background: none;
+  font-size: 16px;
+  cursor: pointer;
+}
+#status-bar button.hire {
+  font: inherit;
+  font-weight: 700;
+  color: #fff;
+  background: #2f7a32;
+  border: 1px solid #2f7a32;
+  border-radius: 999px;
+  padding: 1px 10px;
+  cursor: pointer;
+}
+#panel .hire-here {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border: 2px solid #2f7a32;
+  border-radius: 999px;
+  background: #fff;
+  color: #2f7a32;
+  cursor: pointer;
+}
