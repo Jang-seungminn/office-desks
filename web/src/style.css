@@ -814,3 +814,22 @@ details.tools ol {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+#status-bar button.report,
+#status-bar button.bell {
+  font: inherit;
+  font-weight: 700;
+  background: none;
+  border-radius: 999px;
+  padding: 1px 10px;
+  cursor: pointer;
+}
+#status-bar button.report {
+  color: #fff;
+  background: #e5484d;
+  border: 1px solid #e5484d;
+}
+#status-bar button.bell {
+  color: var(--paper);
+  border: 1px dashed #a8957c;
+}

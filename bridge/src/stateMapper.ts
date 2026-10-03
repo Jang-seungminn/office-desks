@@ -26,6 +26,7 @@ export interface OrcaWorktreeRow {
   preview?: string;
   isActive?: boolean;
   isArchived?: boolean;
+  unread?: boolean;
   isMainWorktree?: boolean;
   parentWorktreeId?: string | null;
   agents?: OrcaAgentRow[];
@@ -138,6 +139,7 @@ export function toSnapshot(
         comment: w.comment ?? '',
         preview: oneLine(w.preview, 120),
         isActive: Boolean(w.isActive),
+        unread: Boolean(w.unread),
         agents,
       };
     })

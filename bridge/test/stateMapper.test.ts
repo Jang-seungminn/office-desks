@@ -64,6 +64,11 @@ describe('toSnapshot', () => {
     expect(snap.desks[0].agents[0].terminalTitle).toBe('Fix login');
   });
 
+  it("passes Orca's unread flag through", () => {
+    expect(toSnapshot([{ worktreeId: 'r::/a', unread: true }], []).desks[0].unread).toBe(true);
+    expect(snap.desks[0].unread).toBe(false);
+  });
+
   it('keeps desks with no agents (empty desk)', () => {
     expect(snap.desks[2].agents).toEqual([]);
   });

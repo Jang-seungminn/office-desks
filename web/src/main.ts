@@ -4,6 +4,7 @@ import { connectOffice, type ConnectionState } from './api';
 import { OfficeScene, type Selection } from './officeScene';
 import { Panel } from './panel';
 import { modelLine } from './format';
+import { Notices, type Attention } from './notices';
 import type { UsageSnapshot } from '../../bridge/src/model';
 import './style.css';
 
@@ -51,14 +52,62 @@ function renderUsage(u: UsageSnapshot): void {
 const panel = new Panel(document.getElementById('panel')!, () => {
   panel.close();
   scene.setSelection(null);
+  openSelection = null;
 });
 
 function select(sel: Selection): void {
+  openSelection = sel;
   scene.setSelection(sel);
   panel.open(sel, snapshot);
   tooltip.hidden = true;
+  if (sel.agentId) {
+    notices.markSeen(sel.agentId);
+    refreshAttention();
+  }
 }
-scene.onSelect = select;
+
+// --- "new report" badges and desktop notifications ---
+function storage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+const notices = new Notices(storage());
+let attention: Attention[] = [];
+let openSelection: Selection | null = null;
+
+function refreshAttention(): void {
+  if (!snapshot) return;
+  // Whatever you're looking at right now counts as read.
+  if (openSelection?.agentId && document.visibilityState === 'visible' && panel.isOpen) notices.markSeen(openSelection.agentId);
+  attention = notices.attention(snapshot);
+  scene.setAttention(new Map(attention.map((a) => [a.agentId, a.kind])));
+  renderStatus();
+}
+
+function notify(changes: Attention[]): void {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  for (const c of changes) {
+    if (document.visibilityState === 'visible' && panel.isOpen && openSelection?.agentId === c.agentId) continue;
+    const desk = snapshot?.desks.find((d) => d.id === c.deskId);
+    const agent = desk?.agents.find((a) => a.id === c.agentId);
+    if (!desk || !agent) continue;
+    const body = (agent.lastMessage ?? agent.activity).replace(/[#*`_>]/g, '').replace(/\s+/g, ' ').slice(0, 140);
+    const n = new Notification(`${desk.name}: ${c.kind === 'waiting' ? '확인이 필요해요' : '작업 완료'}`, { body, tag: c.agentId });
+    n.onclick = () => {
+      window.focus();
+      select({ deskId: c.deskId, agentId: c.agentId });
+      n.close();
+    };
+  }
+}
+document.addEventListener('visibilitychange', refreshAttention);
+scene.onSelect = (sel) => {
+  openSelection = sel;
+  select(sel);
+};
 
 // Hover tooltip: full names and activity that the desk labels have to shorten.
 const tooltip = document.getElementById('tooltip')!;
@@ -95,11 +144,24 @@ lightbox.addEventListener('click', () => (lightbox.hidden = true));
 
 // The "needs you" counter cycles through agents that are waiting on the human.
 let waitingCursor = 0;
+let reportCursor = 0;
 statusLeft.addEventListener('click', (e) => {
-  if (!(e.target as HTMLElement).closest('[data-waiting]')) return;
+  const t = e.target as HTMLElement;
+  if (t.closest('[data-bell]')) {
+    void Notification.requestPermission().then(renderStatus);
+    return;
+  }
+  if (t.closest('[data-reports]') && attention.length) {
+    const a = attention[reportCursor++ % attention.length];
+    openSelection = { deskId: a.deskId, agentId: a.agentId };
+    select(openSelection);
+    return;
+  }
+  if (!t.closest('[data-waiting]')) return;
   const waiting = (snapshot?.desks ?? []).flatMap((d) => d.agents.filter((a) => a.state === 'waiting').map((a) => ({ deskId: d.id, agentId: a.id })));
   if (!waiting.length) return;
-  select(waiting[waitingCursor++ % waiting.length]);
+  openSelection = waiting[waitingCursor++ % waiting.length];
+  select(openSelection);
 });
 
 function renderStatus(): void {
@@ -112,9 +174,12 @@ function renderStatus(): void {
     <span>${conn}</span>
     <span>🏢 워크트리 ${snapshot?.desks.length ?? 0}</span>
     <span>⌨️ 일하는 중 ${busy}</span>
+    ${attention.length ? `<button class="report" data-reports title="완료하거나 확인을 요청한 에이전트로 이동">📬 새 보고 ${attention.length}</button>` : ''}
+    ${'Notification' in window && Notification.permission === 'default' ? '<button class="bell" data-bell title="에이전트가 끝나면 데스크톱 알림">🔔 알림 켜기</button>' : ''}
     ${waiting ? `<button class="alert" data-waiting title="확인이 필요한 에이전트로 이동">🙋 확인 필요 ${waiting}</button>` : '<span>🙋 확인 필요 0</span>'}
     ${snapshot?.error ? `<span class="alert" title="${esc(snapshot.error)}">⚠️ Orca 오류</span>` : ''}`;
-  document.title = waiting ? `(${waiting}) Office Desks` : 'Office Desks';
+  const badge = new Set([...attention.map((a) => a.agentId), ...agents.filter((a) => a.state === 'waiting').map((a) => a.id)]).size;
+  document.title = badge ? `(${badge}) Office Desks` : 'Office Desks';
 }
 
 connectOffice(
@@ -122,7 +187,8 @@ connectOffice(
     snapshot = s;
     scene.setSnapshot(s);
     panel.refresh(s);
-    renderStatus();
+    notify(notices.transitions(s));
+    refreshAttention();
   },
   (c) => {
     connection = c;
@@ -135,6 +201,7 @@ connectOffice(
 scene.onBackground = () => {
   panel.close();
   scene.setSelection(null);
+  openSelection = null;
 };
 
 document.addEventListener('keydown', (e) => {
@@ -145,5 +212,6 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     panel.close();
     scene.setSelection(null);
+    openSelection = null;
   }
 });

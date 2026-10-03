@@ -81,6 +81,9 @@ class Seat {
   private readonly bubbleIcon: Phaser.GameObjects.Image;
   private readonly activity: Phaser.GameObjects.Text;
   private readonly modelTag: Phaser.GameObjects.Text;
+  private readonly badge: Phaser.GameObjects.Container;
+  private badgeTween: Phaser.Tweens.Tween | null = null;
+  private badgeKind: string | null = null;
   private readonly highlight: Phaser.GameObjects.Rectangle;
   private tweens: Phaser.Tweens.Tween[] = [];
   /** Small helpers standing by the desk while this agent's subagents work. */
@@ -123,6 +126,12 @@ class Seat {
       .text(4, 2, '', { fontFamily: 'monospace', fontSize: '10px', color: '#fdf6e3', backgroundColor: '#2b2118cc', padding: { x: 4, y: 2 } })
       .setVisible(false);
 
+    // Red "new report" badge, like an app icon badge, until the agent is opened.
+    const badgeBg = s.add.graphics();
+    badgeBg.fillStyle(0xe5484d, 1).fillCircle(0, 0, 10).lineStyle(2, 0xffffff, 1).strokeCircle(0, 0, 10);
+    const badgeText = s.add.text(0, 0, '!', { fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5);
+    this.badge = s.add.container(SEAT_W - 12, 10, [badgeBg, badgeText]).setVisible(false);
+
     const bubbleBg = s.add.graphics();
     bubbleBg.fillStyle(0xffffff, 1).fillRoundedRect(0, 0, 11 * SCALE, 11 * SCALE, 6);
     bubbleBg.lineStyle(2, 0x2b2118, 1).strokeRoundedRect(0, 0, 11 * SCALE, 11 * SCALE, 6);
@@ -159,6 +168,7 @@ class Seat {
       this.activity,
       this.modelTag,
       this.bubble,
+      this.badge,
       hit,
     ]);
   }
@@ -238,6 +248,18 @@ class Seat {
     });
   }
 
+  setAttention(kind: string | null): void {
+    if (kind === this.badgeKind) return;
+    this.badgeKind = kind;
+    this.badgeTween?.remove();
+    this.badgeTween = null;
+    this.badge.setVisible(Boolean(kind)).setScale(1);
+    if (kind) {
+      (this.badge.list[1] as Phaser.GameObjects.Text).setText(kind === 'waiting' ? '?' : '!');
+      this.badgeTween = this.scene.tweens.add({ targets: this.badge, scale: 1.25, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    }
+  }
+
   setSelected(on: boolean): void {
     this.selected = on;
     this.highlight.setFillStyle(on ? 0xffd166 : 0xffffff, on ? 0.3 : 0.14).setVisible(on);
@@ -246,6 +268,7 @@ class Seat {
   destroy(): void {
     for (const t of this.tweens) t.remove();
     for (const t of this.internTweens) t.remove();
+    this.badgeTween?.remove();
     this.root.destroy();
   }
 }
@@ -296,6 +319,14 @@ export class OfficeScene extends Phaser.Scene {
   setSnapshot(snapshot: OfficeSnapshot): void {
     this.snapshot = snapshot;
     if (this.sys.isActive()) this.layout();
+  }
+
+  private attention = new Map<string, string>();
+
+  /** agentId → 'done' | 'waiting' for agents with an unopened report. */
+  setAttention(attention: Map<string, string>): void {
+    this.attention = attention;
+    for (const [key, seat] of this.seats) seat.setAttention(this.attention.get(key.split('|')[1]) ?? null);
   }
 
   setSelection(sel: Selection | null): void {
@@ -445,6 +476,7 @@ export class OfficeScene extends Phaser.Scene {
       seat.root.setPosition(x + POD_PAD + i * SEAT_W, y + LABEL_H + POD_PAD);
       seat.update(agent, hash(agent?.id ?? key));
       seat.setSelected(key === this.selectionKey());
+      seat.setAttention(agent ? (this.attention.get(agent.id) ?? null) : null);
     });
   }
 }

@@ -51,6 +51,8 @@ export interface OfficeDesk {
   comment: string;
   preview: string;
   isActive: boolean;
+  /** Orca's own "unread" flag: something happened here you haven't looked at in Orca yet. */
+  unread: boolean;
   agents: OfficeAgent[];
 }
 
