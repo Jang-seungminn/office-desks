@@ -78,13 +78,13 @@ function describe(state: CharacterState, a: OrcaAgentRow): string {
   const input = oneLine(a.toolInput, 60);
   switch (state) {
     case 'waiting':
-      return tool ? `Needs you: ${tool}` : 'Needs you';
+      return tool ? `확인 필요: ${tool}` : '확인 필요';
     case 'done':
-      return 'Done — waiting for next task';
+      return '완료 · 다음 지시 대기';
     case 'away':
-      return 'Away';
+      return '자리 비움';
     default:
-      if (!tool) return 'Thinking…';
+      if (!tool) return '생각 중…';
       return input ? `${tool}: ${input}` : tool;
   }
 }

@@ -42,10 +42,10 @@ describe('toSnapshot', () => {
 
   it('builds readable activity lines', () => {
     const b = snap.desks[1];
-    expect(snap.desks[0].agents[0].activity).toBe('Needs you: ExitPlanMode');
+    expect(snap.desks[0].agents[0].activity).toBe('확인 필요: ExitPlanMode');
     expect(b.agents[0].activity).toBe('Bash: npm test --watch=false');
-    expect(b.agents[2].activity).toBe('Thinking…');
-    expect(b.agents[3].activity).toMatch(/^Done/);
+    expect(b.agents[2].activity).toBe('생각 중…');
+    expect(b.agents[3].activity).toBe('완료 · 다음 지시 대기');
     expect(b.agents[3].lastMessage).toBe('All green.');
   });
 

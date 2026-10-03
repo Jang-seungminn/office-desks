@@ -197,5 +197,6 @@ npm run typecheck
 
 - 코드: [MIT](LICENSE)
 - 픽셀아트: [Kenney](https://kenney.nl) — Roguelike Indoors, Roguelike Characters, Roguelike Modern City (CC0).
+- 픽셀 폰트: [Galmuri](https://github.com/quiple/galmuri) by Minseo Lee (SIL Open Font License 1.1, `web/src/fonts/galmuri/OFL.md`).
   `web/public/assets/kenney/LICENSE.txt` 참고. 모니터 뒷면과 상태 아이콘은 `web/src/sprites.ts`에서 코드로 그립니다.
 - Office Desks는 Orca와 무관한 개인 프로젝트입니다.

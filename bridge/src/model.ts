@@ -25,7 +25,7 @@ export interface OfficeAgent {
   state: CharacterState;
   /** Raw Orca agent state, kept for debugging and the side panel. */
   rawState: string;
-  /** Short human line, e.g. "Bash: npm test" or "Needs you: ExitPlanMode". */
+  /** Short human line, e.g. "Bash: npm test" or "확인 필요: ExitPlanMode". */
   activity: string;
   prompt: string | null;
   lastMessage: string | null;

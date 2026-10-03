@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { PX11, PX11B, PX14 } from './fonts';
 import { coffeeTableTexture, FRAMES, frameIndex, mapPosterTexture, PX, SCALE, sofaTexture, type SheetKey } from './assets';
 
 // Office interior that isn't about agents: the wall clock, the sky in the windows (follows the
@@ -101,7 +102,7 @@ class Lounge {
     for (const it of this.items) it.setDepth(-2);
     this.steam = s.add.image(0, 0, 'steam').setOrigin(0.5, 1).setScale(SCALE).setDepth(-2).setAlpha(0.7);
     this.sign = s.add
-      .text(0, 0, '☕ 라운지', { fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#fdf6e3' })
+      .text(0, 0, '☕ 라운지', { ...PX14, color: '#fdf6e3' })
       .setShadow(1, 1, '#2b1d14', 0, false, true)
       .setDepth(-2);
     s.tweens.add({ targets: this.steam, y: '-=10', alpha: 0, duration: 1600, repeat: -1, ease: 'Sine.easeOut' });
@@ -162,10 +163,10 @@ class WallTv {
   constructor(scene: Phaser.Scene) {
     this.frame = scene.add.graphics().setDepth(-4);
     this.title = scene.add
-      .text(0, 0, 'LIVE', { fontFamily: 'monospace', fontSize: '9px', fontStyle: 'bold', color: '#ff5a4f' })
+      .text(0, 0, 'LIVE', { ...PX11B, color: '#ff5a4f' })
       .setDepth(-4);
     this.text = scene.add
-      .text(0, 0, '', { fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#7cf0a0', align: 'center' })
+      .text(0, 0, '', { ...PX14, color: '#7cf0a0', align: 'center' })
       .setOrigin(0.5)
       .setDepth(-4);
   }
@@ -230,7 +231,7 @@ export class OfficeDecor {
     this.clockPanel = s.add.graphics();
     this.clockDigits = s.add.graphics();
     this.clockDate = s.add
-      .text(0, 0, '', { fontFamily: 'monospace', fontSize: '11px', fontStyle: 'bold', color: '#ff8a80' })
+      .text(0, 0, '', { ...PX11B, color: '#ff8a80' })
       .setOrigin(0.5, 0);
     this.lounge = new Lounge(s);
     this.tv = new WallTv(s);

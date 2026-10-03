@@ -4,6 +4,7 @@ import { connectOffice, type ConnectionState } from './api';
 import { OfficeScene, type Selection } from './officeScene';
 import { Panel } from './panel';
 import { modelLine } from './format';
+import { loadPixelFonts } from './fonts';
 import { Notices, type Attention } from './notices';
 import type { UsageSnapshot } from '../../bridge/src/model';
 import './style.css';
@@ -13,7 +14,8 @@ function esc(s: string): string {
 }
 
 const scene = new OfficeScene();
-new Phaser.Game({
+// Canvas text is drawn once with whatever font is ready, so load the pixel fonts first.
+void loadPixelFonts().then(() => new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
   backgroundColor: '#c8b48e',
@@ -22,7 +24,7 @@ new Phaser.Game({
   input: { windowEvents: false },
   scale: { mode: Phaser.Scale.RESIZE, width: '100%', height: '100%' },
   scene,
-});
+}));
 
 let snapshot: OfficeSnapshot | null = null;
 let connection: ConnectionState = 'connecting';

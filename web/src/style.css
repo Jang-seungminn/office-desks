@@ -1,3 +1,23 @@
+/* Galmuri pixel fonts by Minseo Lee (quiple), SIL Open Font License 1.1 — see fonts/galmuri/OFL.md */
+@font-face {
+  font-family: 'Galmuri11';
+  src: url('./fonts/galmuri/Galmuri11.woff2') format('woff2');
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Galmuri11';
+  src: url('./fonts/galmuri/Galmuri11-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Galmuri14';
+  src: url('./fonts/galmuri/Galmuri14.woff2') format('woff2');
+  font-weight: 400;
+  font-display: block;
+}
+
 :root {
   --ink: #2b2118;
   --paper: #fbf6ec;

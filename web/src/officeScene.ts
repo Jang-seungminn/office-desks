@@ -14,6 +14,7 @@ import {
 } from './assets';
 import { buildTextures, iconKey, SCREEN } from './sprites';
 import { modelTag } from './format';
+import { PX11, PX14, PX22B } from './fonts';
 import { arrangeOffice, type Room } from './arrange';
 import { OfficeDecor } from './decor';
 
@@ -123,8 +124,7 @@ class Seat {
     const monitor = s.add.image(16, DESK_Y - 20, 'monitor-back').setOrigin(0).setScale(SCALE);
     this.activity = s.add
       .text(CX, DESK_Y + PX + 4, '', {
-        fontFamily: 'monospace',
-        fontSize: '11px',
+        ...PX11,
         color: '#fdf6e3',
         align: 'center',
         wordWrap: { width: SEAT_W - 10, useAdvancedWrap: true },
@@ -135,13 +135,13 @@ class Seat {
 
     // Model and effort of this agent's latest turn, as a small tag in the seat's corner.
     this.modelTag = s.add
-      .text(4, 2, '', { fontFamily: 'monospace', fontSize: '10px', color: '#fdf6e3', backgroundColor: '#2b2118cc', padding: { x: 4, y: 2 } })
+      .text(4, 2, '', { ...PX11, color: '#fdf6e3', backgroundColor: '#2b2118cc', padding: { x: 4, y: 2 } })
       .setVisible(false);
 
     // Red "new report" badge, like an app icon badge, until the agent is opened.
     const badgeBg = s.add.graphics();
     badgeBg.fillStyle(0xe5484d, 1).fillCircle(0, 0, 10).lineStyle(2, 0xffffff, 1).strokeCircle(0, 0, 10);
-    const badgeText = s.add.text(0, 0, '!', { fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#ffffff' }).setOrigin(0.5);
+    const badgeText = s.add.text(0, 0, '!', { ...PX14, color: '#ffffff' }).setOrigin(0.5);
     this.badge = s.add.container(SEAT_W - 12, 10, [badgeBg, badgeText]).setVisible(false);
 
     const bubbleBg = s.add.graphics();
@@ -431,9 +431,7 @@ export class OfficeScene extends Phaser.Scene {
     for (const zone of zones) {
       // Floor sign: a wooden plaque with the floor name, and a rail across the room.
       const title = this.add.text(MARGIN + 10, ry, `${zone.label} · ${zone.count}`, {
-        fontFamily: 'monospace',
-        fontSize: '15px',
-        fontStyle: 'bold',
+        ...PX14,
         color: '#fdf6e3',
       });
       const plaque = this.add.graphics();
@@ -495,7 +493,7 @@ export class OfficeScene extends Phaser.Scene {
 
     if (!desks.length) {
       this.podLayer.add(
-        this.add.text(MARGIN, FIRST_ROW_Y, 'Orca 워크트리를 기다리는 중…', { fontFamily: 'monospace', fontSize: '16px', color: '#2b2118' }),
+        this.add.text(MARGIN, FIRST_ROW_Y, 'Orca 워크트리를 기다리는 중…', { ...PX14, color: '#2b2118' }),
       );
     }
 
@@ -516,7 +514,7 @@ export class OfficeScene extends Phaser.Scene {
     const key = `📁 ${room.repo}`;
     let w = this.plateWidths.get(key);
     if (w === undefined) {
-      const probe = this.add.text(0, 0, key, { fontFamily: 'monospace', fontSize: '19px', fontStyle: 'bold' });
+      const probe = this.add.text(0, 0, key, { ...PX22B });
       w = Math.ceil(probe.width) + 4;
       probe.destroy();
       this.plateWidths.set(key, w);
@@ -530,15 +528,14 @@ export class OfficeScene extends Phaser.Scene {
     g.fillStyle(0x3d3128, 0.28).fillRoundedRect(x + 4, y + 5, w, h, 12); // shadow
     g.fillStyle(0xe9dcc3, 0.92).fillRoundedRect(x, y, w, h, 12);
     g.lineStyle(4, 0x6b5038, 1).strokeRoundedRect(x, y, w, h, 12);
-    const plate = this.add.text(x + ROOM_PAD, y + 8, '', { fontFamily: 'monospace', fontSize: '19px', fontStyle: 'bold', color: '#2b2118' });
+    const plate = this.add.text(x + ROOM_PAD, y + 8, '', { ...PX22B, color: '#2b2118' });
     this.podLayer.add([g, plate]);
     // Worktree count only when the repo has several; "2/4" when the rest sit on other floors.
     let metaW = 0;
     if (room.total > 1) {
       const meta = this.add
         .text(x + w - ROOM_PAD, y + 13, room.desks.length === room.total ? `워크트리 ${room.total}개` : `워크트리 ${room.desks.length}/${room.total}`, {
-          fontFamily: 'monospace',
-          fontSize: '11px',
+          ...PX11,
           color: '#7a6a58',
         })
         .setOrigin(1, 0);
@@ -563,11 +560,11 @@ export class OfficeScene extends Phaser.Scene {
     const sub = desk.isMain ? '메인 체크아웃' : desk.branch && desk.branch !== desk.name ? `⎇ ${desk.branch}` : parent ? `↳ ${parent.branch || parent.name}에서 분기` : '';
     const textW = podW - POD_PAD * 2;
     const name = this.add
-      .text(x + POD_PAD, y + 6, '', { fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#fdf6e3' })
+      .text(x + POD_PAD, y + 6, '', { ...PX14, color: '#fdf6e3' })
       .setShadow(1, 1, '#2b2118', 0, false, true);
     fitText(name, title, textW);
     const branch = this.add
-      .text(x + POD_PAD, y + 23, '', { fontFamily: 'monospace', fontSize: '11px', color: '#e8dcc4' })
+      .text(x + POD_PAD, y + 23, '', { ...PX11, color: '#e8dcc4' })
       .setShadow(1, 1, '#2b2118', 0, false, true);
     fitText(branch, sub, textW);
     this.podLayer.add([rug, name, branch]);
