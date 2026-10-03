@@ -53,6 +53,8 @@ export interface OfficeDesk {
   isActive: boolean;
   /** Orca's own "unread" flag: something happened here you haven't looked at in Orca yet. */
   unread: boolean;
+  /** Orca's last activity time for the worktree (ms), used to order idle desks. */
+  lastActivityAt: number | null;
   agents: OfficeAgent[];
 }
 

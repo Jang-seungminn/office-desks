@@ -27,6 +27,7 @@ export interface OrcaWorktreeRow {
   isActive?: boolean;
   isArchived?: boolean;
   unread?: boolean;
+  lastActivityAt?: number;
   isMainWorktree?: boolean;
   parentWorktreeId?: string | null;
   agents?: OrcaAgentRow[];
@@ -140,6 +141,7 @@ export function toSnapshot(
         preview: oneLine(w.preview, 120),
         isActive: Boolean(w.isActive),
         unread: Boolean(w.unread),
+        lastActivityAt: typeof w.lastActivityAt === 'number' ? w.lastActivityAt : null,
         agents,
       };
     })

@@ -22,7 +22,7 @@ const snap = (agents: OfficeAgent[], unread = false): OfficeSnapshot => ({
   updatedAt: 0,
   error: null,
   desks: [
-    { id: 'd', repoId: 'r', isMain: true, parentId: null, name: 'd', repo: 'r', branch: '', path: '/d', status: 'active', workspaceStatus: null, comment: '', preview: '', isActive: false, unread, agents },
+    { id: 'd', repoId: 'r', isMain: true, parentId: null, name: 'd', repo: 'r', branch: '', path: '/d', status: 'active', workspaceStatus: null, comment: '', preview: '', isActive: false, unread, lastActivityAt: null, agents },
   ],
 });
 

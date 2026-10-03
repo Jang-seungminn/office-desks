@@ -77,6 +77,7 @@ function worktreePs(now: number) {
         isMainWorktree: Boolean(w.main),
         parentWorktreeId: w.parent ? `${w.repoId}::/demo/${w.repo}/${w.parent}` : null,
         status: waiting ? 'permission' : working ? 'working' : agents.length ? 'active' : 'inactive',
+        lastActivityAt: START - WORKTREES.indexOf(w) * 60_000,
         workspaceStatus: 'in-progress',
         comment: w.name === 'checkout-flow' ? '결제 플로우 플랜 승인 대기' : '',
         agents,

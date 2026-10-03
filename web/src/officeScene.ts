@@ -14,6 +14,7 @@ import {
 } from './assets';
 import { buildTextures, iconKey, SCREEN } from './sprites';
 import { modelTag } from './format';
+import { arrangeOffice, type Room } from './arrange';
 
 export interface Selection {
   deskId: string;
@@ -33,9 +34,11 @@ const POD_GAP = 14;
 const ROOM_PAD = 14;
 const ROOM_HEADER = 34;
 const ROOM_GAP = 26;
+const ZONE_HEADER = 30;
+const ZONE_GAP = 34;
 const MARGIN = 28;
 const WALL_H = 2 * PX;
-const FIRST_ROW_Y = WALL_H + 44;
+const FIRST_ROW_Y = WALL_H + 40;
 
 // Team carpet colour per Orca worktree status.
 const POD_TINT: Record<string, number> = {
@@ -248,6 +251,21 @@ class Seat {
     });
   }
 
+  private placed = false;
+  private moveTween: Phaser.Tweens.Tween | null = null;
+
+  /** Slide to a new spot when the office rearranges (jump on first placement). */
+  moveTo(x: number, y: number): void {
+    if (!this.placed) {
+      this.placed = true;
+      this.root.setPosition(x, y);
+      return;
+    }
+    if (this.root.x === x && this.root.y === y) return;
+    this.moveTween?.remove();
+    this.moveTween = this.scene.tweens.add({ targets: this.root, x, y, duration: 450, ease: 'Cubic.easeInOut' });
+  }
+
   setAttention(kind: string | null): void {
     if (kind === this.badgeKind) return;
     this.badgeKind = kind;
@@ -345,47 +363,56 @@ export class OfficeScene extends Phaser.Scene {
     this.podLayer.removeAll(true);
     const alive = new Set<string>();
 
-    // One room per repo; inside it, one team pod per worktree (main checkout first).
-    const rooms = new Map<string, OfficeDesk[]>();
-    for (const d of desks) rooms.set(d.repoId, [...(rooms.get(d.repoId) ?? []), d]);
-    const roomList = [...rooms.values()]
-      .map((list) => list.sort((p, q) => Number(q.isMain) - Number(p.isMain) || p.name.localeCompare(q.name)))
-      .sort((p, q) => p[0].repo.localeCompare(q[0].repo));
-
+    // Floors by activity (working / waiting / idle); rooms per repo inside a floor, newest left.
+    const zones = arrangeOffice(desks);
     const podH = LABEL_H + SEAT_H + POD_PAD * 2;
     const maxInner = Math.max(SEAT_W + POD_PAD * 2, width - MARGIN * 2 - ROOM_PAD * 2);
-    let rx = MARGIN;
     let ry = FIRST_ROW_Y;
     let rowH = 0;
 
-    for (const roomDesks of roomList) {
-      // Lay pods out inside the room first to know its size.
-      const placed: { desk: OfficeDesk; x: number; y: number; w: number }[] = [];
-      let px = 0;
-      let py = 0;
-      let innerW = 0;
-      for (const desk of roomDesks) {
-        const w = Math.max(1, desk.agents.length) * SEAT_W + POD_PAD * 2;
-        if (px > 0 && px + w > maxInner) {
-          px = 0;
-          py += podH + POD_GAP;
+    for (const zone of zones) {
+      const title = this.add
+        .text(MARGIN, ry, `${zone.label} · ${zone.count}`, { fontFamily: 'monospace', fontSize: '15px', fontStyle: 'bold', color: '#2b2118' })
+        .setShadow(1, 1, '#f3e7cf', 0, false, true);
+      const rule = this.add.graphics();
+      rule.lineStyle(2, 0x6b5038, 0.5).lineBetween(MARGIN + title.width + 12, ry + 10, width - MARGIN, ry + 10);
+      this.podLayer.add([rule, title]);
+      ry += ZONE_HEADER;
+      let rx = MARGIN;
+      rowH = 0;
+
+      for (const room of zone.rooms) {
+        // Lay pods out inside the room first to know its size.
+        const placed: { desk: OfficeDesk; x: number; y: number; w: number }[] = [];
+        let px = 0;
+        let py = 0;
+        let innerW = 0;
+        for (const desk of room.desks) {
+          const w = Math.max(1, desk.agents.length) * SEAT_W + POD_PAD * 2;
+          if (px > 0 && px + w > maxInner) {
+            px = 0;
+            py += podH + POD_GAP;
+          }
+          placed.push({ desk, x: px, y: py, w });
+          px += w + POD_GAP;
+          innerW = Math.max(innerW, px - POD_GAP);
         }
-        placed.push({ desk, x: px, y: py, w });
-        px += w + POD_GAP;
-        innerW = Math.max(innerW, px - POD_GAP);
+        const roomW = innerW + ROOM_PAD * 2;
+        const roomH = ROOM_HEADER + py + podH + ROOM_PAD;
+        if (rx > MARGIN && rx + roomW > width - MARGIN) {
+          rx = MARGIN;
+          ry += rowH + ROOM_GAP;
+          rowH = 0;
+        }
+        this.drawRoom(room, rx, ry, roomW, roomH);
+        for (const p of placed) this.drawPod(p.desk, rx + ROOM_PAD + p.x, ry + ROOM_HEADER + p.y, p.w, alive);
+        rx += roomW + ROOM_GAP;
+        rowH = Math.max(rowH, roomH);
       }
-      const roomW = innerW + ROOM_PAD * 2;
-      const roomH = ROOM_HEADER + py + podH + ROOM_PAD;
-      if (rx > MARGIN && rx + roomW > width - MARGIN) {
-        rx = MARGIN;
-        ry += rowH + ROOM_GAP;
-        rowH = 0;
-      }
-      this.drawRoom(roomDesks[0], roomDesks.length, rx, ry, roomW, roomH);
-      for (const p of placed) this.drawPod(p.desk, rx + ROOM_PAD + p.x, ry + ROOM_HEADER + p.y, p.w, alive);
-      rx += roomW + ROOM_GAP;
-      rowH = Math.max(rowH, roomH);
+      ry += rowH + ZONE_GAP;
     }
+    ry -= ZONE_GAP;
+    rowH = 0; // already included in ry
 
     for (const [key, seat] of this.seats) {
       if (!alive.has(key)) {
@@ -412,24 +439,28 @@ export class OfficeScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, width, roomH);
   }
 
-  /** A repo's room: a carpeted area with a name plate. */
-  private drawRoom(first: OfficeDesk, count: number, x: number, y: number, w: number, h: number): void {
+  /** A repo's room on one floor: a carpeted area with a name plate. */
+  private drawRoom(room: Room, x: number, y: number, w: number, h: number): void {
     const g = this.add.graphics();
     g.fillStyle(0x3d3128, 0.28).fillRoundedRect(x + 4, y + 5, w, h, 12); // shadow
     g.fillStyle(0xe9dcc3, 0.92).fillRoundedRect(x, y, w, h, 12);
     g.lineStyle(4, 0x6b5038, 1).strokeRoundedRect(x, y, w, h, 12);
     const plate = this.add.text(x + ROOM_PAD, y + 7, '', { fontFamily: 'monospace', fontSize: '14px', fontStyle: 'bold', color: '#2b2118' });
     this.podLayer.add([g, plate]);
-    // The worktree count only matters (and only gets room) when the repo has several.
+    // Worktree count only when the repo has several; "2/4" when the rest sit on other floors.
     let metaW = 0;
-    if (count > 1) {
+    if (room.total > 1) {
       const meta = this.add
-        .text(x + w - ROOM_PAD, y + 9, `워크트리 ${count}개`, { fontFamily: 'monospace', fontSize: '11px', color: '#7a6a58' })
+        .text(x + w - ROOM_PAD, y + 9, room.desks.length === room.total ? `워크트리 ${room.total}개` : `워크트리 ${room.desks.length}/${room.total}`, {
+          fontFamily: 'monospace',
+          fontSize: '11px',
+          color: '#7a6a58',
+        })
         .setOrigin(1, 0);
       metaW = meta.width + 8;
       this.podLayer.add(meta);
     }
-    fitText(plate, `📁 ${first.repo || first.name}`, w - ROOM_PAD * 2 - metaW);
+    fitText(plate, `📁 ${room.repo}`, w - ROOM_PAD * 2 - metaW);
   }
 
   /** One worktree: a team carpet tinted by status, a two-line label and one seat per agent. */
@@ -473,7 +504,7 @@ export class OfficeScene extends Phaser.Scene {
         );
         this.seats.set(key, seat);
       }
-      seat.root.setPosition(x + POD_PAD + i * SEAT_W, y + LABEL_H + POD_PAD);
+      seat.moveTo(x + POD_PAD + i * SEAT_W, y + LABEL_H + POD_PAD);
       seat.update(agent, hash(agent?.id ?? key));
       seat.setSelected(key === this.selectionKey());
       seat.setAttention(agent ? (this.attention.get(agent.id) ?? null) : null);
