@@ -83,3 +83,17 @@ describe('readTranscript', () => {
     expect(b.fileId).not.toBe(a.fileId);
   });
 });
+
+describe('model and effort', () => {
+  it('takes the latest Claude turn and the latest Codex turn_context', () => {
+    const claude = parseTranscript(
+      [
+        JSON.stringify({ type: 'assistant', effort: 'high', message: { role: 'assistant', model: 'claude-opus-5-5', content: [] } }),
+        JSON.stringify({ type: 'assistant', perTurnEffort: 'xhigh', message: { role: 'assistant', model: '<synthetic>', content: [] } }),
+      ].join('\n'),
+    );
+    expect([claude.model, claude.effort]).toEqual(['claude-opus-5-5', 'xhigh']);
+    const codex = parseTranscript(JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-5.4', effort: 'medium' } }));
+    expect([codex.model, codex.effort]).toEqual(['gpt-5.4', 'medium']);
+  });
+});

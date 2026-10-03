@@ -111,6 +111,8 @@ export function toSnapshot(
           agentType: a.agentType ?? 'agent',
           terminalTitle: cleanTitle(term?.title),
           subagentsRunning: 0,
+          model: null,
+          effort: null,
           state,
           rawState: raw,
           activity: describe(state, a),

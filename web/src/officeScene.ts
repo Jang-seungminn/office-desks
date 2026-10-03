@@ -13,6 +13,7 @@ import {
   wallTexture,
 } from './assets';
 import { buildTextures, iconKey, SCREEN } from './sprites';
+import { modelTag } from './format';
 
 export interface Selection {
   deskId: string;
@@ -25,7 +26,7 @@ const CX = SEAT_W / 2; // character centre
 const CHAR_Y = 14;
 const DESK_Y = 58;
 const MAX_INTERNS = 3;
-const BUBBLE_Y = -2; // beside the head, clear of the pod label
+const BUBBLE_Y = 18; // beside the head, below the model tag
 const POD_PAD = 12;
 const LABEL_H = 40;
 const POD_GAP = 14;
@@ -79,6 +80,7 @@ class Seat {
   private readonly bubble: Phaser.GameObjects.Container;
   private readonly bubbleIcon: Phaser.GameObjects.Image;
   private readonly activity: Phaser.GameObjects.Text;
+  private readonly modelTag: Phaser.GameObjects.Text;
   private readonly highlight: Phaser.GameObjects.Rectangle;
   private tweens: Phaser.Tweens.Tween[] = [];
   /** Small helpers standing by the desk while this agent's subagents work. */
@@ -116,11 +118,16 @@ class Seat {
       .setOrigin(0.5, 0)
       .setShadow(1, 1, '#2b2118', 0, false, true);
 
+    // Model and effort of this agent's latest turn, as a small tag in the seat's corner.
+    this.modelTag = s.add
+      .text(4, 2, '', { fontFamily: 'monospace', fontSize: '10px', color: '#fdf6e3', backgroundColor: '#2b2118cc', padding: { x: 4, y: 2 } })
+      .setVisible(false);
+
     const bubbleBg = s.add.graphics();
     bubbleBg.fillStyle(0xffffff, 1).fillRoundedRect(0, 0, 11 * SCALE, 11 * SCALE, 6);
     bubbleBg.lineStyle(2, 0x2b2118, 1).strokeRoundedRect(0, 0, 11 * SCALE, 11 * SCALE, 6);
     this.bubbleIcon = s.add.image(2 * SCALE, 2 * SCALE, 'icon-typing').setOrigin(0).setScale(SCALE);
-    this.bubble = s.add.container(CX + 20, BUBBLE_Y, [bubbleBg, this.bubbleIcon]).setVisible(false);
+    this.bubble = s.add.container(CX + 22, BUBBLE_Y, [bubbleBg, this.bubbleIcon]).setVisible(false);
 
     // A zone with origin 0 avoids Container hit-area offsets (containers hit-test around their centre).
     const hit = s.add.zone(0, 0, SEAT_W, SEAT_H).setOrigin(0).setInteractive({ useHandCursor: true });
@@ -150,6 +157,7 @@ class Seat {
       this.glow,
       monitor,
       this.activity,
+      this.modelTag,
       this.bubble,
       hit,
     ]);
@@ -168,6 +176,9 @@ class Seat {
     }
 
     this.showInterns(agent && state !== 'away' ? agent.subagentsRunning : 0, seed);
+    const tag = agent ? modelTag(agent.model, agent.effort) : null;
+    this.modelTag.setVisible(Boolean(tag));
+    if (tag) fitText(this.modelTag, tag, SEAT_W - 8);
 
     const icon = iconKey(state);
     this.bubble.setVisible(Boolean(icon));
@@ -249,6 +260,8 @@ export class OfficeScene extends Phaser.Scene {
   private selection: Selection | null = null;
   onSelect: (sel: Selection) => void = () => {};
   onHover: (info: HoverInfo | null) => void = () => {};
+  /** A click on empty floor (not on any desk). */
+  onBackground: () => void = () => {};
 
   constructor() {
     super('office');
@@ -274,6 +287,9 @@ export class OfficeScene extends Phaser.Scene {
       this.cameras.main.scrollY += dy;
     });
     this.scale.on('resize', () => this.layout());
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
+      if (!over.length && (p.event?.target ?? null) === this.game.canvas) this.onBackground();
+    });
     this.layout();
   }
 

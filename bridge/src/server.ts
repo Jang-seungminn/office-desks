@@ -4,10 +4,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { CommandCatalog } from './commands.js';
-import { createDemoRunner, demoSubagentsRunning } from './demo.js';
+import { createDemoRunner, demoEnrichment } from './demo.js';
+import { fetchUsage } from './usage.js';
 import { charBytes, keyBytes } from './keys.js';
+import { answerQuestions, validateChoices } from './answer.js';
 import { composerState } from './screen.js';
-import type { ConversationResponse, FocusRequest, KeyRequest, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen } from './model.js';
+import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot } from './model.js';
 import { createOrcaRunner, OrcaCliError, resolveOrcaCommand } from './orcaCli.js';
 import { OfficePoller } from './poller.js';
 import { isAllowedRequest, setSecurityHeaders } from './security.js';
@@ -25,7 +27,7 @@ const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const DEMO = Boolean(process.env.OFFICE_DESKS_DEMO);
 const orca = DEMO ? createDemoRunner() : createOrcaRunner();
 const commands = new CommandCatalog();
-const poller = new OfficePoller(orca, 1500, (s) => countSubagents(s.desks));
+const poller = new OfficePoller(orca, 1500, (s) => enrichFromTranscripts(s.desks));
 // Only accept a session whose transcript actually contains what we searched for.
 const sessions = new SessionResolver(orca, async (filePath, key) => {
   const t = await readTranscript(filePath);
@@ -95,6 +97,7 @@ async function conversation(agentId: string | null, after: number, sub: string |
     after: 0,
     messages: [],
     subagents: [],
+    questions: [],
   });
   const found = findAgent(agentId);
   if (!found) return empty('이 에이전트는 더 이상 사무실에 없습니다.');
@@ -111,26 +114,38 @@ async function conversation(agentId: string | null, after: number, sub: string |
     t = await readTranscript(file, { sidechain: true });
   }
   const from = Number.isInteger(after) && after >= 0 && after <= t.messages.length ? after : 0;
-  return { found: true, fileId: t.fileId, title: sub ? null : t.title, total: t.messages.length, after: from, messages: t.messages.slice(from), subagents };
+  return {
+    found: true,
+    fileId: t.fileId,
+    title: sub ? null : t.title,
+    total: t.messages.length,
+    after: from,
+    messages: t.messages.slice(from),
+    subagents,
+    questions: main.questions,
+  };
 }
 
-/** Count running subagents for every Claude agent, so the office can show them. */
-async function countSubagents(desks: OfficeDesk[]): Promise<void> {
+/** Add what only transcripts know (running subagents, model, effort) to every agent. */
+async function enrichFromTranscripts(desks: OfficeDesk[]): Promise<void> {
   if (DEMO) {
-    for (const a of desks.flatMap((d) => d.agents)) a.subagentsRunning = demoSubagentsRunning(a.id);
+    for (const a of desks.flatMap((d) => d.agents)) Object.assign(a, demoEnrichment(a.id));
     return;
   }
   await Promise.all(
     desks.flatMap((desk) =>
       desk.agents
-        .filter((a) => a.agentType === 'claude')
+        .filter((a) => a.agentType === 'claude' || a.agentType === 'codex')
         .map(async (agent) => {
           // Never block the office poll on a search: use what we know, refresh in the background.
           void sessions.resolve(desk, agent).catch(() => null);
           const filePath = sessions.cached(agent.id);
           if (!filePath) return;
           const t = await readTranscript(filePath).catch(() => null);
-          agent.subagentsRunning = t ? t.calls.filter((c) => c.status === 'running').length : 0;
+          if (!t) return;
+          agent.subagentsRunning = t.calls.filter((c) => c.status === 'running').length;
+          agent.model = t.model;
+          agent.effort = t.effort;
         }),
     ),
   );
@@ -141,6 +156,9 @@ async function countSubagents(desks: OfficeDesk[]): Promise<void> {
  * back a request id; the exact same command plus that id may be retried later. Keep the
  * command server-side so the client only ever names the id.
  */
+/** Terminals currently being driven through a question dialog (one at a time each). */
+const answering = new Set<string>();
+
 const blockedPrompts = new Map<string, { args: string[]; at: number }>();
 const BLOCKED_TTL_MS = 10 * 60_000;
 
@@ -257,6 +275,41 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     return json(res, 200, { ok: true });
   }
 
+  if (pathname === '/api/answer') {
+    // Answer an AskUserQuestion dialog from the chat card by pressing the same keys a person would.
+    const body = await readJson<AnswerRequest>(req);
+    const found = findAgent(body.agentId);
+    const handle = found?.agent.terminalHandle;
+    if (!found || !handle) return json(res, 404, { error: 'unknown agent' });
+    const filePath = await sessions.resolve(found.desk, found.agent).catch(() => null);
+    const ask = filePath ? (await readTranscript(filePath)).questions.find((q) => q.toolUseId === body.toolUseId) : undefined;
+    if (!ask) return json(res, 404, { error: '질문을 찾지 못했습니다' });
+    if (ask.status !== 'pending') return json(res, 409, { error: '이미 답했거나 취소된 질문입니다' });
+    const invalid = validateChoices(ask.questions, body.choices);
+    if (invalid) return json(res, 400, { error: invalid });
+    if (answering.has(handle)) return json(res, 409, { error: '답을 입력하는 중입니다' });
+    answering.add(handle);
+    try {
+      await answerQuestions(
+        {
+          readScreen: () => readScreen(handle),
+          press: async (key) => {
+            await orca(['terminal', 'send', '--terminal', handle, ...(key === 'enter' ? ['--enter'] : [`--text=${keyBytes(key)}`])]);
+          },
+          sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        },
+        ask.questions,
+        body.choices,
+      );
+    } catch (err) {
+      return json(res, 409, { error: (err as Error).message });
+    } finally {
+      answering.delete(handle);
+    }
+    void poller.refresh();
+    return json(res, 200, { ok: true });
+  }
+
   if (pathname === '/api/focus') {
     const body = await readJson<FocusRequest>(req);
     if (!knownHandle(body.terminalHandle)) return json(res, 404, { error: 'unknown terminal' });
@@ -322,7 +375,25 @@ function send(ws: WebSocket, msg: ServerMessage): void {
   ws.send(JSON.stringify(msg));
 }
 
-wss.on('connection', (ws) => send(ws, { type: 'snapshot', snapshot: poller.current }));
+wss.on('connection', (ws) => {
+  send(ws, { type: 'snapshot', snapshot: poller.current });
+  if (usage) send(ws, { type: 'usage', usage });
+});
+
+// Plan usage (5-hour / weekly / Fable) changes slowly; Orca refreshes it itself.
+let usage: UsageSnapshot | null = null;
+async function refreshUsage(): Promise<void> {
+  try {
+    const next = await fetchUsage(orca);
+    if (JSON.stringify(next.providers) === JSON.stringify(usage?.providers)) return;
+    usage = next;
+    for (const ws of wss.clients) if (ws.readyState === ws.OPEN) send(ws, { type: 'usage', usage });
+  } catch {
+    /* keep the last value */
+  }
+}
+void refreshUsage();
+setInterval(() => void refreshUsage(), 60_000);
 
 poller.onChange((snapshot) => {
   for (const ws of wss.clients) if (ws.readyState === ws.OPEN) send(ws, { type: 'snapshot', snapshot });

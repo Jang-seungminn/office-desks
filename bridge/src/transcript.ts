@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { open, stat } from 'node:fs/promises';
-import type { ConversationMessage, SubagentStatus } from './model.js';
+import type { AskedQuestion, ConversationMessage, QuestionState, SubagentStatus } from './model.js';
 
 // Parse agent session transcripts (Claude Code and Codex JSONL) into a flat chat log.
 // Only conversation turns and one-line tool summaries are kept: thinking, meta entries,
@@ -67,6 +67,10 @@ interface ParseState {
   /** Subagent transcripts are all `isSidechain`; the main one skips sidechain records. */
   sidechain?: boolean;
   calls?: Map<string, SubagentCall>;
+  asks?: Map<string, QuestionState>;
+  /** Model and reasoning effort of the latest turn. */
+  model?: string;
+  effort?: string;
   /** queued_command ids already shown (the same mid-turn message can be recorded twice). */
   queued?: Set<string>;
 }
@@ -85,6 +89,18 @@ function userContent(blocks: Json[], st: ParseState): { text: string; images: nu
 }
 
 const SUBAGENT_TOOLS = new Set(['Agent', 'Task']);
+
+function askedQuestions(input: Json): AskedQuestion[] {
+  return (Array.isArray(input?.questions) ? input.questions : []).map((q: Json) => ({
+    header: String(q?.header ?? ''),
+    question: String(q?.question ?? ''),
+    multiSelect: Boolean(q?.multiSelect),
+    options: (Array.isArray(q?.options) ? q.options : []).map((o: Json) => ({
+      label: String(o?.label ?? ''),
+      description: String(o?.description ?? ''),
+    })),
+  }));
+}
 
 /** `<task-notification>…<tool-use-id>X</tool-use-id>…<status>completed</status>` → finish call X. */
 function applyTaskNotification(text: string, st: ParseState): void {
@@ -115,12 +131,28 @@ function addClaude(r: Json, st: ParseState): void {
     return;
   }
   if ((r.type !== 'user' && r.type !== 'assistant') || r.isMeta || (r.isSidechain && !st.sidechain)) return;
+  if (r.type === 'assistant') {
+    const model = r.message?.model;
+    if (typeof model === 'string' && !model.startsWith('<')) st.model = model;
+    const effort = r.effort ?? r.perTurnEffort;
+    if (typeof effort === 'string') st.effort = effort;
+  }
   const ts = typeof r.timestamp === 'string' ? r.timestamp : null;
   const content = r.message?.content;
   const blocks: Json[] = typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : [];
 
   if (r.type === 'user') {
     for (const b of blocks) {
+      const ask = b.type === 'tool_result' ? st.asks?.get(String(b.tool_use_id)) : undefined;
+      if (ask) {
+        const answers = r.toolUseResult?.answers;
+        if (answers && typeof answers === 'object' && !b.is_error) {
+          ask.status = 'answered';
+          ask.answers = Object.fromEntries(Object.entries(answers).map(([k, v]) => [k, String(v)]));
+        } else {
+          ask.status = 'cancelled';
+        }
+      }
       if (b.type === 'text' && typeof b.text === 'string' && b.text.includes('<task-notification>')) applyTaskNotification(b.text, st);
       const call = b.type === 'tool_result' ? st.calls?.get(String(b.tool_use_id)) : undefined;
       if (!call) continue;
@@ -140,6 +172,10 @@ function addClaude(r: Json, st: ParseState): void {
     } else if (b.type === 'tool_use' && b.name === 'SubagentHandback' && typeof b.input?.message === 'string') {
       // A subagent's final report is a tool call, not a text block.
       st.messages.push({ role: 'assistant', text: b.input.message, ts });
+    } else if (b.type === 'tool_use' && b.name === 'AskUserQuestion' && typeof b.id === 'string') {
+      st.asks ??= new Map();
+      st.asks.set(b.id, { toolUseId: b.id, questions: askedQuestions(b.input), status: 'pending', answers: {} });
+      st.messages.push({ role: 'question', text: askedQuestions(b.input).map((q) => q.question).join('\n'), ts, toolUseId: b.id });
     } else if (b.type === 'tool_use' && SUBAGENT_TOOLS.has(b.name) && typeof b.id === 'string') {
       const description = oneLine(b.input?.description ?? b.input?.prompt ?? 'subagent', 120);
       st.calls ??= new Map();
@@ -154,6 +190,11 @@ function addClaude(r: Json, st: ParseState): void {
 function addCodex(r: Json, st: ParseState): void {
   const p = r.payload ?? {};
   const ts = typeof r.timestamp === 'string' ? r.timestamp : null;
+  if (r.type === 'turn_context') {
+    if (typeof p.model === 'string') st.model = p.model;
+    if (typeof p.effort === 'string') st.effort = p.effort;
+    return;
+  }
   // event_msg/user_message is the clean human text; response_item user messages carry injected context.
   if (r.type === 'event_msg' && p.type === 'user_message' && typeof p.message === 'string') {
     if (p.message.trim() && !isWrapper(p.message)) st.messages.push({ role: 'user', text: p.message, ts });
@@ -199,6 +240,9 @@ export interface TranscriptResult {
   messages: ConversationMessage[];
   images: TranscriptImage[];
   calls: SubagentCall[];
+  questions: QuestionState[];
+  model: string | null;
+  effort: string | null;
 }
 
 interface FileState extends ParseState {
@@ -240,7 +284,7 @@ export async function readTranscript(filePath: string, opts: { sidechain?: boole
   files.set(filePath, st);
   while (files.size > MAX_FILES) files.delete(files.keys().next().value!);
   const fileId = createHash('sha1').update(`${filePath}#${st.generation}`).digest('hex').slice(0, 12);
-  return { fileId, title: st.title, messages: st.messages, images: st.images, calls: [...(st.calls?.values() ?? [])] };
+  return { fileId, title: st.title, messages: st.messages, images: st.images, calls: [...(st.calls?.values() ?? [])], questions: [...(st.asks?.values() ?? [])], model: st.model ?? null, effort: st.effort ?? null };
 }
 
 /** Forget cached parse state (tests). */

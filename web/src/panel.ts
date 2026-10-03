@@ -1,6 +1,7 @@
 import type {
   ConversationMessage,
   ConversationResponse,
+  QuestionState,
   SubagentInfo,
   ImageUpload,
   OfficeAgent,
@@ -12,6 +13,7 @@ import type {
 } from '../../bridge/src/model';
 import { ApiError, postJson } from './api';
 import { renderMarkdown } from './markdown';
+import { modelLine } from './format';
 import type { Selection } from './officeScene';
 
 const STATE_LABEL: Record<string, string> = {
@@ -104,6 +106,9 @@ export class Panel {
   /** When set, the conversation view shows this subagent's transcript instead of the main one. */
   private subView: SubagentInfo | null = null;
   private subagents: SubagentInfo[] = [];
+  private questions: QuestionState[] = [];
+  /** Selections on unanswered question cards, per toolUseId: chosen option indexes per question. */
+  private picks = new Map<string, number[][]>();
   private readonly tabs: HTMLDivElement;
   private readonly term: HTMLDivElement;
   private readonly screen: HTMLPreElement;
@@ -113,6 +118,8 @@ export class Panel {
   private menuMode = false;
   private autoSwitched = false;
   private readonly menuBanner: HTMLDivElement;
+  private readonly toLatest: HTMLButtonElement;
+  private unseen = 0;
   private commands: SlashCommand[] = [];
   private slashItems: SlashCommand[] = [];
   private slashIndex = 0;
@@ -129,6 +136,7 @@ export class Panel {
         <button type="button" data-tab="term">🖥️ 터미널<span class="tab-alert" hidden>!</span></button>
       </div>
       <div class="convo"></div>
+      <button type="button" class="to-latest" hidden>⬇ 최신으로</button>
       <div class="term" hidden>
         <p class="term-hint">화면을 클릭한 뒤 키보드로 조작할 수 있어요 (↑↓ Enter Esc, 글자 입력)</p>
         <pre class="screen" tabindex="0"></pre>
@@ -136,7 +144,7 @@ export class Panel {
       </div>
       <form class="compose">
         <div class="menu-banner" hidden>
-          🧭 에이전트 화면에 메뉴가 열려 있어요. 지금 보내는 메시지는 전달되지 않습니다.
+          <span class="menu-text"></span>
           <button type="button" data-menu="esc">Esc로 닫기</button>
         </div>
         <div class="slash-menu" hidden></div>
@@ -163,10 +171,22 @@ export class Panel {
     this.screen = el.querySelector('.screen')!;
     this.slashMenu = el.querySelector('.slash-menu')!;
     this.menuBanner = el.querySelector('.menu-banner')!;
+    this.toLatest = el.querySelector('.to-latest')!;
+    this.toLatest.addEventListener('click', () => {
+      this.convo.scrollTo({ top: this.convo.scrollHeight, behavior: 'smooth' });
+    });
+    this.convo.addEventListener('scroll', () => this.updateToLatest());
     this.screen.addEventListener('keydown', (e) => this.onScreenKey(e));
     this.convo.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('[data-back]')) return this.openSubagent(null);
+      const opt = t.closest<HTMLElement>('.question-card .opt');
+      if (opt) {
+        const card = opt.closest<HTMLElement>('.question-card')!;
+        return this.toggleOption(card.dataset.tool!, Number(opt.dataset.q), Number(opt.dataset.o));
+      }
+      const send = t.closest<HTMLElement>('.question-card [data-answer]');
+      if (send) return void this.sendAnswer(send.closest<HTMLElement>('.question-card')!);
       const card = t.closest<HTMLElement>('.subagent-card.openable');
       if (card) this.openSubagent(card.dataset.tool ?? null);
     });
@@ -275,6 +295,8 @@ export class Panel {
       this.feedback.textContent = '';
       this.subView = null;
       this.subagents = [];
+      this.questions = [];
+      this.picks.clear();
       this.resetConversation('<p class="muted">대화를 불러오는 중…</p>');
       this.screen.textContent = '';
       this.commands = [];
@@ -314,7 +336,7 @@ export class Panel {
         <h2>${esc(d.name)}</h2>
         <p class="muted">${d.branch ? `<code>${esc(d.branch)}</code> · ` : ''}<span class="path">${esc(d.path)}</span></p>
         <p>
-          ${a ? `<span class="pill">${esc(a.agentType)}</span> <span class="state state-${a.state}">${STATE_LABEL[a.state] ?? a.state}</span> <span class="muted">${esc(ago(a.since))}</span>` : '<span class="pill">빈 자리</span>'}
+          ${a ? `<span class="pill">${esc(a.agentType)}</span>${modelLine(a.model, a.effort) ? ` <span class="pill model">${esc(modelLine(a.model, a.effort)!)}</span>` : ''} <span class="state state-${a.state}">${STATE_LABEL[a.state] ?? a.state}</span> <span class="muted">${esc(ago(a.since))}</span>` : '<span class="pill">빈 자리</span>'}
           ${d.workspaceStatus ? ` <span class="pill">${esc(d.workspaceStatus)}</span>` : ''}
         </p>
         ${a ? `<p class="activity">${esc(a.activity)}</p>` : ''}
@@ -339,6 +361,7 @@ export class Panel {
     for (const b of this.tabs.querySelectorAll<HTMLElement>('[data-tab]')) b.classList.toggle('active', b.dataset.tab === tab);
     this.convo.hidden = tab !== 'convo';
     this.term.hidden = tab !== 'term';
+    this.updateToLatest();
     if (tab === 'term') {
       this.startTerminal();
       if (this.menuMode) this.screen.focus();
@@ -384,11 +407,19 @@ export class Panel {
 
   /** A dialog owns the agent's keyboard: show it, route keys to it, and hold back messages. */
   private setMenuMode(on: boolean): void {
+    // An open AskUserQuestion dialog is answered from its card in the chat, not the terminal.
+    const asking = on && this.questions.some((q) => q.status === 'pending') && !this.subView;
+    const label = asking
+      ? '🙋 에이전트가 질문했어요. 대화창의 질문 카드에서 답해 주세요.'
+      : '🧭 에이전트 화면에 메뉴가 열려 있어요. 지금 보내는 메시지는 전달되지 않습니다.';
+    this.menuBanner.querySelector('.menu-text')!.textContent = label;
     if (on === this.menuMode) return;
     this.menuMode = on;
     this.menuBanner.hidden = !on;
     this.term.classList.toggle('menu-mode', on);
-    if (on) {
+    if (on && asking) {
+      this.convo.querySelector('.question-card[data-status="pending"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    } else if (on) {
       this.autoSwitched = this.tab === 'convo';
       this.showTab('term');
     } else if (this.autoSwitched) {
@@ -515,6 +546,7 @@ export class Panel {
   // --- conversation ---
 
   private resetConversation(html: string): void {
+    this.unseen = 0;
     this.convoFileId = null;
     this.convoCount = 0;
     this.convo.innerHTML = html;
@@ -551,6 +583,14 @@ export class Panel {
     if (this.convoFor !== agentId) return;
     this.subagents = data.subagents ?? [];
     this.updateSubagentCards();
+    this.questions = data.questions ?? [];
+    this.updateQuestionCards();
+    // We may have jumped to the terminal before learning the dialog is a question: come back to its card.
+    if (this.menuMode && this.autoSwitched && this.tab === 'term' && this.questions.some((q) => q.status === 'pending')) {
+      this.autoSwitched = false;
+      this.showTab('convo');
+      this.setMenuMode(true);
+    }
 
     if (!data.found) {
       if (this.convoFileId === null && this.convoCount === 0 && this.convo.dataset.reason === data.reason) return;
@@ -586,8 +626,92 @@ export class Panel {
     const atBottom = this.convoCount === 0 || el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     el.querySelector('.empty')?.remove();
     this.appendMessages(data.messages, agentId, this.convoCount);
+    if (!atBottom && this.convoCount > 0) this.unseen += data.messages.filter((m) => m.role === 'user' || m.role === 'assistant').length;
     this.convoCount = data.after + data.messages.length;
     if (atBottom) el.scrollTop = el.scrollHeight;
+    this.updateToLatest();
+  }
+
+  /** Show "jump to latest" while scrolled up, with a count of messages that arrived meanwhile. */
+  private updateToLatest(): void {
+    const el = this.convo;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    if (atBottom) this.unseen = 0;
+    this.toLatest.hidden = atBottom || el.hidden;
+    this.toLatest.textContent = this.unseen ? `⬇ 새 메시지 ${this.unseen}` : '⬇ 최신으로';
+    // Float just above the compose box, whatever its current height.
+    this.toLatest.style.bottom = `${this.compose.offsetHeight + 14}px`;
+  }
+
+  /** (Re)draw question cards whose status changed; keeps in-progress selections. */
+  private updateQuestionCards(): void {
+    for (const card of this.convo.querySelectorAll<HTMLElement>('.question-card')) {
+      const q = this.questions.find((x) => x.toolUseId === card.dataset.tool);
+      if (!q) continue;
+      const key = `${q.status}|${JSON.stringify(this.picks.get(q.toolUseId) ?? [])}`;
+      if (card.dataset.key === key) continue;
+      card.dataset.key = key;
+      card.dataset.status = q.status;
+      card.innerHTML = this.questionHtml(q);
+    }
+  }
+
+  private questionHtml(q: QuestionState): string {
+    const picks = this.picks.get(q.toolUseId) ?? q.questions.map(() => []);
+    const head = { pending: '🙋 에이전트의 질문', answered: '✅ 답변함', cancelled: '✖ 취소된 질문' }[q.status];
+    const body = q.questions
+      .map((item, qi) => {
+        const answer = q.answers[item.question];
+        const options =
+          q.status === 'pending'
+            ? `<div class="options">${item.options
+                .map(
+                  (o, oi) => `<button type="button" class="opt${picks[qi]?.includes(oi) ? ' picked' : ''}" data-q="${qi}" data-o="${oi}">
+                    <span class="mark">${item.multiSelect ? (picks[qi]?.includes(oi) ? '☑' : '☐') : picks[qi]?.includes(oi) ? '◉' : '○'}</span>
+                    <span class="label">${esc(o.label)}</span>${o.description ? `<span class="hint">${esc(o.description)}</span>` : ''}</button>`,
+                )
+                .join('')}</div>`
+            : answer
+              ? `<p class="answer">→ ${esc(answer)}</p>`
+              : '';
+        return `<div class="q">${item.header ? `<span class="chip">${esc(item.header)}</span>` : ''}${item.multiSelect && q.status === 'pending' ? '<span class="multi">여러 개 선택</span>' : ''}
+          <p class="text">${esc(item.question)}</p>${options}</div>`;
+      })
+      .join('');
+    const ready = q.questions.every((item, qi) => (item.multiSelect ? (picks[qi]?.length ?? 0) > 0 : picks[qi]?.length === 1));
+    const foot =
+      q.status === 'pending'
+        ? `<div class="q-foot"><span class="q-msg"></span><button type="button" class="send-answer" data-answer ${ready ? '' : 'disabled'}>답변 보내기</button></div>`
+        : '';
+    return `<div class="q-head">${head}</div>${body}${foot}`;
+  }
+
+  private toggleOption(toolUseId: string, qi: number, oi: number): void {
+    const q = this.questions.find((x) => x.toolUseId === toolUseId);
+    if (!q || q.status !== 'pending') return;
+    const picks = this.picks.get(toolUseId) ?? q.questions.map(() => [] as number[]);
+    const cur = picks[qi] ?? [];
+    picks[qi] = q.questions[qi].multiSelect ? (cur.includes(oi) ? cur.filter((x) => x !== oi) : [...cur, oi].sort()) : [oi];
+    this.picks.set(toolUseId, picks);
+    this.updateQuestionCards();
+  }
+
+  private async sendAnswer(card: HTMLElement): Promise<void> {
+    const toolUseId = card.dataset.tool!;
+    const agentId = this.selection?.agentId;
+    const picks = this.picks.get(toolUseId);
+    const msg = card.querySelector<HTMLElement>('.q-msg');
+    const btn = card.querySelector<HTMLButtonElement>('[data-answer]');
+    if (!agentId || !picks) return;
+    if (btn) btn.disabled = true;
+    if (msg) msg.textContent = '터미널에 답을 입력하는 중…';
+    try {
+      await postJson('/api/answer', { agentId, toolUseId, choices: picks });
+      if (msg) msg.textContent = '✅ 보냈습니다';
+    } catch (err) {
+      if (msg) msg.textContent = `⚠️ ${(err as Error).message}`;
+      if (btn) btn.disabled = false;
+    }
   }
 
   /** Refresh status badges on subagent cards (status changes long after the card was appended). */
@@ -615,6 +739,14 @@ export class Panel {
   /** Append messages, folding runs of tool calls into one collapsible line (continuing the last run). */
   private appendMessages(messages: ConversationMessage[], agentId: string, firstIndex: number): void {
     messages.forEach((m, k) => {
+      if (m.role === 'question' && m.toolUseId) {
+        const card = document.createElement('div');
+        card.className = 'question-card';
+        card.dataset.tool = m.toolUseId;
+        this.convo.append(card);
+        this.updateQuestionCards();
+        return;
+      }
       if (m.role === 'subagent' && m.toolUseId) {
         const card = document.createElement('div');
         card.className = 'subagent-card';

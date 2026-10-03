@@ -1,4 +1,4 @@
-import type { OfficeSnapshot, ServerMessage } from '../../bridge/src/model';
+import type { OfficeSnapshot, ServerMessage, UsageSnapshot } from '../../bridge/src/model';
 
 export type ConnectionState = 'connecting' | 'open' | 'closed';
 
@@ -6,6 +6,7 @@ export type ConnectionState = 'connecting' | 'open' | 'closed';
 export function connectOffice(
   onSnapshot: (s: OfficeSnapshot) => void,
   onConnection: (state: ConnectionState) => void,
+  onUsage: (u: UsageSnapshot) => void = () => {},
 ): void {
   let delay = 500;
   const open = () => {
@@ -19,6 +20,7 @@ export function connectOffice(
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data as string) as ServerMessage;
       if (msg.type === 'snapshot') onSnapshot(msg.snapshot);
+      else if (msg.type === 'usage') onUsage(msg.usage);
     };
     ws.onclose = () => {
       onConnection('closed');

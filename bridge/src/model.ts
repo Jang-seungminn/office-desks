@@ -19,6 +19,9 @@ export interface OfficeAgent {
   terminalTitle: string | null;
   /** Subagents of this agent that are still working (Claude Code only; 0 if unknown). */
   subagentsRunning: number;
+  /** Model and reasoning effort of the agent's latest turn, from its transcript. */
+  model: string | null;
+  effort: string | null;
   state: CharacterState;
   /** Raw Orca agent state, kept for debugging and the side panel. */
   rawState: string;
@@ -59,7 +62,26 @@ export interface OfficeSnapshot {
 
 // --- Bridge <-> web protocol ---
 
-export type ServerMessage = { type: 'snapshot'; snapshot: OfficeSnapshot };
+export type ServerMessage = { type: 'snapshot'; snapshot: OfficeSnapshot } | { type: 'usage'; usage: UsageSnapshot };
+
+export interface UsageWindow {
+  /** Orca's key: session | weekly | monthly | fableWeekly | … */
+  key: string;
+  label: string;
+  usedPercent: number;
+  resetsAt: number | null;
+  resetDescription: string | null;
+}
+
+export interface UsageProvider {
+  provider: string;
+  windows: UsageWindow[];
+}
+
+export interface UsageSnapshot {
+  providers: UsageProvider[];
+  updatedAt: number;
+}
 
 export interface ImageUpload {
   mediaType: string;
@@ -81,8 +103,8 @@ export interface FocusRequest {
 
 
 export interface ConversationMessage {
-  /** `subagent` marks an Agent/Task tool call; its text is the task description. */
-  role: 'user' | 'assistant' | 'tool' | 'subagent';
+  /** `subagent` marks an Agent/Task tool call; `question` an AskUserQuestion call (see `questions`). */
+  role: 'user' | 'assistant' | 'tool' | 'subagent' | 'question';
   /** Markdown for user/assistant, a one-line summary for tool calls. */
   text: string;
   ts: string | null;
@@ -95,6 +117,34 @@ export interface ConversationMessage {
 }
 
 export type SubagentStatus = 'running' | 'done' | 'failed';
+
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface AskedQuestion {
+  header: string;
+  question: string;
+  multiSelect: boolean;
+  options: QuestionOption[];
+}
+
+/** An AskUserQuestion call: what was asked, and whether/how it was answered. */
+export interface QuestionState {
+  toolUseId: string;
+  questions: AskedQuestion[];
+  status: 'pending' | 'answered' | 'cancelled';
+  /** question text → answer text (comma-joined for multi-select), once answered. */
+  answers: Record<string, string>;
+}
+
+export interface AnswerRequest {
+  agentId: string;
+  toolUseId: string;
+  /** Per question, the 0-based indexes of the chosen options. */
+  choices: number[][];
+}
 
 export interface SubagentInfo {
   toolUseId: string;
@@ -118,6 +168,8 @@ export interface ConversationResponse {
   messages: ConversationMessage[];
   /** Subagents this session started (main conversation only). */
   subagents: SubagentInfo[];
+  /** Questions this session asked the human, with their current status. */
+  questions: QuestionState[];
 }
 
 export interface SlashCommand {
@@ -139,7 +191,7 @@ export interface TerminalScreen {
 /** Named keys the panel can press in an agent's terminal (menus, permission prompts). */
 export type TerminalKey =
   | 'up' | 'down' | 'left' | 'right' | 'enter' | 'esc' | 'tab' | 'shift-tab' | 'space' | 'ctrl-c'
-  | 'backspace' | '1' | '2' | '3' | '4' | 'y' | 'n';
+  | 'backspace' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'y' | 'n';
 
 export interface KeyRequest {
   terminalHandle: string;

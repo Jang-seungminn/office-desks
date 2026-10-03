@@ -3,6 +3,8 @@ import type { OfficeSnapshot } from '../../bridge/src/model';
 import { connectOffice, type ConnectionState } from './api';
 import { OfficeScene, type Selection } from './officeScene';
 import { Panel } from './panel';
+import { modelLine } from './format';
+import type { UsageSnapshot } from '../../bridge/src/model';
 import './style.css';
 
 function esc(s: string): string {
@@ -24,6 +26,28 @@ new Phaser.Game({
 let snapshot: OfficeSnapshot | null = null;
 let connection: ConnectionState = 'connecting';
 const statusBar = document.getElementById('status-bar')!;
+statusBar.innerHTML = '<div class="status-left"></div><div class="usage"></div>';
+const statusLeft = statusBar.querySelector<HTMLElement>('.status-left')!;
+const usageEl = statusBar.querySelector<HTMLElement>('.usage')!;
+
+/** Plan usage like Orca's status bar: 5-hour session, weekly, Fable weekly. */
+function renderUsage(u: UsageSnapshot): void {
+  usageEl.innerHTML = u.providers
+    .flatMap((p) =>
+      p.windows.map((w) => {
+        const level = w.usedPercent >= 85 ? 'high' : w.usedPercent >= 60 ? 'mid' : 'low';
+        const reset = w.resetDescription ? ` · ${esc(w.resetDescription)} 리셋` : '';
+        return `<span class="meter" title="${esc(p.provider)} ${esc(w.label)} 사용량 ${w.usedPercent}%${reset}">
+          <span class="name">${esc(w.label)}</span>
+          <span class="bar"><span class="fill ${level}" data-pct="${w.usedPercent}"></span></span>
+          <span class="pct">${w.usedPercent}%</span>${w.resetDescription ? `<span class="reset">${esc(w.resetDescription)}</span>` : ''}
+        </span>`;
+      }),
+    )
+    .join('');
+  // CSP forbids inline style attributes; set widths through the CSSOM instead.
+  for (const f of usageEl.querySelectorAll<HTMLElement>('.fill')) f.style.width = `${f.dataset.pct}%`;
+}
 const panel = new Panel(document.getElementById('panel')!, () => {
   panel.close();
   scene.setSelection(null);
@@ -46,7 +70,7 @@ scene.onHover = (info) => {
   }
   const agent = desk.agents.find((a) => a.id === info.agentId);
   tooltip.innerHTML = `<b>${esc(desk.name)}</b>${desk.branch ? ` <span class="dim">⎇ ${esc(desk.branch)}</span>` : ''}<br>
-    ${agent ? `${esc(agent.agentType)} · ${esc(agent.activity)}` : '<span class="dim">빈 자리</span>'}
+    ${agent ? `${esc(agent.agentType)}${modelLine(agent.model, agent.effort) ? ` <span class="dim">(${esc(modelLine(agent.model, agent.effort)!)})</span>` : ''} · ${esc(agent.activity)}` : '<span class="dim">빈 자리</span>'}
     ${agent?.subagentsRunning ? `<br>🤖 서브에이전트 ${agent.subagentsRunning}명 작업 중` : ''}
     ${desk.comment ? `<br>💬 ${esc(desk.comment)}` : ''}<br><span class="dim">클릭해서 대화 보기</span>`;
   tooltip.hidden = false;
@@ -71,7 +95,7 @@ lightbox.addEventListener('click', () => (lightbox.hidden = true));
 
 // The "needs you" counter cycles through agents that are waiting on the human.
 let waitingCursor = 0;
-statusBar.addEventListener('click', (e) => {
+statusLeft.addEventListener('click', (e) => {
   if (!(e.target as HTMLElement).closest('[data-waiting]')) return;
   const waiting = (snapshot?.desks ?? []).flatMap((d) => d.agents.filter((a) => a.state === 'waiting').map((a) => ({ deskId: d.id, agentId: a.id })));
   if (!waiting.length) return;
@@ -84,7 +108,7 @@ function renderStatus(): void {
   const waiting = count('waiting');
   const busy = count('typing') + count('reading') + count('running');
   const conn = { open: '🟢 연결됨', connecting: '🟡 연결 중', closed: '🔴 브리지 끊김' }[connection];
-  statusBar.innerHTML = `
+  statusLeft.innerHTML = `
     <span>${conn}</span>
     <span>🏢 워크트리 ${snapshot?.desks.length ?? 0}</span>
     <span>⌨️ 일하는 중 ${busy}</span>
@@ -104,7 +128,14 @@ connectOffice(
     connection = c;
     renderStatus();
   },
+  renderUsage,
 );
+
+// Clicking empty office floor closes the panel (clicking another desk switches to it).
+scene.onBackground = () => {
+  panel.close();
+  scene.setSelection(null);
+};
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !lightbox.hidden) {

@@ -1,3 +1,6 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { OrcaRunner } from './orcaCli.js';
 
 // A fake Orca for `npm run demo`: several repos, some with many worktrees, agents whose
@@ -88,7 +91,84 @@ function terminalList() {
   };
 }
 
+/** Write a small fake transcript per demo agent so the chat panel has something to show. */
+function writeDemoTranscripts(): Map<string, string> {
+  const dir = path.join(os.tmpdir(), 'office-desks-demo');
+  mkdirSync(dir, { recursive: true });
+  const files = new Map<string, string>();
+  const L = (o: unknown) => JSON.stringify(o);
+  const t = (min: number) => new Date(START - min * 60_000).toISOString();
+  for (const w of WORKTREES) {
+    for (const a of w.agents) {
+      const lines = [
+        L({ type: 'ai-title', aiTitle: `${w.branch} 작업` }),
+        L({ type: 'user', timestamp: t(30), message: { role: 'user', content: `Demo task for ${w.branch}` } }),
+        L({
+          type: 'assistant',
+          timestamp: t(29),
+          effort: 'high',
+          message: {
+            role: 'assistant',
+            model: 'claude-opus-5-5',
+            content: [{ type: 'text', text: `**${w.branch}** 작업을 시작합니다.\n\n1. 코드 읽기\n2. 수정\n3. 테스트\n\n\`\`\`ts\nexport const ok = true;\n\`\`\`` }],
+          },
+        }),
+        L({ type: 'assistant', timestamp: t(28), message: { role: 'assistant', content: [{ type: 'tool_use', id: `r-${a.pane}`, name: 'Read', input: { file_path: 'src/index.ts' } }] } }),
+        L({
+          type: 'assistant',
+          timestamp: t(27),
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: `sa-${a.pane}`, name: 'Agent', input: { description: '관련 파일 찾기', subagent_type: 'Explore' } }] },
+        }),
+      ];
+      if (a.pane === 'p5' || a.pane === 'p2') {
+        lines.push(
+          L({
+            type: 'assistant',
+            timestamp: t(1),
+            message: {
+              role: 'assistant',
+              content: [
+                {
+                  type: 'tool_use',
+                  id: `ask-${a.pane}`,
+                  name: 'AskUserQuestion',
+                  input: {
+                    questions: [
+                      {
+                        header: '저장소',
+                        question: '레이트 리밋 카운터를 어디에 둘까요?',
+                        multiSelect: false,
+                        options: [
+                          { label: 'Redis', description: '여러 서버가 공유, 운영 부담 조금' },
+                          { label: '메모리', description: '가장 간단, 서버마다 따로 셈' },
+                        ],
+                      },
+                      {
+                        header: '대상',
+                        question: '어떤 API에 적용할까요?',
+                        multiSelect: true,
+                        options: ['로그인', '검색', '결제'].map((label) => ({ label, description: '' })),
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          }),
+        );
+      }
+      const file = path.join(dir, `${a.pane}.jsonl`);
+      writeFileSync(file, lines.join('\n') + '\n');
+      // Search is per worktree + agent type, so the first agent of a kind owns the demo transcript.
+      const key = `/demo/${w.repo}/${w.name}|${a.type}`;
+      if (!files.has(key)) files.set(key, file);
+    }
+  }
+  return files;
+}
+
 export function createDemoRunner(): OrcaRunner {
+  const transcripts = writeDemoTranscripts();
   return async (args) => {
     const [a, b] = args;
     if (a === 'worktree' && b === 'ps') return worktreePs(Date.now());
@@ -98,18 +178,52 @@ export function createDemoRunner(): OrcaRunner {
       const pane = String(args[args.indexOf('--terminal') + 1] ?? '').replace(/^demo_/, '');
       const agent = worktreePs(Date.now()).worktrees.flatMap((w) => w.agents).find((x) => x.paneKey.startsWith(`${pane}:`));
       const rule = '─'.repeat(48);
-      const tail =
-        agent?.state === 'waiting'
+      const rule2 = '─'.repeat(48);
+      const asking = agent?.state === 'waiting' && (pane === 'p5' || pane === 'p2');
+      const tail = asking
+        ? ['(demo)', rule2, '←  ☐ 저장소  ☐ 대상  ✔ Submit  →', '레이트 리밋 카운터를 어디에 둘까요?', '❯ 1. Redis', '  2. 메모리', '  3. Type something.', rule2]
+        : agent?.state === 'waiting'
           ? ['(demo) Bash command', '', '  go test ./...', '', 'Do you want to proceed?', '❯ 1. Yes', '  2. No, and tell Claude what to do differently', '', 'Esc to cancel']
           : ['(demo) ⏺ 작업 중입니다…', '', rule, '❯ ', rule, '  ⏵⏵ auto mode on'];
       return { terminal: { tail, source: 'screen' } };
     }
-    if (a === 'search') return { hits: [] };
+    if (a === 'search') {
+      const opt = (name: string) => args.find((x) => x.startsWith(`--${name}=`))?.slice(name.length + 3) ?? '';
+      const cwd = opt('path');
+      const file = transcripts.get(`${cwd}|${opt('agent')}`);
+      return { hits: file ? [{ title: 'demo', cwd, source: { presence: 'present', filePath: file } }] : [] };
+    }
+    if (a === 'account' && b === 'list') {
+      const in3h = Date.now() + 3 * 3600_000;
+      const in4d = Date.now() + 4 * 86400_000;
+      return {
+        rateLimits: {
+          claude: {
+            provider: 'claude',
+            status: 'ok',
+            session: { usedPercent: 62, windowMinutes: 300, resetsAt: in3h, resetDescription: '3:00 PM' },
+            weekly: { usedPercent: 21, windowMinutes: 10080, resetsAt: in4d, resetDescription: 'Fri 4:00 AM' },
+            fableWeekly: { usedPercent: 9, windowMinutes: 10080, resetsAt: in4d, resetDescription: 'Fri 4:00 AM' },
+          },
+          codex: { provider: 'codex', status: 'unavailable', session: null, weekly: null },
+        },
+      };
+    }
     return { ok: true };
   };
 }
 
-/** Demo agents that have subagents working (Orca has no notion of these; the bridge adds them). */
-export function demoSubagentsRunning(agentId: string): number {
-  return ({ 'p1:leaf': 2, 'p5:leaf': 1 } as Record<string, number>)[agentId] ?? 0;
+/** What the bridge would learn from demo transcripts: running subagents, model, effort. */
+export function demoEnrichment(agentId: string): { subagentsRunning: number; model: string; effort: string } {
+  const table: Record<string, [number, string, string]> = {
+    'p1:leaf': [2, 'claude-opus-5-5', 'xhigh'],
+    'p2:leaf': [0, 'claude-fable-5-1', 'high'],
+    'p3:leaf': [0, 'gpt-5.4', 'medium'],
+    'p4:leaf': [0, 'gpt-5.4', 'high'],
+    'p5:leaf': [1, 'claude-sonnet-5-5', 'medium'],
+    'p6:leaf': [0, 'claude-haiku-4-5-20251001', 'low'],
+    'p7:leaf': [0, 'gemini-3-pro', 'medium'],
+  };
+  const [subagentsRunning, model, effort] = table[agentId] ?? [0, 'claude-opus-5-5', 'medium'];
+  return { subagentsRunning, model, effort };
 }
