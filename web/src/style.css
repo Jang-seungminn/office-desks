@@ -920,3 +920,120 @@ details.tools ol {
   background: #fff;
   cursor: pointer;
 }
+
+/* Changes tab */
+.changes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #f6efe1;
+}
+.changes[hidden] {
+  display: none;
+}
+.changes .file-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 12px;
+  overflow-y: auto;
+  max-height: 45%;
+  font-size: 12px;
+}
+.changes .diff-view:not([hidden]) ~ .file-list,
+.changes .file-list:only-child {
+  max-height: none;
+}
+.changes li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.changes li[data-file] {
+  cursor: pointer;
+}
+.changes li[data-file]:hover,
+.changes li.open {
+  background: #ffe8dc;
+}
+.changes .fp {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.changes .add {
+  color: #2f7a32;
+  font-weight: 700;
+}
+.changes .del {
+  color: #b3261e;
+  font-weight: 700;
+}
+.changes .st {
+  width: 18px;
+  text-align: center;
+  font-weight: 700;
+  border-radius: 3px;
+  color: #fff;
+  background: #7a6a58;
+}
+.changes .st-added,
+.changes .st-untracked {
+  background: #2f7a32;
+}
+.changes .st-deleted {
+  background: #b3261e;
+}
+.changes .diff-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 2px solid var(--ink);
+}
+.changes .diff-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--paper);
+}
+.changes .diff-head button {
+  font: inherit;
+  font-size: 11px;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.changes .diff {
+  flex: 1;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 12px;
+  background: #1b1f27;
+  color: #d8dde6;
+  font: 11px/1.45 ui-monospace, Menlo, Consolas, monospace;
+  white-space: pre;
+}
+.changes .l-add {
+  color: #8be28b;
+  background: rgba(60, 160, 60, 0.15);
+}
+.changes .l-del {
+  color: #ff9b8f;
+  background: rgba(200, 60, 50, 0.15);
+}
+.changes .l-hunk {
+  color: #8ab4ff;
+}
+#panel .pr a {
+  color: #2f7a32;
+  font-weight: 700;
+}

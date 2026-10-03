@@ -34,6 +34,8 @@ const desk = (name: string, repo: string, agents: OfficeAgent[], lastActivityAt 
   isActive: false,
   unread: false,
   lastActivityAt,
+  changes: null,
+  pr: null,
   agents,
 });
 

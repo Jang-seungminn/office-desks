@@ -6,10 +6,11 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { CommandCatalog } from './commands.js';
 import { createDemoRunner, demoEnrichment } from './demo.js';
 import { fetchUsage } from './usage.js';
+import { changeSummary, fileDiff } from './gitInfo.js';
 import { charBytes, keyBytes } from './keys.js';
 import { answerQuestions, validateChoices } from './answer.js';
 import { composerState } from './screen.js';
-import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot } from './model.js';
+import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot, FileDiffResponse } from './model.js';
 import { createOrcaRunner, OrcaCliError, resolveOrcaCommand } from './orcaCli.js';
 import { OfficePoller } from './poller.js';
 import { isAllowedRequest, setSecurityHeaders } from './security.js';
@@ -128,10 +129,32 @@ async function conversation(agentId: string | null, after: number, sub: string |
   };
 }
 
+/** git change counts per worktree path, refreshed in the background at most every 10s. */
+const changeCache = new Map<string, { at: number; value: OfficeDesk['changes']; busy: boolean }>();
+const CHANGES_TTL_MS = 10_000;
+
+function cachedChanges(desk: OfficeDesk): OfficeDesk['changes'] {
+  const hit = changeCache.get(desk.path);
+  if (!hit || (Date.now() - hit.at > CHANGES_TTL_MS && !hit.busy)) {
+    const entry = { at: hit?.at ?? 0, value: hit?.value ?? null, busy: true };
+    changeCache.set(desk.path, entry);
+    changeSummary(desk.path)
+      .then((c) => (entry.value = { files: c.files.length, added: c.added, deleted: c.deleted }))
+      .catch(() => (entry.value = null))
+      .finally(() => {
+        entry.at = Date.now();
+        entry.busy = false;
+      });
+  }
+  return changeCache.get(desk.path)!.value;
+}
+
 /** Add what only transcripts know (running subagents, model, effort) to every agent. */
 async function enrichFromTranscripts(desks: OfficeDesk[]): Promise<void> {
+  if (!DEMO) for (const d of desks) d.changes = cachedChanges(d);
   if (DEMO) {
     for (const a of desks.flatMap((d) => d.agents)) Object.assign(a, demoEnrichment(a.id));
+    for (const [i, d] of desks.entries()) d.changes = d.agents.length ? { files: (i % 4) + 1, added: 12 + i * 37, deleted: i * 9 } : null;
     return;
   }
   await Promise.all(
@@ -220,6 +243,16 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     const image = file && existsSync(file) ? readLocalImage(file) : null;
     if (!image) return json(res, 404, { error: 'no such upload' });
     return sendBinary(res, image.type, image.buf);
+  }
+  if (req.method === 'GET' && (pathname === '/api/changes' || pathname === '/api/diff')) {
+    // Only worktrees Orca reports; files only from git's own list of changes.
+    const desk = poller.current.desks.find((d) => d.id === url.searchParams.get('deskId'));
+    if (!desk || DEMO) return json(res, 404, { error: 'unknown worktree' });
+    const summary = await changeSummary(desk.path);
+    if (pathname === '/api/changes') return json(res, 200, summary);
+    const file = summary.files.find((f) => f.path === url.searchParams.get('file'));
+    if (!file) return json(res, 404, { error: 'not a changed file' });
+    return json(res, 200, { file, ...(await fileDiff(desk.path, file)) } satisfies FileDiffResponse);
   }
   if (req.method === 'GET' && pathname === '/api/commands') {
     const found = findAgent(url.searchParams.get('agentId'));

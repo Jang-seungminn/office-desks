@@ -558,11 +558,23 @@ export class OfficeScene extends Phaser.Scene {
     const title = desk.isMain ? `★ ${desk.branch || desk.name}` : desk.name;
     const parent = desk.parentId ? this.snapshot?.desks.find((d) => d.id === desk.parentId) : null;
     const sub = desk.isMain ? '메인 체크아웃' : desk.branch && desk.branch !== desk.name ? `⎇ ${desk.branch}` : parent ? `↳ ${parent.branch || parent.name}에서 분기` : '';
+    // Right-aligned chips: open PR and uncommitted line counts.
+    let chipX = x + podW - POD_PAD;
+    const chip = (label: string, bg: string) => {
+      const t = this.add
+        .text(chipX, y + 7, label, { ...PX11, color: '#fdf6e3', backgroundColor: bg, padding: { x: 4, y: 2 } })
+        .setOrigin(1, 0);
+      this.podLayer.add(t);
+      chipX -= t.width + 4;
+    };
+    if (desk.pr) chip(desk.pr.number ? `PR #${desk.pr.number}` : 'PR', desk.pr.state && /merged/i.test(desk.pr.state) ? '#6e4fb3' : '#2f7a32');
+    if (desk.changes && desk.changes.files > 0) chip(`+${desk.changes.added} −${desk.changes.deleted}`, '#2b2118');
+    const chipsW = x + podW - POD_PAD - chipX;
     const textW = podW - POD_PAD * 2;
     const name = this.add
       .text(x + POD_PAD, y + 6, '', { ...PX14, color: '#fdf6e3' })
       .setShadow(1, 1, '#2b2118', 0, false, true);
-    fitText(name, title, textW);
+    fitText(name, title, textW - chipsW);
     const branch = this.add
       .text(x + POD_PAD, y + 23, '', { ...PX11, color: '#e8dcc4' })
       .setShadow(1, 1, '#2b2118', 0, false, true);

@@ -55,6 +55,10 @@ export interface OfficeDesk {
   unread: boolean;
   /** Orca's last activity time for the worktree (ms), used to order idle desks. */
   lastActivityAt: number | null;
+  /** Uncommitted changes against HEAD (refreshed every few seconds), or null if unknown. */
+  changes: { files: number; added: number; deleted: number } | null;
+  /** Pull request Orca linked to this worktree. */
+  pr: { number: number | null; url: string | null; title: string | null; state: string | null } | null;
   agents: OfficeAgent[];
 }
 
@@ -211,4 +215,23 @@ export interface KeyRequest {
   /** A named key, or `char` for one printable character (typing into a dialog's search box). */
   key?: TerminalKey;
   char?: string;
+}
+
+export interface ChangedFile {
+  path: string;
+  status: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked';
+  added: number;
+  deleted: number;
+}
+
+export interface ChangeSummary {
+  files: ChangedFile[];
+  added: number;
+  deleted: number;
+}
+
+export interface FileDiffResponse {
+  file: ChangedFile;
+  diff: string;
+  truncated: boolean;
 }

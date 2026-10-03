@@ -1,3 +1,4 @@
+import { normalizePr } from './gitInfo.js';
 import type { CharacterState, OfficeAgent, OfficeDesk, OfficeSnapshot } from './model.js';
 
 // Minimal shapes of the Orca CLI JSON we rely on. Everything is optional so a
@@ -28,6 +29,7 @@ export interface OrcaWorktreeRow {
   isArchived?: boolean;
   unread?: boolean;
   lastActivityAt?: number;
+  linkedPR?: unknown;
   isMainWorktree?: boolean;
   parentWorktreeId?: string | null;
   agents?: OrcaAgentRow[];
@@ -142,6 +144,8 @@ export function toSnapshot(
         isActive: Boolean(w.isActive),
         unread: Boolean(w.unread),
         lastActivityAt: typeof w.lastActivityAt === 'number' ? w.lastActivityAt : null,
+        changes: null,
+        pr: normalizePr(w.linkedPR),
         agents,
       };
     })

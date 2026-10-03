@@ -2,6 +2,8 @@ import type {
   ConversationMessage,
   ConversationResponse,
   QuestionState,
+  ChangeSummary,
+  FileDiffResponse,
   SubagentInfo,
   ImageUpload,
   OfficeAgent,
@@ -113,7 +115,10 @@ export class Panel {
   private readonly term: HTMLDivElement;
   private readonly screen: HTMLPreElement;
   private readonly slashMenu: HTMLDivElement;
-  private tab: 'convo' | 'term' = 'convo';
+  private tab: 'convo' | 'term' | 'changes' = 'convo';
+  private readonly changesEl: HTMLDivElement;
+  private changesTimer: number | null = null;
+  private openFile: string | null = null;
   private termTimer: number | null = null;
   private menuMode = false;
   private autoSwitched = false;
@@ -134,9 +139,14 @@ export class Panel {
       <div class="tabs" role="tablist">
         <button type="button" data-tab="convo" class="active">💬 대화</button>
         <button type="button" data-tab="term">🖥️ 터미널<span class="tab-alert" hidden>!</span></button>
+        <button type="button" data-tab="changes">📝 변경<span class="tab-count"></span></button>
       </div>
       <div class="convo"></div>
       <button type="button" class="to-latest" hidden>⬇ 최신으로</button>
+      <div class="changes" hidden>
+        <ul class="file-list"></ul>
+        <div class="diff-view" hidden><div class="diff-head"></div><pre class="diff"></pre></div>
+      </div>
       <div class="term" hidden>
         <p class="term-hint">화면을 <b>클릭하면</b> 키보드가 에이전트에게 바로 전달돼요 (↑↓ Enter Esc, 글자). 바깥을 클릭하면 해제</p>
         <pre class="screen" tabindex="0"></pre>
@@ -171,6 +181,12 @@ export class Panel {
     this.screen = el.querySelector('.screen')!;
     this.slashMenu = el.querySelector('.slash-menu')!;
     this.menuBanner = el.querySelector('.menu-banner')!;
+    this.changesEl = el.querySelector('.changes')!;
+    this.changesEl.addEventListener('click', (e) => {
+      const li = (e.target as HTMLElement).closest<HTMLElement>('[data-file]');
+      if (li) void this.showDiff(li.dataset.file!);
+      if ((e.target as HTMLElement).closest('[data-close-diff]')) this.showDiff(null);
+    });
     this.toLatest = el.querySelector('.to-latest')!;
     this.toLatest.addEventListener('click', () => {
       this.convo.scrollTo({ top: this.convo.scrollHeight, behavior: 'smooth' });
@@ -201,7 +217,7 @@ export class Panel {
     });
     this.tabs.addEventListener('click', (e) => {
       const t = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]')?.dataset.tab;
-      if (t === 'convo' || t === 'term') this.showTab(t);
+      if (t === 'convo' || t === 'term' || t === 'changes') this.showTab(t);
     });
     this.term.addEventListener('click', (e) => {
       const key = (e.target as HTMLElement).closest<HTMLElement>('[data-key]')?.dataset.key as TerminalKey | undefined;
@@ -299,6 +315,8 @@ export class Panel {
       this.renderAttachments();
       this.feedback.textContent = '';
       this.subView = null;
+      this.openFile = null;
+      this.changesEl.querySelector<HTMLElement>('.diff-view')!.hidden = true;
       this.subagents = [];
       this.questions = [];
       this.picks.clear();
@@ -325,6 +343,7 @@ export class Panel {
     this.el.hidden = true;
     this.stopConversation();
     this.stopTerminal();
+    this.stopChanges();
   }
 
   /** Re-render the header only, so the conversation scroll and a half-typed command survive live updates. */
@@ -348,12 +367,17 @@ export class Panel {
           ${d.workspaceStatus ? ` <span class="pill">${esc(d.workspaceStatus)}</span>` : ''}
         </p>
         ${a ? `<div class="activity-row"><p class="activity">${esc(a.activity)}</p>${this.stopButton(a)}</div>` : ''}
-        ${d.comment ? `<p class="comment">💬 ${esc(d.comment)}</p>` : ''}`;
+        ${d.comment ? `<p class="comment">💬 ${esc(d.comment)}</p>` : ''}
+        ${d.pr ? `<p class="pr">🔀 ${d.pr.url ? `<a href="${esc(d.pr.url)}" target="_blank" rel="noopener noreferrer">PR${d.pr.number ? ` #${d.pr.number}` : ''}</a>` : `PR${d.pr.number ? ` #${d.pr.number}` : ''}`}${d.pr.title ? ` · ${esc(d.pr.title)}` : ''}${d.pr.state ? ` <span class="pill">${esc(d.pr.state)}</span>` : ''}</p>` : ''}`;
     }
+    const files = d?.changes?.files ?? 0;
+    this.tabs.querySelector<HTMLElement>('.tab-count')!.textContent = files ? ` ${files}` : '';
     const handle = a?.terminalHandle ?? null;
     // A waiting agent usually shows a menu or permission prompt in its terminal.
     this.tabs.querySelector<HTMLElement>('.tab-alert')!.hidden = a?.state !== 'waiting';
-    this.tabs.hidden = !a;
+    this.tabs.hidden = !d;
+    for (const b of this.tabs.querySelectorAll<HTMLElement>('[data-tab="convo"], [data-tab="term"]')) b.hidden = !a;
+    if (!a && d && this.tab !== 'changes') this.showTab('changes');
     this.sendBtn.disabled = !handle;
     this.focusBtn.disabled = !handle;
     this.textarea.disabled = !handle;
@@ -364,11 +388,14 @@ export class Panel {
 
   // --- tabs, terminal mirror & menu mode ---
 
-  private showTab(tab: 'convo' | 'term'): void {
+  private showTab(tab: 'convo' | 'term' | 'changes'): void {
     this.tab = tab;
     for (const b of this.tabs.querySelectorAll<HTMLElement>('[data-tab]')) b.classList.toggle('active', b.dataset.tab === tab);
     this.convo.hidden = tab !== 'convo';
     this.term.hidden = tab !== 'term';
+    this.changesEl.hidden = tab !== 'changes';
+    if (tab === 'changes') this.startChanges();
+    else this.stopChanges();
     this.updateToLatest();
     // Never move keyboard focus to the terminal by itself: keys typed there go straight to the
     // agent, so only an explicit click on the screen turns that on.
@@ -410,6 +437,79 @@ export class Panel {
   private stopTerminal(): void {
     if (this.termTimer !== null) window.clearTimeout(this.termTimer);
     this.termTimer = null;
+  }
+
+  // --- changes (git) ---
+
+  private startChanges(): void {
+    this.stopChanges();
+    const deskId = this.selection?.deskId;
+    if (!deskId) return;
+    const tick = async () => {
+      await this.loadChanges(deskId);
+      if (this.tab === 'changes' && this.selection?.deskId === deskId) this.changesTimer = window.setTimeout(tick, 5000);
+    };
+    void tick();
+  }
+
+  private stopChanges(): void {
+    if (this.changesTimer !== null) window.clearTimeout(this.changesTimer);
+    this.changesTimer = null;
+  }
+
+  private async loadChanges(deskId: string): Promise<void> {
+    const list = this.changesEl.querySelector<HTMLElement>('.file-list')!;
+    try {
+      const res = await fetch(`/api/changes?deskId=${encodeURIComponent(deskId)}`);
+      if (!res.ok) throw new Error();
+      const data = (await res.json()) as ChangeSummary;
+      if (this.selection?.deskId !== deskId) return;
+      const icon = { modified: 'M', added: 'A', deleted: 'D', renamed: 'R', untracked: 'U' } as const;
+      list.innerHTML = data.files.length
+        ? `<li class="sum">파일 ${data.files.length}개 · <span class="add">+${data.added}</span> <span class="del">−${data.deleted}</span> <span class="muted">(커밋 전 변경, HEAD 기준)</span></li>` +
+          data.files
+            .map(
+              (f) => `<li data-file="${esc(f.path)}" class="${f.path === this.openFile ? 'open' : ''}"><span class="st st-${f.status}">${icon[f.status]}</span>
+                <span class="fp">${esc(f.path)}</span><span class="add">+${f.added}</span><span class="del">−${f.deleted}</span></li>`,
+            )
+            .join('')
+        : '<li class="muted">커밋되지 않은 변경이 없습니다.</li>';
+    } catch {
+      list.innerHTML = '<li class="muted">변경 사항을 읽지 못했습니다 (git 저장소가 아니거나 git이 없음).</li>';
+    }
+  }
+
+  private async showDiff(file: string | null): Promise<void> {
+    const view = this.changesEl.querySelector<HTMLElement>('.diff-view')!;
+    this.openFile = file;
+    for (const li of this.changesEl.querySelectorAll<HTMLElement>('[data-file]')) li.classList.toggle('open', li.dataset.file === file);
+    if (!file || !this.selection) {
+      view.hidden = true;
+      return;
+    }
+    const head = view.querySelector<HTMLElement>('.diff-head')!;
+    const pre = view.querySelector<HTMLPreElement>('.diff')!;
+    head.innerHTML = `<b></b> <button type="button" data-close-diff>닫기</button>`;
+    head.querySelector('b')!.textContent = file;
+    pre.textContent = '불러오는 중…';
+    view.hidden = false;
+    try {
+      const res = await fetch(`/api/diff?deskId=${encodeURIComponent(this.selection.deskId)}&file=${encodeURIComponent(file)}`);
+      const data = (await res.json()) as FileDiffResponse & { error?: string };
+      if (!res.ok) throw new Error(data.error);
+      // One span per line, text only: diffs are untrusted content.
+      pre.textContent = '';
+      for (const line of data.diff.split('\n')) {
+        const span = document.createElement('span');
+        span.className = line.startsWith('+') && !line.startsWith('+++') ? 'l-add' : line.startsWith('-') && !line.startsWith('---') ? 'l-del' : line.startsWith('@@') ? 'l-hunk' : '';
+        span.textContent = `${line}\n`;
+        pre.append(span);
+      }
+      if (data.truncated) pre.append('\n… (너무 길어 잘렸습니다)');
+      if (!data.diff) pre.textContent = '(내용 없음 · 바이너리 파일일 수 있습니다)';
+    } catch (err) {
+      pre.textContent = `⚠️ ${(err as Error).message || 'diff를 불러오지 못했습니다'}`;
+    }
   }
 
   /** A dialog owns the agent's keyboard: show it, route keys to it, and hold back messages. */
