@@ -1421,3 +1421,18 @@ body.night .slash-menu .item.active {
   font-size: 11px;
   color: var(--muted);
 }
+
+/* Crowded status bar on narrower screens: drop reset times, then the bar labels. */
+@media (max-width: 1600px) {
+  #status-bar .meter .reset {
+    display: none;
+  }
+}
+@media (max-width: 1250px) {
+  #status-bar .meter .bar {
+    width: 36px;
+  }
+  #status-bar .status-left {
+    gap: 10px;
+  }
+}
