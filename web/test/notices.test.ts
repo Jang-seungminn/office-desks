@@ -62,12 +62,27 @@ describe('Notices', () => {
     expect(again.attention(snap([agent('a', 'done', 900)]))).toEqual([]);
   });
 
-  it('reports only fresh stops as notifications', () => {
-    const n = new Notices(memory(), () => 0);
-    expect(n.transitions(snap([agent('a', 'done', 1)]))).toEqual([]); // first look: nothing "changed"
-    expect(n.transitions(snap([agent('a', 'typing', 2)]))).toEqual([]);
-    expect(n.transitions(snap([agent('a', 'done', 3)]))).toEqual([{ agentId: 'a', deskId: 'd', kind: 'done' }]);
-    expect(n.transitions(snap([agent('a', 'done', 3)]))).toEqual([]);
-    expect(n.transitions(snap([agent('a', 'waiting', 4)]))).toEqual([{ agentId: 'a', deskId: 'd', kind: 'waiting' }]);
+  it('pops up only for finishes after real work, and rate-limits per agent', () => {
+    let now = 0;
+    const n = new Notices(memory(), () => now);
+    expect(n.transitions(snap([agent('a', 'done', 0)]))).toEqual([]); // first look: nothing "changed"
+    now = 1000;
+    expect(n.transitions(snap([agent('a', 'typing', 1000)]))).toEqual([]);
+    now = 6000;
+    expect(n.transitions(snap([agent('a', 'reading', 6000)]))).toEqual([]); // still the same work stretch
+    now = 5000 + 30_000;
+    expect(n.transitions(snap([agent('a', 'done', now)]))).toEqual([{ agentId: 'a', deskId: 'd', kind: 'done' }]); // worked 34s
+    // A background job wakes it for 3 seconds: badge-worthy, not popup-worthy.
+    now += 10_000;
+    n.transitions(snap([agent('a', 'typing', now)]));
+    now += 3_000;
+    expect(n.transitions(snap([agent('a', 'done', now)]))).toEqual([]);
+    // Long work again, but within the 2-minute cooldown: still quiet.
+    n.transitions(snap([agent('a', 'typing', now)]));
+    now += 40_000;
+    expect(n.transitions(snap([agent('a', 'done', now)]))).toEqual([]);
+    // Waiting on the human always pops up (with its own short cooldown).
+    now += 1_000;
+    expect(n.transitions(snap([agent('a', 'waiting', now)]))).toEqual([{ agentId: 'a', deskId: 'd', kind: 'waiting' }]);
   });
 });

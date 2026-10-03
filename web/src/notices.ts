@@ -25,12 +25,18 @@ export interface KeyValueStore {
 
 const KEY = 'office-desks:seen';
 const ACTIVE = new Set(['typing', 'reading', 'running']);
+/** A finish only deserves a popup if the agent worked at least this long (skips wake-ups for background jobs). */
+export const MIN_WORK_MS = 20_000;
+/** At most one popup per agent within these windows. */
+export const DONE_COOLDOWN_MS = 2 * 60_000;
+export const WAITING_COOLDOWN_MS = 30_000;
 
 export class Notices {
   private data: Stored;
   /** First time we saw Orca's unread flag on for a desk (cleared when Orca clears it). */
   private unreadSince = new Map<string, number>();
-  private lastStates = new Map<string, string>();
+  private lastStates = new Map<string, { state: string; since: number }>();
+  private lastNotified = new Map<string, number>();
 
   constructor(
     private readonly store: KeyValueStore | null,
@@ -78,16 +84,34 @@ export class Notices {
     return out;
   }
 
-  /** Agents that just stopped working (finished or now waiting on you) since the last snapshot. */
+  /**
+   * Agents that just stopped working (finished, or now waiting on you) and are worth a popup:
+   * finishes after real work (not a few-second wake-up), rate-limited per agent.
+   */
   transitions(snapshot: OfficeSnapshot): Attention[] {
     const out: Attention[] = [];
-    const next = new Map<string, string>();
+    const next = new Map<string, { state: string; since: number }>();
+    const now = this.now();
     for (const desk of snapshot.desks) {
       for (const a of desk.agents) {
-        next.set(a.id, a.state);
         const prev = this.lastStates.get(a.id);
-        const stopped = (a.state === 'done' && prev !== undefined && ACTIVE.has(prev)) || (a.state === 'waiting' && prev !== undefined && prev !== 'waiting');
-        if (stopped) out.push({ agentId: a.id, deskId: desk.id, kind: a.state === 'waiting' ? 'waiting' : 'done' });
+        // Orca's `since` marks when the current state began; keep the start of a work stretch
+        // across tool switches (typing → reading → running are all one stretch).
+        const workStart = prev && ACTIVE.has(prev.state) && ACTIVE.has(a.state) ? prev.since : (a.since ?? now);
+        next.set(a.id, { state: a.state, since: workStart });
+        if (!prev) continue; // first look: nothing "changed"
+        const last = this.lastNotified.get(a.id) ?? -Infinity;
+        let kind: AttentionKind | null = null;
+        if (a.state === 'done' && ACTIVE.has(prev.state)) {
+          const worked = (a.since ?? now) - prev.since;
+          if (worked >= MIN_WORK_MS && now - last >= DONE_COOLDOWN_MS) kind = 'done';
+        } else if (a.state === 'waiting' && prev.state !== 'waiting' && now - last >= WAITING_COOLDOWN_MS) {
+          kind = 'waiting';
+        }
+        if (kind) {
+          this.lastNotified.set(a.id, now);
+          out.push({ agentId: a.id, deskId: desk.id, kind });
+        }
       }
     }
     this.lastStates = next;
