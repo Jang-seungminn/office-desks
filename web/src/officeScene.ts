@@ -72,6 +72,10 @@ function fitText(t: Phaser.GameObjects.Text, s: string, maxWidth: number): Phase
   return t.setText(`${s.slice(0, lo)}…`);
 }
 
+function truncateTag(s: string): string {
+  return s.length > 18 ? `${s.slice(0, 17)}…` : s;
+}
+
 export interface HoverInfo {
   deskId: string;
   agentId: string | null;
@@ -187,10 +191,12 @@ class Seat {
     ]);
   }
 
-  update(agent: OfficeAgent | null, seed: number): void {
+  /** `nameTag`: shown above the activity when a worktree has several agents, so you can tell them apart. */
+  update(agent: OfficeAgent | null, seed: number, nameTag: string | null = null): void {
     const state = agent?.state ?? 'away';
     this.glow.setFillStyle(SCREEN[state] ?? SCREEN.away, state === 'away' ? 0 : 0.9);
-    this.activity.setText(agent ? agent.activity : '빈 자리');
+    const activity = agent ? agent.activity : '빈 자리';
+    this.activity.setText(nameTag ? `「${truncateTag(nameTag)}」\n${activity}` : activity);
     this.activity.setColor(state === 'waiting' ? '#ffd166' : '#fdf6e3');
 
     if (agent && state !== 'away') {
@@ -277,18 +283,30 @@ class Seat {
   }
 
   private placed = false;
-  private moveTween: Phaser.Tweens.Tween | null = null;
+  /** Where the office wants this seat; step() glides there. The latest target always wins. */
+  private target = { x: 0, y: 0 };
 
-  /** Slide to a new spot when the office rearranges (jump on first placement). */
+  /** Set a new spot when the office rearranges (jump on first placement, glide afterwards). */
   moveTo(x: number, y: number): void {
+    this.target = { x, y };
     if (!this.placed) {
       this.placed = true;
       this.root.setPosition(x, y);
+    }
+  }
+
+  /** Called every frame: ease toward the target, snapping when close. */
+  step(dtMs: number): void {
+    const r = this.root;
+    const dx = this.target.x - r.x;
+    const dy = this.target.y - r.y;
+    if (dx === 0 && dy === 0) return;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+      r.setPosition(this.target.x, this.target.y);
       return;
     }
-    if (this.root.x === x && this.root.y === y) return;
-    this.moveTween?.remove();
-    this.moveTween = this.scene.tweens.add({ targets: this.root, x, y, duration: 450, ease: 'Cubic.easeInOut' });
+    const k = Math.min(1, dtMs / 90); // ~90ms time constant: settles in about half a second
+    r.setPosition(r.x + dx * k, r.y + dy * k);
   }
 
   setAttention(kind: string | null): void {
@@ -362,8 +380,9 @@ export class OfficeScene extends Phaser.Scene {
     this.layout();
   }
 
-  update(): void {
+  update(_time: number, delta: number): void {
     this.interior?.update(new Date());
+    for (const seat of this.seats.values()) seat.step(delta);
   }
 
   private usageLine: string | null = null;
@@ -599,7 +618,9 @@ export class OfficeScene extends Phaser.Scene {
         this.seats.set(key, seat);
       }
       seat.moveTo(x + POD_PAD + i * SEAT_W, y + LABEL_H + POD_PAD);
-      seat.update(agent, hash(agent?.id ?? key));
+      // Several agents in one worktree: label each with its session title (or its type and number).
+      const tag = seatsHere.length > 1 && agent ? (agent.terminalTitle ?? `${agent.agentType} ${i + 1}`) : null;
+      seat.update(agent, hash(agent?.id ?? key), tag);
       seat.setSelected(key === this.selectionKey());
       seat.setAttention(agent ? (this.attention.get(agent.id) ?? null) : null);
     });

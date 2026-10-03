@@ -16,6 +16,8 @@ function esc(s: string): string {
 }
 
 const scene = new OfficeScene();
+// `?debug` exposes the scene for poking at it from the browser console.
+if (new URLSearchParams(location.search).has('debug')) (window as unknown as { __office: OfficeScene }).__office = scene;
 // Canvas text is drawn once with whatever font is ready, so load the pixel fonts first.
 void loadPixelFonts().then(() => new Phaser.Game({
   type: Phaser.AUTO,
