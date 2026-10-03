@@ -10,6 +10,7 @@ const agent = (id: string, state: OfficeAgent['state'], since: number): OfficeAg
   subagentsRunning: 0,
   model: null,
   effort: null,
+  stats: null,
   state,
   rawState: state,
   activity: '',

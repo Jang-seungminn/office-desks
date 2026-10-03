@@ -10,6 +10,7 @@ const agent = (state: OfficeAgent['state'], since: number): OfficeAgent => ({
   subagentsRunning: 0,
   model: null,
   effort: null,
+  stats: null,
   state,
   rawState: state,
   activity: '',

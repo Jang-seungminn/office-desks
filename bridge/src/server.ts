@@ -1,17 +1,20 @@
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { CommandCatalog } from './commands.js';
-import { createDemoRunner, demoEnrichment } from './demo.js';
+import { createDemoRunner, demoEnrichment, demoOrg } from './demo.js';
 import { fetchUsage } from './usage.js';
+import { agentStats } from './stats.js';
+import { loadOrg, orgFile, saveOrg, sanitizeOrg } from './org.js';
 import { changeSummary, fileDiff } from './gitInfo.js';
 import { planHire } from './hire.js';
 import { charBytes, keyBytes } from './keys.js';
 import { answerQuestions, validateChoices } from './answer.js';
 import { composerState, screenSupport } from './screen.js';
-import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, WorktreeUpdate, HireRequest, SearchResult, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot, FileDiffResponse } from './model.js';
+import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, WorktreeUpdate, HireRequest, SearchResult, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot, FileDiffResponse, OrgChart } from './model.js';
 import { createOrcaRunner, OrcaCliError, resolveOrcaCommand } from './orcaCli.js';
 import { OfficePoller } from './poller.js';
 import { isAllowedRequest, setSecurityHeaders } from './security.js';
@@ -176,6 +179,7 @@ async function enrichFromTranscripts(desks: OfficeDesk[]): Promise<void> {
           agent.subagentsRunning = t.calls.filter((c) => c.status === 'running').length;
           agent.model = t.model;
           agent.effort = t.effort;
+          agent.stats = agentStats(t);
         }),
     ),
   );
@@ -219,6 +223,17 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   const pathname = url.pathname;
   if (req.method === 'GET' && pathname === '/api/snapshot') {
     return json(res, 200, poller.current);
+  }
+  if (req.method === 'GET' && pathname === '/api/org') {
+    return json(res, 200, org);
+  }
+  if (req.method === 'POST' && pathname === '/api/org') {
+    const next = sanitizeOrg(await readJson<unknown>(req));
+    if ('error' in next) return json(res, 400, next);
+    await saveOrg(next, ORG_FILE);
+    org = next;
+    for (const ws of wss.clients) if (ws.readyState === ws.OPEN) send(ws, { type: 'org', org });
+    return json(res, 200, org);
   }
   if (req.method === 'GET' && pathname === '/api/conversation/image') {
     // Images embedded in the agent's transcript (e.g. screenshots pasted into Claude Code).
@@ -517,6 +532,15 @@ wss.on('connection', (ws) => {
   ws.on('close', () => poller.setIdle(wss.clients.size === 0));
   send(ws, { type: 'snapshot', snapshot: poller.current });
   if (usage) send(ws, { type: 'usage', usage });
+  send(ws, { type: 'org', org });
+});
+
+// Departments the user set up (shared by every browser); the demo keeps its own sample chart.
+const ORG_FILE = DEMO ? path.join(os.tmpdir(), 'office-desks-demo', 'org.json') : orgFile();
+let org: OrgChart = { departments: [] };
+void loadOrg(ORG_FILE).then((loaded) => {
+  org = DEMO && !loaded.departments.length ? demoOrg() : loaded;
+  for (const ws of wss.clients) if (ws.readyState === ws.OPEN) send(ws, { type: 'org', org });
 });
 
 // Plan usage (5-hour / weekly / Fable) changes slowly; Orca refreshes it itself.

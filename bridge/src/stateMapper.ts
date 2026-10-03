@@ -117,6 +117,7 @@ export function toSnapshot(
           subagentsRunning: 0,
           model: null,
           effort: null,
+          stats: null,
           state,
           rawState: raw,
           activity: describe(state, a),

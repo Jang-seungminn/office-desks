@@ -22,6 +22,8 @@ export interface OfficeAgent {
   /** Model and reasoning effort of the agent's latest turn, from its transcript. */
   model: string | null;
   effort: string | null;
+  /** Work record from the transcript (for the employee card and rank); null until known. */
+  stats: AgentStats | null;
   state: CharacterState;
   /** Raw Orca agent state, kept for debugging and the side panel. */
   rawState: string;
@@ -70,7 +72,34 @@ export interface OfficeSnapshot {
 
 // --- Bridge <-> web protocol ---
 
-export type ServerMessage = { type: 'snapshot'; snapshot: OfficeSnapshot } | { type: 'usage'; usage: UsageSnapshot };
+export type ServerMessage =
+  | { type: 'snapshot'; snapshot: OfficeSnapshot }
+  | { type: 'usage'; usage: UsageSnapshot }
+  | { type: 'org'; org: OrgChart };
+
+export interface AgentStats {
+  /** Instructions the human gave (user messages). */
+  instructions: number;
+  /** Instructions given today (local time). */
+  instructionsToday: number;
+  toolCalls: number;
+  subagents: number;
+  /** First message of the session (ISO), i.e. when this "employee" was hired. */
+  hiredAt: string | null;
+}
+
+export interface Department {
+  id: string;
+  name: string;
+  /** Interior theme: carpet colour, sign and furniture. */
+  theme: 'dev' | 'design' | 'research' | 'ops' | 'etc';
+  /** Projects (Orca repo ids) seated in this department, in order. */
+  repoIds: string[];
+}
+
+export interface OrgChart {
+  departments: Department[];
+}
 
 export interface UsageWindow {
   /** Orca's key: session | weekly | monthly | fableWeekly | … */

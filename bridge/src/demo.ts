@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { AgentStats, OrgChart } from './model.js';
 import type { OrcaRunner } from './orcaCli.js';
 
 // A fake Orca for `npm run demo`: several repos, some with many worktrees, agents whose
@@ -215,7 +216,17 @@ export function createDemoRunner(): OrcaRunner {
 }
 
 /** What the bridge would learn from demo transcripts: running subagents, model, effort. */
-export function demoEnrichment(agentId: string): { subagentsRunning: number; model: string; effort: string } {
+export function demoOrg(): OrgChart {
+  return {
+    departments: [
+      { id: 'd-dev', name: '쇼핑 개발팀', theme: 'dev', repoIds: ['demo-shop-web'] },
+      { id: 'd-ops', name: '플랫폼팀', theme: 'ops', repoIds: ['demo-api-server'] },
+      { id: 'd-doc', name: '기획·문서팀', theme: 'design', repoIds: ['demo-docs'] },
+    ],
+  };
+}
+
+export function demoEnrichment(agentId: string): { subagentsRunning: number; model: string; effort: string; stats: AgentStats } {
   const table: Record<string, [number, string, string]> = {
     'p1:leaf': [2, 'claude-opus-5-5', 'xhigh'],
     'p2:leaf': [0, 'claude-fable-5-1', 'high'],
@@ -226,5 +237,13 @@ export function demoEnrichment(agentId: string): { subagentsRunning: number; mod
     'p7:leaf': [0, 'gemini-3-pro', 'medium'],
   };
   const [subagentsRunning, model, effort] = table[agentId] ?? [0, 'claude-opus-5-5', 'medium'];
-  return { subagentsRunning, model, effort };
+  const n = Number(/\d+/.exec(agentId)?.[0] ?? 1);
+  const stats: AgentStats = {
+    instructions: [0, 142, 37, 8, 64, 211, 19, 90][n] ?? 10,
+    instructionsToday: [0, 12, 5, 2, 7, 18, 3, 4][n] ?? 1,
+    toolCalls: [0, 1840, 402, 77, 690, 2650, 230, 512][n] ?? 50,
+    subagents: [0, 31, 4, 0, 9, 44, 2, 6][n] ?? 0,
+    hiredAt: new Date(START - ([0, 40, 9, 2, 21, 60, 5, 30][n] ?? 1) * 86400_000).toISOString(),
+  };
+  return { subagentsRunning, model, effort, stats };
 }

@@ -10,6 +10,7 @@ const agent = (over: Partial<OfficeAgent> = {}): OfficeAgent => ({
   subagentsRunning: 0,
   model: null,
   effort: null,
+  stats: null,
   state: 'done',
   rawState: 'done',
   activity: '',
