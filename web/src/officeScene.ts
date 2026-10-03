@@ -15,6 +15,7 @@ import {
 import { buildTextures, iconKey, SCREEN } from './sprites';
 import { modelTag } from './format';
 import { arrangeOffice, type Room } from './arrange';
+import { OfficeDecor } from './decor';
 
 export interface Selection {
   deskId: string;
@@ -32,7 +33,7 @@ const POD_PAD = 12;
 const LABEL_H = 40;
 const POD_GAP = 14;
 const ROOM_PAD = 14;
-const ROOM_HEADER = 34;
+const ROOM_HEADER = 42;
 const ROOM_GAP = 26;
 const ZONE_HEADER = 30;
 const ZONE_GAP = 34;
@@ -298,6 +299,7 @@ export class OfficeScene extends Phaser.Scene {
   private floor!: Phaser.GameObjects.TileSprite;
   private wall!: Phaser.GameObjects.TileSprite;
   private decor: Phaser.GameObjects.Image[] = [];
+  private interior!: OfficeDecor;
   private selection: Selection | null = null;
   onSelect: (sel: Selection) => void = () => {};
   onHover: (info: HoverInfo | null) => void = () => {};
@@ -314,13 +316,14 @@ export class OfficeScene extends Phaser.Scene {
 
   create(): void {
     buildTextures(this);
-    this.floor = this.add.tileSprite(0, 0, 10, 10, floorTexture(this)).setOrigin(0).setTileScale(SCALE);
-    this.wall = this.add.tileSprite(0, 0, 10, WALL_H, wallTexture(this)).setOrigin(0).setTileScale(SCALE);
+    this.floor = this.add.tileSprite(0, 0, 10, 10, floorTexture(this)).setOrigin(0).setTileScale(SCALE).setDepth(-10);
+    this.wall = this.add.tileSprite(0, 0, 10, WALL_H, wallTexture(this)).setOrigin(0).setTileScale(SCALE).setDepth(-8);
+    this.interior = new OfficeDecor(this);
     const plant = (i: number) => this.add.image(0, WALL_H + 30, 'indoor', frameIndex('indoor', FRAMES.plants[i])).setOrigin(0.5, 1).setScale(SCALE);
     this.decor = [
-      plant(0).setX(MARGIN + 20),
-      this.add.image(0, WALL_H + 30, sideboardTexture(this)).setOrigin(1, 1).setScale(SCALE),
-      plant(1),
+      plant(0).setX(MARGIN + 20).setDepth(-5),
+      this.add.image(0, WALL_H + 30, sideboardTexture(this)).setOrigin(1, 1).setScale(SCALE).setDepth(-5),
+      plant(1).setDepth(-5),
     ];
     this.podLayer = this.add.container(0, 0);
 
@@ -332,6 +335,10 @@ export class OfficeScene extends Phaser.Scene {
       if (!over.length && (p.event?.target ?? null) === this.game.canvas) this.onBackground();
     });
     this.layout();
+  }
+
+  update(): void {
+    this.interior?.update(new Date());
   }
 
   setSnapshot(snapshot: OfficeSnapshot): void {
@@ -374,12 +381,21 @@ export class OfficeScene extends Phaser.Scene {
     let rowH = 0;
 
     for (const zone of zones) {
-      const title = this.add
-        .text(MARGIN, ry, `${zone.label} · ${zone.count}`, { fontFamily: 'monospace', fontSize: '15px', fontStyle: 'bold', color: '#2b2118' })
-        .setShadow(1, 1, '#f3e7cf', 0, false, true);
+      // Floor sign: a wooden plaque with the floor name, and a rail across the room.
+      const title = this.add.text(MARGIN + 10, ry, `${zone.label} · ${zone.count}`, {
+        fontFamily: 'monospace',
+        fontSize: '15px',
+        fontStyle: 'bold',
+        color: '#fdf6e3',
+      });
+      const plaque = this.add.graphics();
+      plaque.fillStyle(0x2b1d14, 0.35).fillRoundedRect(MARGIN + 3, ry - 3, title.width + 20, 26, 6);
+      plaque.fillStyle(0x7a5536, 1).fillRoundedRect(MARGIN, ry - 6, title.width + 20, 26, 6);
+      plaque.lineStyle(2, 0x3d2b1f, 1).strokeRoundedRect(MARGIN, ry - 6, title.width + 20, 26, 6);
+      plaque.fillStyle(0xc9a25a, 1).fillCircle(MARGIN + 5, ry + 7, 2).fillCircle(MARGIN + title.width + 15, ry + 7, 2);
       const rule = this.add.graphics();
-      rule.lineStyle(2, 0x6b5038, 0.5).lineBetween(MARGIN + title.width + 12, ry + 10, width - MARGIN, ry + 10);
-      this.podLayer.add([rule, title]);
+      rule.lineStyle(3, 0x6b5038, 0.45).lineBetween(MARGIN + title.width + 30, ry + 7, width - MARGIN, ry + 7);
+      this.podLayer.add([rule, plaque, title]);
       ry += ZONE_HEADER;
       let rx = MARGIN;
       rowH = 0;
@@ -400,7 +416,8 @@ export class OfficeScene extends Phaser.Scene {
           px += w + POD_GAP;
           innerW = Math.max(innerW, px - POD_GAP);
         }
-        const roomW = innerW + ROOM_PAD * 2;
+        // Wide enough for the project name at its full size (plus the "워크트리 n개" note).
+        const roomW = Math.max(innerW + ROOM_PAD * 2, this.plateWidth(room) + ROOM_PAD * 2);
         const roomH = ROOM_HEADER + py + podH + ROOM_PAD;
         if (rx > MARGIN && rx + roomW > width - MARGIN) {
           rx = MARGIN;
@@ -439,7 +456,24 @@ export class OfficeScene extends Phaser.Scene {
     this.wall.setSize(width, WALL_H);
     this.decor[1].setX(width - MARGIN - PX);
     this.decor[2].setX(width - MARGIN - 20);
+    this.interior.layout(width, roomH - WALL_H, WALL_H);
     this.cameras.main.setBounds(0, 0, width, roomH);
+  }
+
+  private plateWidths = new Map<string, number>();
+
+  /** Pixel width the room's name plate needs (measured once per text). */
+  private plateWidth(room: Room): number {
+    const meta = room.total > 1 ? 90 : 0;
+    const key = `📁 ${room.repo}`;
+    let w = this.plateWidths.get(key);
+    if (w === undefined) {
+      const probe = this.add.text(0, 0, key, { fontFamily: 'monospace', fontSize: '19px', fontStyle: 'bold' });
+      w = Math.ceil(probe.width) + 4;
+      probe.destroy();
+      this.plateWidths.set(key, w);
+    }
+    return Math.min(w, 420) + meta;
   }
 
   /** A repo's room on one floor: a carpeted area with a name plate. */
@@ -448,13 +482,13 @@ export class OfficeScene extends Phaser.Scene {
     g.fillStyle(0x3d3128, 0.28).fillRoundedRect(x + 4, y + 5, w, h, 12); // shadow
     g.fillStyle(0xe9dcc3, 0.92).fillRoundedRect(x, y, w, h, 12);
     g.lineStyle(4, 0x6b5038, 1).strokeRoundedRect(x, y, w, h, 12);
-    const plate = this.add.text(x + ROOM_PAD, y + 7, '', { fontFamily: 'monospace', fontSize: '14px', fontStyle: 'bold', color: '#2b2118' });
+    const plate = this.add.text(x + ROOM_PAD, y + 8, '', { fontFamily: 'monospace', fontSize: '19px', fontStyle: 'bold', color: '#2b2118' });
     this.podLayer.add([g, plate]);
     // Worktree count only when the repo has several; "2/4" when the rest sit on other floors.
     let metaW = 0;
     if (room.total > 1) {
       const meta = this.add
-        .text(x + w - ROOM_PAD, y + 9, room.desks.length === room.total ? `워크트리 ${room.total}개` : `워크트리 ${room.desks.length}/${room.total}`, {
+        .text(x + w - ROOM_PAD, y + 13, room.desks.length === room.total ? `워크트리 ${room.total}개` : `워크트리 ${room.desks.length}/${room.total}`, {
           fontFamily: 'monospace',
           fontSize: '11px',
           color: '#7a6a58',

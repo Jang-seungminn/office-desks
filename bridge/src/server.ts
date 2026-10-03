@@ -339,8 +339,17 @@ function serveStatic(res: ServerResponse, pathname: string): void {
   if (rel.startsWith('..') || path.isAbsolute(rel) || !existsSync(file) || statSync(file).isDirectory()) {
     file = path.join(WEB_DIST, 'index.html');
   }
-  res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
-  createReadStream(file).pipe(res);
+  // The file can vanish between the check and the read (e.g. while `vite build` rewrites dist):
+  // answer with an error instead of letting the stream error take the bridge down.
+  const stream = createReadStream(file);
+  stream.on('open', () => {
+    res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
+    stream.pipe(res);
+  });
+  stream.on('error', () => {
+    if (!res.headersSent) json(res, 503, { error: 'web UI is being rebuilt, reload in a moment' });
+    else res.destroy();
+  });
 }
 
 const allowedPorts = [PORT, DEV_WEB_PORT];

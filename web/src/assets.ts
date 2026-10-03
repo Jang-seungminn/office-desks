@@ -15,7 +15,7 @@ const SHEETS = {
   chars: { url: 'assets/kenney/roguelike-characters.png', cols: 54, spacing: 1 },
   city: { url: 'assets/kenney/roguelike-modern-city.png', cols: 37, spacing: 0 },
 } as const;
-type SheetKey = keyof typeof SHEETS;
+export type SheetKey = keyof typeof SHEETS;
 
 export const FRAMES = {
   desk: [[0, 0], [1, 0], [2, 0]] as Cell[], // left, middle, right of a 3-tile table
@@ -26,6 +26,13 @@ export const FRAMES = {
   wallWindow: [[12, 6], [13, 6], [14, 6]] as Cell[],
   plants: [[16, 0], [17, 0]] as Cell[],
   sideboard: [[23, 9], [24, 9]] as Cell[],
+  // Wall pictures (indoor sheet): landscape, pumpkin, teal, small frame pairs.
+  pictures: [[19, 12], [19, 13], [19, 14], [16, 12], [17, 13], [18, 12]] as Cell[],
+  mapPoster: [[20, 12], [21, 12]] as Cell[],
+  // Office machines along the wall (city sheet).
+  vending: [[28, 7], [29, 7]] as Cell[],
+  printer: [27, 8] as Cell,
+  cooler: [28, 14] as Cell,
 };
 
 // Character layers on the Kenney character sheet (front-facing, 16x16, stacked).
@@ -90,6 +97,10 @@ export function floorTexture(scene: Phaser.Scene): string {
 }
 
 /** Two-tile-high wall strip: brick on top, a band of windows with brick pillars below. */
+export function mapPosterTexture(scene: Phaser.Scene): string {
+  return compose(scene, 'map-poster', 2, 1, FRAMES.mapPoster.map((cell, i) => ({ sheet: 'indoor' as const, cell, x: i, y: 0 })));
+}
+
 export function wallTexture(scene: Phaser.Scene): string {
   const bottom: Cell[] = [FRAMES.wallBrick, ...FRAMES.wallWindow];
   return compose(scene, 'wall-strip', bottom.length, 2, [
