@@ -8,7 +8,7 @@ import { decodeKeysAt, type Key } from './keys.js';
 import { layout } from './layout.js';
 import { lobbyRows, type LobbyRow } from './lobby.js';
 import { maxScroll, type HeadlessLike } from './panel.js';
-import { PanelInput } from './panelInput.js';
+import { INCOMPLETE_ESCAPE, PanelInput } from './panelInput.js';
 import type { Form } from './prompt.js';
 import { Renderer } from './renderer.js';
 import { ALT_ON, CLEAR, HIDE_CURSOR, PASTE_ON, SHOW_CURSOR } from './screen.js';
@@ -53,8 +53,6 @@ const PASTE_WAIT_MS = 1000;
 const LIST_HELP = 'q 나가기 · Enter 입력 · ↑↓ 이동 · z 크게 · a 추가 · n 새 작업 · p 프로젝트 · x 종료 · d 삭제 · PgUp 기록';
 const PANEL_HELP = '패널 입력 중 · Ctrl+] 목록으로';
 const EXITED = '에이전트가 종료됐어요';
-// An escape sequence cut off at the end of a chunk (lone ESC, ESC [ 9, ESC O).
-const INCOMPLETE_ESCAPE = /\x1b(?:\[[0-9;?]*[ -/]*|O)?$/;
 
 const idOf = (r: LobbyRow | undefined) => (r ? (r.agentId ?? r.deskId) : null);
 

@@ -9,6 +9,8 @@ export const HOME = '\x1b[H';
 export const HIDE_CURSOR = '\x1b[?25l';
 export const SHOW_CURSOR = '\x1b[?25h';
 export const PASTE_ON = '\x1b[?2004h';
+/** Button + drag reports in SGR encoding (the lobby wants clicks and selection). */
+export const MOUSE_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 export const RESET_MODES = '\x1b[0m\x1b[r\x1b[?2004l\x1b[?1004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[>4m\x1b[<99u\x1b[?6l\x1b[4l\x1b[?1005l\x1b[?1015l\x1b[?7h\x1b[?1l\x1b>';
 
 /** Save and restore the window title around an attach (agents set their own). */

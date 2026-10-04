@@ -7,7 +7,8 @@
 const PASTE_START = '\x1b[200~';
 const PASTE_END = '\x1b[201~';
 const ESCAPE_FORMS = ['\x1d', '\x1b[93;5u', '\x1b[27;5;93~'];
-const INCOMPLETE_ESCAPE = /\x1b(?:\[[0-9;?]*[ -/]*|O)?$/;
+// An escape sequence cut off at the end of a chunk (lone ESC, ESC [ 9, ESC [ < 0;1, ESC O).
+export const INCOMPLETE_ESCAPE = /\x1b(?:\[[0-9;?<]*[ -/]*|O)?$/;
 const PASTE_WAIT_MS = 1000;
 
 export class PanelInput {

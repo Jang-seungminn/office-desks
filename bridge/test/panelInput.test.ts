@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PanelInput } from '../src/tui/panelInput.js';
+import { INCOMPLETE_ESCAPE, PanelInput } from '../src/tui/panelInput.js';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -63,5 +63,12 @@ describe('PanelInput', () => {
     await wait(50);
     expect(flushed).toEqual([]);
     expect(p.feed('ok')).toEqual({ send: 'ok', leave: false });
+  });
+});
+
+describe('INCOMPLETE_ESCAPE', () => {
+  it('holds a chunk cut off inside an SGR mouse report', () => {
+    expect(INCOMPLETE_ESCAPE.test('x\x1b[<0;10')).toBe(true);
+    expect(INCOMPLETE_ESCAPE.test('x\x1b[<0;10;5M')).toBe(false);
   });
 });

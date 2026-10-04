@@ -2,12 +2,16 @@
 // Ctrl+], which can arrive as a raw byte or, if the agent turned on an extended keyboard
 // protocol in our terminal, as kitty CSI-u or xterm modifyOtherKeys.
 
+import { MOUSE_SGR, parseMouse, type MouseEvent } from './mouse.js';
+
 export const ESCAPE_BYTE = '\x1d';
 const ESCAPE_FORMS = [ESCAPE_BYTE, '\x1b[93;5u', '\x1b[27;5;93~'];
 
 export type Key =
   | { name: 'up' | 'down' | 'left' | 'right' | 'enter' | 'escape' | 'backspace' | 'tab' | 'ctrl-c' | 'ctrl-]' }
   | { name: 'pgup' | 'pgdn' | 'paste-start' | 'paste-end' }
+  | { name: 'shift-tab' }
+  | { name: 'mouse'; event: MouseEvent }
   | { name: 'char'; ch: string };
 
 export function isAttachEscape(chunk: string): boolean {
@@ -20,6 +24,7 @@ const SEQUENCES: [string, Key][] = [
   ['\x1b[C', { name: 'right' }], ['\x1bOC', { name: 'right' }],
   ['\x1b[D', { name: 'left' }], ['\x1bOD', { name: 'left' }],
   ['\x1b[5~', { name: 'pgup' }], ['\x1b[6~', { name: 'pgdn' }],
+  ['\x1b[Z', { name: 'shift-tab' }],
   ['\x1b[200~', { name: 'paste-start' }], ['\x1b[201~', { name: 'paste-end' }],
   ['\x1b[93;5u', { name: 'ctrl-]' }], ['\x1b[27;5;93~', { name: 'ctrl-]' }],
 ];
@@ -40,6 +45,15 @@ export function decodeKeysAt(chunk: string): { key: Key; end: number }[] {
       push(seq[1]);
       continue;
     }
+    if (chunk.charCodeAt(i) === 0x1b) {
+      const mm = MOUSE_SGR.exec(chunk.slice(i));
+      if (mm) {
+        const event = parseMouse(mm[0]);
+        i += mm[0].length;
+        if (event) push({ name: 'mouse', event });
+        continue;
+      }
+    }
     const ch = String.fromCodePoint(chunk.codePointAt(i)!);
     i += ch.length;
     if (ch === '\r' || ch === '\n') push({ name: 'enter' });
@@ -49,7 +63,7 @@ export function decodeKeysAt(chunk: string): { key: Key; end: number }[] {
     else if (ch === ESCAPE_BYTE) push({ name: 'ctrl-]' });
     else if (ch === '\x1b') {
       // A lone ESC; skip the rest of an unknown CSI/SS3 sequence so it can't type garbage.
-      const m = /^\x1b(\[[0-9;?]*[ -/]*[@-~]|O.)/.exec(chunk.slice(i - 1));
+      const m = /^\x1b(\[[0-9;?<]*[ -/]*[@-~]|O.)/.exec(chunk.slice(i - 1));
       if (m && m[0].length > 1) i += m[0].length - 1;
       else push({ name: 'escape' });
     } else if (ch >= ' ') push({ name: 'char', ch });
