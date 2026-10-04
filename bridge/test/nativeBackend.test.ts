@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { NativeBackend, type PtyLike } from '../src/backend/native.js';
 import type { PtyOptions } from '../src/native/ptyHost.js';
 import { Registry } from '../src/native/registry.js';
+import { validateHire } from '../src/hire.js';
 
 const READY = ['', '─'.repeat(40), '❯ ', '─'.repeat(40), '  ⏵⏵ auto mode on'];
 const TRUST = [' Quick safety check: Is this a project you created or one you trust?', ' ❯ No, exit', '   Yes, I trust this folder', ' Enter to confirm · Esc to cancel'];
@@ -108,6 +109,25 @@ describe('NativeBackend snapshot', () => {
       ['abcdef123456::/h/worktrees/app/feat', false, 'feat', 'app', 'in-review', 'look'],
       ['abcdef123456::/p/app', true, 'main', 'app', null, ''],
     ]);
+  });
+});
+
+describe('NativeBackend desk names', () => {
+  const FIX = 'worktree /p/app\nHEAD a\nbranch refs/heads/main\n\nworktree /h/worktrees/app/fix-login\nHEAD b\nbranch refs/heads/fix-login\n\n';
+
+  it('names a worktree desk after its folder, the main checkout after its folder too', async () => {
+    const { backend } = await setup(async () => FIX);
+    const s = await backend.snapshot();
+    expect(s.desks.map((d) => [d.id, d.name])).toEqual([
+      ['abcdef123456::/h/worktrees/app/fix-login', 'fix-login'],
+      ['abcdef123456::/p/app', 'app'],
+    ]);
+  });
+
+  it('refuses to hire a second worktree with the same name', async () => {
+    const { backend } = await setup(async () => FIX);
+    const desks = (await backend.snapshot()).desks;
+    expect(validateHire({ repoId: 'abcdef123456', name: 'fix-login', agent: 'claude' }, desks)).toEqual({ error: '같은 이름의 워크트리가 이미 있어요' });
   });
 });
 

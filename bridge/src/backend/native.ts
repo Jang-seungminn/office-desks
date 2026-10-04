@@ -11,7 +11,7 @@ import type { PtyHost } from '../native/ptyHost.js';
 import type { Registry } from '../native/registry.js';
 import { addWorktree, listWorktrees, resolveRepo, worktreeDest, type WorktreeInfo } from '../native/worktrees.js';
 import { composerState } from '../screen.js';
-import { toSnapshot, type OrcaTerminalRow, type OrcaWorktreeRow } from '../stateMapper.js';
+import { orcaDeskName, toSnapshot, type OrcaTerminalRow, type OrcaWorktreeRow } from '../stateMapper.js';
 import {
   BackendError,
   type BackendCapabilities,
@@ -148,7 +148,8 @@ export class NativeBackend implements OfficeBackend {
         });
       }
     }
-    return toSnapshot(rows, terminals, this.now());
+    // A native worktree's folder is its name (it usually equals the branch, which Orca's rule would hide).
+    return toSnapshot(rows, terminals, this.now(), { deskName: (w) => path.basename(w.path ?? '') || orcaDeskName(w) });
   }
 
   /**
