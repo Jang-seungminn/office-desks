@@ -43,17 +43,31 @@ export class AttachSession {
     this.offExit = this.host.onExit((id) => {
       if (id === this.ptyId) this.leave('exited');
     });
+    // An already-exited PTY never emits an exit event. Note: onLeave may fire synchronously here.
+    if (!this.host.has(this.ptyId)) this.leave('exited');
   }
 
   input(chunk: string): void {
     if (!this.active) return;
     if (isAttachEscape(chunk)) {
       const cut = Math.min(...['\x1d', '\x1b[93;5u', '\x1b[27;5;93~'].map((f) => chunk.indexOf(f)).filter((i) => i >= 0));
-      if (cut > 0 && this.host.has(this.ptyId)) this.host.write(this.ptyId, chunk.slice(0, cut));
-      this.leave('escape');
+      try {
+        if (cut > 0) this.forward(chunk.slice(0, cut));
+      } finally {
+        this.leave('escape');
+      }
       return;
     }
-    if (this.host.has(this.ptyId)) this.host.write(this.ptyId, chunk);
+    this.forward(chunk);
+  }
+
+  /** The PTY may have died between has() and write(); never let that propagate. */
+  private forward(data: string): void {
+    try {
+      if (this.host.has(this.ptyId)) this.host.write(this.ptyId, data);
+    } catch {
+      // exit event will follow
+    }
   }
 
   resized(): void {
@@ -98,6 +112,6 @@ export class AttachSession {
   /** Save cursor, paint the last row in reverse video, restore cursor. */
   private drawStatus(): void {
     const text = fit(` ${this.status} · Ctrl+] 로비`, this.out.columns);
-    this.out.write(`\x1b7${moveTo(this.out.rows, 1)}\x1b[0;7m${text}\x1b[0m\x1b8`);
+    this.out.write(`\x1b7\x1b[?6l${moveTo(this.out.rows, 1)}\x1b[0;7m${text}\x1b[0m\x1b8`);
   }
 }

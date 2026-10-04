@@ -81,4 +81,36 @@ describe('AttachSession', () => {
     expect(() => s.input('x')).not.toThrow();
     expect(host.writes).toEqual([]);
   });
+
+  it('survives a PTY that dies mid-write and still leaves on escape', () => {
+    const host = fakeHost();
+    host.write = () => {
+      throw new Error('dead');
+    };
+    const left: string[] = [];
+    const s = new AttachSession(host as unknown as AttachHost, 'p1', fakeOut(), 's', (r) => left.push(r));
+    s.start();
+    expect(() => s.input('x')).not.toThrow();
+    expect(() => s.input('ab\x1d')).not.toThrow();
+    expect(left).toEqual(['escape']);
+    expect(host.replies).toEqual([false, true]);
+  });
+
+  it('turns origin mode off before moving to the status row', () => {
+    const host = fakeHost();
+    const out = fakeOut();
+    new AttachSession(host as unknown as AttachHost, 'p1', out, 's', () => {}).start();
+    const i = out.text.indexOf('\x1b[?6l');
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(out.text.indexOf('\x1b[30;1H')).toBeGreaterThan(i);
+  });
+
+  it('leaves immediately when the PTY already exited before start', () => {
+    const host = fakeHost();
+    host.alive = false;
+    const left: string[] = [];
+    new AttachSession(host as unknown as AttachHost, 'p1', fakeOut(), 's', (r) => left.push(r)).start();
+    expect(left).toEqual(['exited']);
+    expect(host.replies).toEqual([false, true]);
+  });
 });
