@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { installRestore, pickPort } from '../src/tui/main.js';
+import { installRestore, pickPort, portFromEnv } from '../src/tui/main.js';
 import { ALT_OFF, SHOW_CURSOR } from '../src/tui/screen.js';
 
 describe('pickPort', () => {
@@ -21,5 +21,13 @@ describe('installRestore', () => {
     expect(text).toContain(ALT_OFF);
     expect(text.split(ALT_OFF)).toHaveLength(2);
     expect(raws).toEqual([false]);
+  });
+});
+
+describe('portFromEnv', () => {
+  it('treats an empty or missing OFFICE_DESKS_PORT as unset', () => {
+    expect(portFromEnv({})).toEqual({ port: 4317, explicit: false });
+    expect(portFromEnv({ OFFICE_DESKS_PORT: '' })).toEqual({ port: 4317, explicit: false });
+    expect(portFromEnv({ OFFICE_DESKS_PORT: '5000' })).toEqual({ port: 5000, explicit: true });
   });
 });

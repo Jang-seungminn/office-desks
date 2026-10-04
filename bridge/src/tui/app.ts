@@ -201,6 +201,11 @@ export class App {
     else this.quit();
   }
 
+  /** Stop rendering and listening (idempotent); `done` resolves. */
+  close(): void {
+    if (!this.closed) this.quit();
+  }
+
   private quit(): void {
     this.closed = true;
     this.out.off?.('resize', this.onResize);

@@ -55,7 +55,7 @@ if (args.includes('--demo')) process.env.OFFICE_DESKS_DEMO = '1';
 
 const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 const backendArg = process.env.OFFICE_DESKS_BACKEND;
-const tui = tty && !args.includes('--no-tui') && !args.includes('--demo') && (!backendArg || backendArg === 'native');
+const tui = tty && !args.includes('--no-tui') && !args.includes('--demo') && !process.env.OFFICE_DESKS_DEMO && (!backendArg || backendArg === 'native');
 const here = path.dirname(fileURLToPath(import.meta.url));
 if (tui) {
   const { runTui } = await import(pathToFileURL(path.join(here, '..', 'bridge', 'dist', 'tui', 'main.js')).href);
