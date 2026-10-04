@@ -146,6 +146,16 @@ describe('compose', () => {
     expect(frame.get(v.row, v.col).ch).toBe('│');
   });
 
+  it('preset 4: the focused pane head is drawn in reverse video, the others are not', async () => {
+    const ts = await Promise.all([1, 2, 3, 4].map((n) => agentWith(`t${n}`)));
+    for (const focus of ['list', 'panel'] as const) {
+      const { frame } = compose(base({ preset: 4, focus, focusedPane: 2, panes: ts.map((t) => pv(rows[0], t)) }), 200, 50);
+      const L = layout(200, 50, 4)!;
+      const inv = L.panes.map((p) => [0, 5, p.head.cols - 1].every((x) => frame.get(p.head.row, p.head.col + x).style.inverse));
+      expect(inv).toEqual([false, false, true, false]);
+    }
+  });
+
   it('preset 4 at 100x36 falls back to 3: two panes', async () => {
     const ts = await Promise.all([1, 2, 3, 4].map((n) => agentWith(`t${n}`)));
     const { frame } = compose(base({ preset: 4, panes: ts.map((t) => pv(rows[0], t)) }), 100, 36);

@@ -113,7 +113,9 @@ export function compose(v: View, cols: number, rows: number): { frame: Frame; cu
         if (pv.scroll > 0) headText += ' · ↑ 기록 보는 중';
       }
     }
-    putText(frame, pane.head.row, pane.head.col, ` ${headText}`, head(focused), pane.head.cols);
+    // With several panes the focused one's head is reversed, so it stands out in any split.
+    const headStyle = focused && n > 1 ? style({ bold: true, inverse: true }) : head(focused);
+    putText(frame, pane.head.row, pane.head.col, ` ${headText}`, headStyle, pane.head.cols);
 
     if (pv.row?.agentId && pv.agent) {
       const c = drawPanel(frame, pane.body, pv.agent, pv.scroll);

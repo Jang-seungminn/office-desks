@@ -27,9 +27,10 @@ export function clipboardCommand(
   return null;
 }
 
-/** clip.exe reads UTF-16LE when the input starts with a BOM. */
+/** clip.exe reads UTF-16LE when the input starts with a BOM, and Windows wants CRLF line ends. */
 export function encodeForClipboard(text: string, utf16: boolean): Buffer {
-  return utf16 ? Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]) : Buffer.from(text, 'utf8');
+  if (!utf16) return Buffer.from(text, 'utf8');
+  return Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text.replace(/\r?\n/g, '\r\n'), 'utf16le')]);
 }
 
 /** Spawns without a shell; rejects (and kills the child) if it hasn't closed within timeoutMs. */

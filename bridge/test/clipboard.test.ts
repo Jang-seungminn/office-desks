@@ -22,6 +22,12 @@ describe('encodeForClipboard', () => {
     expect(encodeForClipboard('한', true)).toEqual(Buffer.from([0xff, 0xfe, 0x5c, 0xd5]));
     expect(encodeForClipboard('한', false)).toEqual(Buffer.from('한', 'utf8'));
   });
+
+  it('gives clip.exe CRLF line ends (an existing CRLF is kept, not doubled); UTF-8 is left as is', () => {
+    const bom = Buffer.from([0xff, 0xfe]);
+    expect(encodeForClipboard('a\nb\r\nc\n', true)).toEqual(Buffer.concat([bom, Buffer.from('a\r\nb\r\nc\r\n', 'utf16le')]));
+    expect(encodeForClipboard('a\nb', false)).toEqual(Buffer.from('a\nb', 'utf8'));
+  });
 });
 
 describe('copyText', () => {
