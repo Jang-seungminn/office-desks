@@ -295,6 +295,59 @@ describe('NativeBackend input, board, sessions, repos', () => {
     expect(backend.cachedSession(agentId)).toBe(hookFile);
   });
 
+  it('follows a new session id from SessionStart (/clear) but still rejects foreign basenames', async () => {
+    const { backend, pty, home } = await setup();
+    await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null });
+    const agentId = `${pty.spawned[0].id}:main`;
+    const dir = path.join(home, 'claude-projects', '-p-app');
+    mkdirSync(dir, { recursive: true });
+    const newId = '11111111-2222-3333-4444-555555555555';
+    const file = path.join(dir, `${newId}.jsonl`);
+    writeFileSync(file, '{}\n');
+    backend.hook(agentId, tokenOf(pty), { hook_event_name: 'SessionStart', source: 'clear', session_id: newId, transcript_path: file });
+    expect(backend.cachedSession(agentId)).toBe(file);
+    const desk = (await backend.snapshot()).desks[1];
+    expect(await backend.findSession(desk, desk.agents[0])).toBe(file);
+
+    // Scan fallback also follows the new id when no path is given.
+    const id2 = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const file2 = path.join(dir, `${id2}.jsonl`);
+    writeFileSync(file2, '{}\n');
+    backend.hook(agentId, tokenOf(pty), { hook_event_name: 'SessionStart', session_id: id2 });
+    expect(backend.cachedSession(agentId)).toBe(file2);
+
+    // A path matching neither id is rejected.
+    const id3 = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee';
+    backend.hook(agentId, tokenOf(pty), { hook_event_name: 'SessionStart', session_id: id3, transcript_path: path.join(dir, 'other.jsonl') });
+    expect(backend.cachedSession(agentId)).toBeNull(); // adopted id3, nothing on disk, bogus path ignored
+  });
+
+  it('honors CLAUDE_CONFIG_DIR for the transcript root', async () => {
+    const cfg = mkdtempSync(path.join(os.tmpdir(), 'od-cfg-'));
+    const pty = new FakePty();
+    const { home, registry } = await setup();
+    const backend = new NativeBackend({
+      pty,
+      registry,
+      home,
+      hookUrl: (id, token) => `http://127.0.0.1:4317/hook/${id}?token=${token}`,
+      git: async () => PORCELAIN,
+      env: { PATH: '/bin', CLAUDE_CONFIG_DIR: cfg },
+      relay: '/r/hook-relay.mjs',
+      node: '/n/node',
+      sleep: async () => {},
+      which: (cmd) => `/bin/${cmd}`,
+    });
+    await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null });
+    const sid = pty.spawned[0].opts.args[1];
+    const agentId = `${pty.spawned[0].id}:main`;
+    const dir = path.join(cfg, 'projects', 'x');
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${sid}.jsonl`);
+    writeFileSync(file, '{}\n');
+    expect(backend.cachedSession(agentId)).toBe(file);
+  });
+
   it('cleans up when the spawn fails', async () => {
     const pty = new FakePty();
     pty.spawn = () => {

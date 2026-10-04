@@ -260,6 +260,14 @@ export class NativeBackend implements OfficeBackend {
     const got = Buffer.from(token);
     if (want.length !== got.length || !timingSafeEqual(want, got)) return false;
     a.hooked = true;
+    // /clear, resume and compact start a new Claude session; follow it (only the token holder gets here).
+    const body = payload as Record<string, unknown>;
+    const sid = body.session_id;
+    if (body.hook_event_name === 'SessionStart' && typeof sid === 'string' && /^[0-9a-f-]{8,64}$/i.test(sid) && sid !== a.sessionId) {
+      a.sessionId = sid;
+      a.transcript = null;
+      a.lookedAt = 0;
+    }
     a.hook = applyHook(a.hook, payload as Record<string, unknown>, this.now());
     const p = a.hook.transcriptPath;
     if (p && this.ownTranscript(a, p)) a.transcript = p;
@@ -279,7 +287,9 @@ export class NativeBackend implements OfficeBackend {
   }
 
   private projectsRoot(): string {
-    return this.deps.claudeProjects ?? path.join(os.homedir(), '.claude', 'projects');
+    if (this.deps.claudeProjects) return this.deps.claudeProjects;
+    const env = this.deps.env ?? process.env;
+    return path.join(env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
   }
 
   async setBoard(deskId: string, update: { workspaceStatus?: string; comment?: string }): Promise<void> {
