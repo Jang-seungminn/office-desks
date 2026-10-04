@@ -11,7 +11,8 @@ import { agentStats } from './stats.js';
 import { loadOrg, orgFile, saveOrg, sanitizeOrg } from './org.js';
 import { AwardBook, awardsFile } from './awards.js';
 import { changeSummary, fileDiff } from './gitInfo.js';
-import { planHire } from './hire.js';
+import { validateHire } from './hire.js';
+import { orcaHireArgs } from './backend/orca.js';
 import { charBytes, keyBytes } from './keys.js';
 import { answerQuestions, validateChoices } from './answer.js';
 import { composerState, screenSupport } from './screen.js';
@@ -428,17 +429,17 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   if (pathname === '/api/hire') {
     const body = await readJson<HireRequest>(req);
     if (DEMO) return json(res, 400, { error: '데모 모드에서는 만들 수 없어요' });
-    const plan = planHire(body, poller.current.desks);
-    if ('error' in plan) return json(res, 400, { error: plan.error });
-    const result = (await orca(plan.args)) as { terminal?: { handle?: string }; handle?: string };
-    if (plan.promptAfter) {
+    const spec = validateHire(body, poller.current.desks);
+    if ('error' in spec) return json(res, 400, { error: spec.error });
+    const result = (await orca(orcaHireArgs(spec))) as { terminal?: { handle?: string }; handle?: string };
+    if (spec.kind === 'agent' && spec.prompt) {
       // The agent's TUI needs a moment; Orca can wait for it to be idle before we type.
       const handle = result?.terminal?.handle ?? result?.handle;
       if (handle) {
         const wait = (await orca(['terminal', 'wait', `--terminal=${handle}`, '--for=tui-idle', '--timeout-ms=60000'])) as {
           wait?: { satisfied?: boolean };
         };
-        if (wait?.wait?.satisfied) await orca(['terminal', 'send', `--terminal=${handle}`, `--text=${plan.promptAfter}`, '--enter']);
+        if (wait?.wait?.satisfied) await orca(['terminal', 'send', `--terminal=${handle}`, `--text=${spec.prompt}`, '--enter']);
         else return json(res, 200, { ok: true, warning: '에이전트는 띄웠지만 준비가 늦어 첫 지시는 보내지 못했어요. 패널에서 보내 주세요' });
       }
     }
