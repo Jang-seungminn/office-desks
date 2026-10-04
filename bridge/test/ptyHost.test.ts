@@ -40,10 +40,21 @@ describe('PtyHost', () => {
 describe('resolveSpawn', () => {
   it('runs a Windows .cmd shim through cmd.exe and refuses arguments cmd.exe would reinterpret', () => {
     const shim = () => ({ file: 'C:\\npm\\claude.cmd', viaCmd: true });
-    expect(resolveSpawn('claude', ['--session-id', 'u'], 'win32', shim)).toEqual({ file: 'cmd.exe', args: ['/d', '/c', 'C:\\npm\\claude.cmd', '--session-id', 'u'] });
+    // One command line for node-pty: /s strips exactly the outer quotes, the rest reaches the shim as is.
+    expect(resolveSpawn('claude', ['--session-id', 'u'], 'win32', shim)).toEqual({ file: 'cmd.exe', args: '/d /s /c "C:\\npm\\claude.cmd --session-id u"' });
+    expect(resolveSpawn('claude', ['--x', ''], 'win32', shim)).toEqual({ file: 'cmd.exe', args: '/d /s /c "C:\\npm\\claude.cmd --x """' });
     expect(() => resolveSpawn('claude', ['a&b'], 'win32', shim)).toThrow();
     expect(resolveSpawn('claude', ['x'], 'win32', () => ({ file: 'C:\\c\\claude.exe', viaCmd: false }))).toEqual({ file: 'C:\\c\\claude.exe', args: ['x'] });
     expect(resolveSpawn('claude', ['x'], 'darwin')).toEqual({ file: 'claude', args: ['x'] });
+  });
+
+  it('quotes a shim and arguments with spaces so cmd.exe keeps them whole', () => {
+    const shim = () => ({ file: 'C:\\Users\\First Last\\npm\\claude.cmd', viaCmd: true });
+    const args = ['--session-id', 'u', '--settings', 'C:\\Users\\First Last\\.office-desks\\agents\\a.json'];
+    expect(resolveSpawn('claude', args, 'win32', shim)).toEqual({
+      file: 'cmd.exe',
+      args: '/d /s /c ""C:\\Users\\First Last\\npm\\claude.cmd" --session-id u --settings "C:\\Users\\First Last\\.office-desks\\agents\\a.json""',
+    });
   });
 });
 

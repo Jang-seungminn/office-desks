@@ -38,18 +38,25 @@ export function ensureSpawnHelper(
   }
 }
 
-/** Windows: a .cmd shim (npm-installed CLIs) must run through cmd.exe, which re-parses arguments. */
+/**
+ * Windows: a .cmd shim (npm-installed CLIs) must run through cmd.exe, which re-parses arguments.
+ * node-pty would quote each spaced argument itself, and cmd without /s then strips the wrong
+ * quotes. So hand node-pty one finished command line: `/d /s /c "<shim> <args>"`, where /s
+ * strips exactly the outer pair and each part with a space (or empty) is wrapped in quotes.
+ * Arguments cmd could reinterpret (" % & | < > ^ !) are refused, so quoting is all it takes.
+ */
 export function resolveSpawn(
   file: string,
   args: string[],
   platform: NodeJS.Platform = process.platform,
   resolveWin: typeof resolveWindowsCommand = resolveWindowsCommand,
-): { file: string; args: string[] } {
+): { file: string; args: string[] | string } {
   if (platform !== 'win32') return { file, args };
   const r = resolveWin(file);
   if (!r.viaCmd) return { file: r.file, args };
-  if (args.some(unsafeForCmdShim)) throw new BackendError(`${file}.cmd로는 이 인자를 안전하게 넘길 수 없어요`, 'unsafe_for_cmd');
-  return { file: 'cmd.exe', args: ['/d', '/c', r.file, ...args] };
+  if ([r.file, ...args].some(unsafeForCmdShim)) throw new BackendError(`${file}.cmd로는 이 인자를 안전하게 넘길 수 없어요`, 'unsafe_for_cmd');
+  const q = (a: string) => (a === '' || /\s/.test(a) ? `"${a}"` : a);
+  return { file: 'cmd.exe', args: `/d /s /c "${[r.file, ...args].map(q).join(' ')}"` };
 }
 
 export interface PtyOptions {

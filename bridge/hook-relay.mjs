@@ -2,6 +2,8 @@
 // JSON on stdin; we POST it to the bridge that spawned the agent. It must never block or fail
 // the agent, so every error is swallowed and the exit code is always 0.
 const url = process.env.OFFICE_DESKS_HOOK_URL;
+// Whatever happens (stdin never closes, a slow bridge), give the agent back its hook in 3 s.
+setTimeout(() => process.exit(0), 3000).unref();
 let body = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (d) => (body += d));

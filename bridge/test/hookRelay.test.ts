@@ -31,3 +31,21 @@ describe('hook-relay.mjs', () => {
     expect(await runRelay('{}', { OFFICE_DESKS_HOOK_URL: 'http://127.0.0.1:9/hook/a?token=t' })).toBe(0);
   });
 });
+
+describe('hook-relay.mjs safety timer', () => {
+  it('exits 0 on its own when stdin never closes', async () => {
+    const p = spawn(process.execPath, [relayScript()], { env: { ...process.env, OFFICE_DESKS_HOOK_URL: '' }, stdio: ['pipe', 'ignore', 'ignore'] });
+    p.stdin.write('{"hook_event_name":"Stop"'); // stdin stays open
+    const started = Date.now();
+    const code = await new Promise<number | null | 'timeout'>((resolve) => {
+      const t = setTimeout(() => resolve('timeout'), 5000);
+      p.on('exit', (c) => {
+        clearTimeout(t);
+        resolve(c);
+      });
+    });
+    if (code === 'timeout') p.stdin.end(); // let it finish without killing it
+    expect(code).toBe(0);
+    expect(Date.now() - started).toBeLessThan(5000);
+  }, 10_000);
+});

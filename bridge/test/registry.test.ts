@@ -31,3 +31,18 @@ describe('Registry', () => {
     expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(1);
   });
 });
+
+describe('Registry concurrent saves', () => {
+  it('serializes overlapping saves and keeps the latest data', async () => {
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), 'od-reg-')), 'state.json');
+    const r = new Registry(file);
+    await r.load();
+    const writes = Array.from({ length: 20 }, (_, i) => r.setMeta(`d${i}`, { comment: `c${i}` }));
+    writes.push(r.setMeta('last', { workspaceStatus: 'todo' }), r.setMeta('last', { workspaceStatus: 'done' }));
+    await Promise.all(writes);
+    const again = new Registry(file);
+    await again.load();
+    for (let i = 0; i < 20; i++) expect(again.meta(`d${i}`)).toEqual({ comment: `c${i}` });
+    expect(again.meta('last')).toEqual({ workspaceStatus: 'done' });
+  });
+});
