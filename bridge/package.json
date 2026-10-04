@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "tui": "tsx src/tui/main.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "demo": "cross-env OFFICE_DESKS_DEMO=1 tsx src/server.ts",

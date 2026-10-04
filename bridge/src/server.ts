@@ -587,6 +587,18 @@ poller.onChange((snapshot) => {
 poller.setIdle(true); // until a browser connects
 poller.start();
 void cleanOldUploads();
+/** Resolves once the HTTP server listens (the TUI waits for it); rejects if the port is taken. */
+export const ready = new Promise<void>((resolve, reject) => {
+  server.once('listening', () => resolve());
+  server.once('error', reject);
+});
+// Server-only mode keeps failing loudly; the TUI handles the rejection itself.
+if (!process.env.OFFICE_DESKS_TUI) {
+  ready.catch((err) => {
+    console.error(`[office-desks] ${err.message}`);
+    process.exit(1);
+  });
+}
 server.listen(PORT, HOST, () => {
   console.log(`[office-desks] bridge on http://${HOST}:${PORT} (${DEMO ? 'DEMO data' : backend.name === 'orca' ? `orca backend, orca cli: ${resolveOrcaCommand()}` : `${backend.name} backend`})`);
 });
@@ -600,3 +612,5 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
     void backend.dispose().finally(() => process.exit(0));
   });
 }
+
+export { backend, poller, PORT };
