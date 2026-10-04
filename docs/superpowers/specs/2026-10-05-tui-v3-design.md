@@ -10,12 +10,12 @@ In v2 you can see one agent's screen beside the list. The user's next ask is to 
 
 | Topic | Decision |
 |---|---|
-| Splits | **Layout presets**, not free tmux-style splits. In list focus, keys `1`–`4` choose a layout: `1` is one pane, `2` is left \| right, `3` is top / bottom, `4` is a 2×2 grid. Each pane shows one agent. One pane is the **focused pane**, drawn with a bright border and head. |
+| Splits | **Layout presets**, not free tmux-style splits. In list focus, keys `1`–`4` choose a layout: `1` is one pane, `2` is left \| right, `3` is top / bottom, `4` is a 2×2 grid. Each pane shows one agent. One pane is the **focused pane**: with two or more panes its head is drawn in reverse video (bold), so it stands out in any split; with one pane the head is bright. |
 | Assigning agents | Moving the selection in the list shows that agent in the **focused pane** (live preview, as in v2). The other panes keep their agents. If the chosen agent is already in another pane, the two panes **swap**, because an agent has only one size and can't appear twice. `Tab` and `Shift+Tab` move the focused pane while the list has focus. |
 | Typing | `Enter` types into the focused pane's agent. `Ctrl+]` returns to the list, as in v2. Zoom (`z`) works on the focused pane's agent. |
 | Agent sizes | Each agent shown in a pane is resized to that pane's inner size. Agents not shown keep their last size, so nothing reflows needlessly. The web terminal view shows whatever size the agent has. |
-| Mouse | Mouse reporting is turned on in the real terminal (SGR mode `?1000h ?1002h ?1006h`) and off on every exit path (it is already in `RESET_MODES`). While zoomed, mouse reporting is off (passthrough to the terminal's own selection), and it turns back on when leaving zoom. See the next table for what each action does. |
-| Copy | Text is copied to the system clipboard with a **local command**. Office Desks runs on the user's machine, so this works in every terminal, including Terminal.app, which lacks OSC 52. macOS uses `pbcopy`. Windows uses `clip.exe`, fed UTF-16LE with a BOM so Korean text survives. Linux uses `wl-copy`, else `xclip -selection clipboard`, else OSC 52. A notice confirms: `복사했어요 (N자)`. |
+| Mouse | Mouse reporting is turned on in the real terminal (SGR mode `?1000h ?1002h ?1006h`) and off on every exit path (it is already in `RESET_MODES`). While zoomed, mouse reporting is off (passthrough to the terminal's own selection), and it turns back on when leaving zoom; mouse reports left in the chunk that started zoom are dropped, never forwarded. **Default per platform:** on for macOS and Linux, off on Windows until it is verified there. `OFFICE_DESKS_MOUSE=1` forces it on, `=0` forces it off. When it is off, `MOUSE_ON` is never written (not at start, not after zoom), the panel help drops the drag hint, and mouse parsing stays in place but harmless. A cut-off mouse report (`ESC [ <…`) is never a key: it waits the long (paste) wait for its rest and is dropped, never typed, if the rest doesn't come; a lone ESC keeps the short wait. See the next table for what each action does. |
+| Copy | Text is copied to the system clipboard with a **local command**. Office Desks runs on the user's machine, so this works in every terminal, including Terminal.app, which lacks OSC 52. macOS uses `pbcopy`. Windows uses `clip.exe`, fed UTF-16LE with a BOM so Korean text survives. Linux uses `wl-copy`, else `xclip -selection clipboard`, else OSC 52. `clip.exe` gets CRLF line ends. A notice confirms: `복사했어요 (N자)`; when only OSC 52 was possible, which may or may not work, it says `복사를 터미널에 맡겼어요 (터미널이 지원하면 복사돼요)`. |
 | Native terminal selection | The terminal's own selection still works with **Shift+drag** (Option+drag in macOS Terminal and iTerm2). The help line says so. |
 
 Mouse actions:
@@ -24,17 +24,17 @@ Mouse actions:
 |---|---|
 | Click a list row | Selects that row, with list focus. |
 | Click inside a pane | Focuses that pane and gives it typing focus. |
-| Wheel over the list | Moves the selection. |
-| Wheel over a pane | Scrolls that pane's history by 3 lines per notch. |
+| Wheel over the list | Moves the selection. While typing into a pane, this returns focus to the list. |
+| Wheel over a pane | Scrolls that pane's history by 3 lines per notch. Typing into the focused pane's agent brings that pane back to live output; in list focus any key but PgUp/PgDn and Tab/Shift+Tab does the same (Tab leaves the pane it moves away from as it was). |
 | Drag inside a pane | Selects text in that pane, measured in that agent's buffer (scrollback included) and shown in reverse video. Releasing the button copies the selection. The selection never crosses into another pane. |
-| Any key or click | Clears the selection. |
+| Any key or click | Clears the selection. So does a layout change (terminal resize or preset), since the agents reflow. |
 
 ## Architecture changes (bridge/src/tui/)
 
-- **`layout.ts`.** `layout(cols, rows, preset)` returns `panes: Rect[]` (1, 2 or 4 inner rects, each with a head row) instead of a single panel rect. The sidebar is unchanged. Below a minimum pane size (40×6), a preset falls back to fewer panes: 4 → 2 → 1.
+- **`layout.ts`.** `layout(cols, rows, preset)` returns `panes: Rect[]` (1, 2 or 4 inner rects, each with a head row) instead of a single panel rect. The sidebar is unchanged. Below a minimum pane size (40×6), a preset falls back to fewer panes: 4 → 2 → 3 → 1 (2 → 1, 3 → 1).
 - **`compose.ts`.**
   - It draws N panes, each with its own head (`repo/desk · type`, plus the scroll badge) and border lines between panes.
-  - The focused pane is bright.
+  - With two or more panes, the focused pane's head is reversed (bold); with one pane it is bright.
   - It draws a selection overlay in reverse video.
   - The cursor goes to the focused pane's agent only while it has typing focus.
 - **`mouse.ts`** (new, pure).
@@ -66,7 +66,7 @@ Mouse actions:
   - Pane layout math and fallback.
   - Selection text with Korean text, wrapped lines, a drag across the scrollback boundary, and a reversed drag (head before anchor).
   - `copyText` command choice per platform, the UTF-16LE BOM for `clip.exe`, and the fallback order.
-- **Compose:** 2- and 4-pane frames match each agent's screen cell for cell in its rect, the focused pane is bright, the selection overlay is reversed, and widths are exact.
+- **Compose:** 2- and 4-pane frames match each agent's screen cell for cell in its rect, the focused pane's head is reversed in a 2×2 split (in list and panel focus), the selection overlay is reversed, and widths are exact.
 - **App:**
   - Presets switch, and agents are resized per pane.
   - Tab moves the focused pane.
