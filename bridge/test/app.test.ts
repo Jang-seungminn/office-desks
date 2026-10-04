@@ -23,7 +23,7 @@ const emptyDesk = (id: string, name: string) => ({ id, repoId: 'r1', repo: 'app'
 const TWO = [agentDesk('d1', 'a', 'a1', 'p1'), agentDesk('d2', 'b', 'a2', 'p2')];
 const snapOf = (desks: unknown[]) => ({ desks, updatedAt: 0, error: null }) as unknown as OfficeSnapshot;
 
-async function setup(desks: unknown[] = TWO, agentText: Record<string, string> = { p1: 'agent one screen', p2: 'agent two screen' }) {
+async function setup(desks: unknown[] = TWO, agentText: Record<string, string> = { p1: 'agent one screen', p2: 'agent two screen' }, renderMs?: number) {
   let snap = snapOf(desks);
   const listeners = new Set<() => void>();
   const calls: unknown[][] = [];
@@ -90,7 +90,7 @@ async function setup(desks: unknown[] = TWO, agentText: Record<string, string> =
   };
   let onInput: (d: string) => void = () => {};
   const input = { on: (_e: 'data', fn: (d: string) => void) => (onInput = fn) };
-  const app = new App(deps, input, out);
+  const app = new App(deps, input, out, undefined, renderMs);
   app.start();
   /** The user's screen as text lines, once everything written so far is parsed. */
   const screen = async () => {
@@ -229,12 +229,21 @@ describe('App: sidebar and live panel', () => {
   });
 
   it('coalesces agent output into one render after a short delay', async () => {
-    const { out, emit, text } = await setup();
+    // A delay far longer than any slow runner's emit time: nothing can render before the flush.
+    const { app, out, emit, text } = await setup(TWO, { p1: 'agent one screen', p2: 'agent two screen' }, 60_000);
+    app.flush();
     out.text = '';
     await emit('p1', ' x');
     await emit('p1', ' y');
     expect(out.text).toBe('');
-    await wait(40);
+    app.flush();
+    const drawn = out.text;
+    expect(drawn).toContain('x');
+    expect(drawn).toContain('y');
+    expect((drawn.match(/\x1b\[\d+;\d+H/g) ?? []).length).toBeGreaterThan(0);
+    out.text = '';
+    app.flush(); // the timer was consumed by that one render: nothing further is pending
+    expect(out.text).toBe('');
     expect(await text()).toContain('agent one screen x y');
   });
 

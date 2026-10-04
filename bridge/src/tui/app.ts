@@ -96,11 +96,12 @@ export class App {
     private readonly input: TermIn,
     private readonly out: TermOut & { on?(ev: 'resize', fn: () => void): unknown; off?(ev: 'resize', fn: () => void): unknown },
     private readonly escWaitMs = ESC_WAIT_MS,
+    renderMs?: number,
   ) {
     this.done = new Promise((r) => (this.resolveDone = r));
     // A held paste or escape whose rest never came goes to the agent, in line with other input.
     this.panelInput = new PanelInput((held) => this.enqueue(async () => this.sendToAgent(held)), escWaitMs, PASTE_WAIT_MS);
-    this.renderer = new Renderer(out, () => this.view());
+    this.renderer = new Renderer(out, () => this.view(), renderMs);
   }
 
   start(): void {
