@@ -22,28 +22,34 @@ const SEQUENCES: [string, Key][] = [
 ];
 
 export function decodeKeys(chunk: string): Key[] {
-  const keys: Key[] = [];
+  return decodeKeysAt(chunk).map((k) => k.key);
+}
+
+/** Keys with the offset just past each one in `chunk` (to hand the raw rest on unchanged). */
+export function decodeKeysAt(chunk: string): { key: Key; end: number }[] {
+  const keys: { key: Key; end: number }[] = [];
   let i = 0;
+  const push = (key: Key) => keys.push({ key, end: i });
   while (i < chunk.length) {
     const seq = SEQUENCES.find(([s]) => chunk.startsWith(s, i));
     if (seq) {
-      keys.push(seq[1]);
       i += seq[0].length;
+      push(seq[1]);
       continue;
     }
     const ch = String.fromCodePoint(chunk.codePointAt(i)!);
     i += ch.length;
-    if (ch === '\r' || ch === '\n') keys.push({ name: 'enter' });
-    else if (ch === '\x7f' || ch === '\x08') keys.push({ name: 'backspace' });
-    else if (ch === '\t') keys.push({ name: 'tab' });
-    else if (ch === '\x03') keys.push({ name: 'ctrl-c' });
-    else if (ch === ESCAPE_BYTE) keys.push({ name: 'ctrl-]' });
+    if (ch === '\r' || ch === '\n') push({ name: 'enter' });
+    else if (ch === '\x7f' || ch === '\x08') push({ name: 'backspace' });
+    else if (ch === '\t') push({ name: 'tab' });
+    else if (ch === '\x03') push({ name: 'ctrl-c' });
+    else if (ch === ESCAPE_BYTE) push({ name: 'ctrl-]' });
     else if (ch === '\x1b') {
       // A lone ESC; skip the rest of an unknown CSI/SS3 sequence so it can't type garbage.
       const m = /^\x1b(\[[0-9;?]*[ -/]*[@-~]|O.)/.exec(chunk.slice(i - 1));
       if (m && m[0].length > 1) i += m[0].length - 1;
-      else keys.push({ name: 'escape' });
-    } else if (ch >= ' ') keys.push({ name: 'char', ch });
+      else push({ name: 'escape' });
+    } else if (ch >= ' ') push({ name: 'char', ch });
   }
   return keys;
 }

@@ -39,7 +39,8 @@ export class Form {
     return null;
   }
 
+  /** Label and typed text; the real cursor goes right after it (IME composition shows there). */
   line(): string {
-    return `${this.fields[this.index]?.label ?? ''}: ${this.text}█`;
+    return `${this.fields[this.index]?.label ?? ''}: ${this.text}`;
   }
 }

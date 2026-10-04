@@ -37,6 +37,11 @@ const GLYPH: Record<string, [string, string]> = {
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const color = (code: string, s: string) => `\x1b[${code}m${s}\x1b[0m`;
 
+/** Too small a window gets only the "창을 키워 주세요" line. */
+export function lobbyFits(cols: number, lines: number): boolean {
+  return cols >= MIN_COLS && lines >= MIN_LINES;
+}
+
 export function lobbyRows(s: OfficeSnapshot): LobbyRow[] {
   const desks = [...s.desks].sort((a, b) => a.repo.localeCompare(b.repo) || a.name.localeCompare(b.name));
   return desks.flatMap((d) => {
@@ -47,7 +52,7 @@ export function lobbyRows(s: OfficeSnapshot): LobbyRow[] {
 }
 
 export function renderLobby(v: LobbyView, cols: number, lines: number): string[] {
-  if (cols < MIN_COLS || lines < MIN_LINES) {
+  if (!lobbyFits(cols, lines)) {
     const out = Array.from({ length: lines }, () => ' '.repeat(Math.max(cols, 0)));
     out[Math.floor(lines / 2)] = fit(' 창을 키워 주세요', cols);
     return out;

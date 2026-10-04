@@ -255,3 +255,91 @@ describe('App controller additions', () => {
     expect(hostWrites).toEqual(['hi']);
   });
 });
+
+describe('App review fixes', () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const hostOf = (deps: TuiDeps) => deps.host as unknown as Record<string, unknown>;
+
+  it('does not resize the agent on a snapshot update while attached, only on a real resize', async () => {
+    const { app, deps, setSnap } = setup();
+    let resizes = 0;
+    hostOf(deps).resize = () => void resizes++;
+    await app.handle('\r');
+    const after = resizes;
+    setSnap({ desks: [], updatedAt: 1, error: null } as unknown as OfficeSnapshot);
+    expect(resizes).toBe(after);
+  });
+
+  it('runs the delayed lone ESC through the input queue', async () => {
+    const { deps, out } = setup();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    deps.addRepo = async () => void (await gate);
+    let onData!: (d: string) => void;
+    const app = new App(deps, { on: (_e: string, fn: (d: string) => void) => (onData = fn) }, out, 20);
+    const seen: string[] = [];
+    const key = (app as unknown as { key(k: { name: string }): Promise<void> }).key.bind(app);
+    (app as unknown as { key(k: { name: string }): Promise<void> }).key = (k) => (seen.push(k.name), key(k));
+    app.start();
+    onData('p');
+    onData('/r\r\x1b'); // submits (addRepo hangs), then a lone ESC is held
+    await wait(80);
+    expect(seen).not.toContain('escape');
+    release();
+    await wait(80);
+    expect(seen.at(-1)).toBe('escape');
+  });
+
+  it('forwards the raw bytes after the attaching Enter, including a held partial sequence', async () => {
+    const a = setup();
+    await a.app.handle('\r\x1bOA\x1b[1;5Aé');
+    expect(a.hostWrites).toEqual(['\x1bOA\x1b[1;5Aé']);
+    const b = setup();
+    await b.app.handle('\r\x1b[');
+    await b.app.handle('A');
+    expect(b.hostWrites.join('')).toBe('\x1b[A');
+  });
+
+  it('shows the real cursor after the typed text while a form is open, hidden otherwise', async () => {
+    const { app, out } = setup();
+    out.text = '';
+    await app.handle('n');
+    expect(strip(out.text)).toContain('새 워크트리 이름 (app): ');
+    expect(strip(out.text)).not.toContain('█');
+    await app.handle('ab');
+    // ' 새 워크트리 이름 (app): ab' is 27 columns wide; the cursor sits right after it.
+    expect(out.text.endsWith('\x1b[24;28H\x1b[?25h')).toBe(true);
+    await app.handle('\x1b');
+    await wait(120);
+    expect(out.text.endsWith('\x1b[?25l')).toBe(true);
+  });
+
+  it('says it is working while a hire or a project add is in flight', async () => {
+    const { app, out, deps } = setup();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    deps.hire = async () => (await gate, {});
+    const pending = app.handle('a\r\r');
+    await wait(5);
+    expect(strip(out.text)).toContain('만드는 중…');
+    release();
+    await pending;
+    expect(strip(out.text.slice(out.text.lastIndexOf('Office Desks')))).not.toContain('만드는 중…');
+    let rel2!: () => void;
+    const gate2 = new Promise<void>((r) => (rel2 = r));
+    deps.addRepo = async () => void (await gate2);
+    const p2 = app.handle('p/x\r');
+    await wait(5);
+    expect(strip(out.text)).toContain('추가하는 중…');
+    rel2();
+    await p2;
+  });
+
+  it('stops an attached session when closed (title popped, modes reset)', async () => {
+    const { app, out } = setup();
+    await app.handle('\r');
+    out.text = '';
+    app.close();
+    expect(out.text).toContain('\x1b[23;0t');
+  });
+});

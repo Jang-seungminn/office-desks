@@ -25,10 +25,13 @@ const STATUS_THROTTLE_MS = 100;
 const MARGINS = /\x1b\[(\d*)(?:;(\d*))?r|\x1b\[\?(?:1049|1047|47)[hl]|\x1bc|\x1b\[!p/g;
 const TAIL = 16;
 
-/** Does this output leave the real terminal without our region (rows 1..agentRows)? */
-export function dropsRegion(output: string, agentRows: number): boolean {
+/**
+ * Does this output leave the real terminal without our region (rows 1..agentRows)? Sequences
+ * ending at or before `from` (the carried-over tail) were handled with the previous chunk.
+ */
+export function dropsRegion(output: string, agentRows: number, from = 0): boolean {
   let last: RegExpExecArray | null = null;
-  for (const m of output.matchAll(MARGINS)) last = m;
+  for (const m of output.matchAll(MARGINS)) if (m.index + m[0].length > from) last = m;
   if (!last) return false;
   if (!last[0].endsWith('r')) return true;
   const bottom = Number(last[2] || 0);
@@ -60,8 +63,9 @@ export class AttachSession {
     this.offData = this.host.onData(this.ptyId, (d) => {
       this.out.write(d);
       const seen = this.tail + d;
+      const from = this.tail.length;
       this.tail = seen.slice(-TAIL);
-      if (dropsRegion(seen, this.agentRows())) this.out.write(this.keepRegion());
+      if (dropsRegion(seen, this.agentRows(), from)) this.out.write(this.keepRegion());
       this.scheduleStatus();
     });
     this.offExit = this.host.onExit((id) => {

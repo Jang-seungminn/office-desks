@@ -1,7 +1,6 @@
 import { createWriteStream, mkdirSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { format } from 'node:util';
 import { NativeBackend } from '../backend/native.js';
 import { officeHome } from '../home.js';
@@ -34,20 +33,81 @@ export async function pickPort(preferred: number, explicit: boolean, isFree: (p:
 /** Hand the terminal back exactly once, whatever ends the process. */
 export function installRestore(out: { write(s: string): unknown }, setRaw: (on: boolean) => void): () => void {
   let done = false;
+  // After SIGHUP the terminal is gone: writes and raw mode may throw, and cleanup must go on.
   const restore = () => {
     if (done) return;
     done = true;
-    out.write(restoreSequence());
-    setRaw(false);
+    try {
+      out.write(restoreSequence());
+    } catch {
+      // nothing to restore on
+    }
+    try {
+      setRaw(false);
+    } catch {
+      // ditto
+    }
   };
   process.once('exit', restore);
   return restore;
+}
+
+/** Why the TUI can't run here (no terminal on stdin/stdout), or null. */
+export function notTtyMessage(stdin: { isTTY?: boolean }, stdout: { isTTY?: boolean }): string | null {
+  if (stdin.isTTY && stdout.isTTY) return null;
+  return 'office-desks: 터미널 앱은 터미널에서만 열 수 있어요 (입력/출력이 터미널이 아니에요). 웹만 쓰려면 --no-tui로 실행하세요';
+}
+
+export interface ExitSteps {
+  close(): void;
+  restore(): void;
+  dispose(): Promise<void>;
+  exit(code: number): void;
+  report(message: string): void;
+}
+
+/**
+ * The single way out of the TUI (quit, crash, signal), taken once: the first caller's exit code
+ * stands. The terminal comes back first, then agents and their settings files are cleaned up.
+ */
+export function createExit(steps: ExitSteps): (code: number, message?: string) => void {
+  let exiting = false;
+  return (code, message) => {
+    if (exiting) return;
+    exiting = true;
+    try {
+      steps.close(); // stops an attached session, which writes to the terminal
+    } catch {
+      // the terminal may be gone (SIGHUP)
+    }
+    try {
+      steps.restore();
+    } catch {
+      // the terminal may be gone (SIGHUP)
+    }
+    if (message) {
+      try {
+        steps.report(message);
+      } catch {
+        // ditto
+      }
+    }
+    void steps
+      .dispose()
+      .catch(() => {})
+      .finally(() => steps.exit(code));
+  };
 }
 
 export async function runTui(): Promise<void> {
   let port: number;
   const stdin = process.stdin;
   const stdout = process.stdout;
+  const noTty = notTtyMessage(stdin, stdout);
+  if (noTty) {
+    process.stderr.write(noTty + '\n');
+    process.exit(1);
+  }
   let logPath: string | null = null;
   let loaded: typeof import('../server.js') | undefined;
   try {
@@ -66,6 +126,9 @@ export async function runTui(): Promise<void> {
     for (const level of ['log', 'info', 'warn', 'error'] as const) {
       console[level] = (...args: unknown[]) => void log.write(`${new Date().toISOString()} ${level} ${format(...args)}\n`);
     }
+    // Node's own warnings would print over the screen too.
+    process.removeAllListeners('warning');
+    process.on('warning', (w) => console.warn(w));
 
     loaded = await import('../server.js');
     await loaded.ready;
@@ -85,17 +148,19 @@ export async function runTui(): Promise<void> {
 
   const restore = installRestore(stdout, (on) => stdin.isTTY && stdin.setRawMode(on));
   let app: App | null = null;
-  let crashed = false;
-  const crash = (err: unknown) => {
-    if (crashed) return;
-    crashed = true;
-    app?.close();
-    restore();
-    process.stderr.write(`office-desks: ${(err as Error)?.stack ?? String(err)}\n`);
-    void backend.dispose().finally(() => process.exit(1));
-  };
+  const finish = createExit({
+    close: () => app?.close(),
+    restore,
+    dispose: () => backend.dispose(),
+    exit: (code) => process.exit(code),
+    report: (m) => process.stderr.write(m),
+  });
+  const crash = (err: unknown) => finish(1, `office-desks: ${(err as Error)?.stack ?? String(err)}\n`);
   process.on('uncaughtException', crash);
   process.on('unhandledRejection', crash);
+  // A closed terminal window (SIGHUP) must still stop the agents. server.ts leaves signals to us.
+  stdout.on('error', () => {});
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, () => finish(0));
 
   stdin.setRawMode(true);
   stdin.setEncoding('utf8');
@@ -117,12 +182,5 @@ export async function runTui(): Promise<void> {
   server.poller.setIdle(false); // the lobby is a live viewer
   app.start();
   await app.done;
-  restore();
-  await backend.dispose();
-  process.exit(0);
-}
-
-// `tsx src/tui/main.ts` / `node dist/tui/main.js` run it; the bin imports runTui instead.
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void runTui();
+  finish(0); // a no-op when a crash or a signal got there first
 }

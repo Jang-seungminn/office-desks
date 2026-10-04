@@ -224,6 +224,17 @@ describe('dropsRegion', () => {
     expect(out.text).toContain('\x1b7\x1b[1;29r\x1b8');
   });
 
+  it('re-sets the region once per reset, not again for the chunks that follow', () => {
+    const host = fakeHost();
+    const out = fakeOut(100, 30);
+    new AttachSession(host as unknown as AttachHost, 'p1', out, 's', () => {}).start();
+    out.text = '';
+    host.emit('\x1b[r');
+    host.emit('x');
+    host.emit('y');
+    expect(out.text.split('\x1b[1;29r')).toHaveLength(2);
+  });
+
   it('pushes the window title on attach and pops it on leave', () => {
     const host = fakeHost();
     const out = fakeOut();

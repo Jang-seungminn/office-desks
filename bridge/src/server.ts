@@ -591,8 +591,17 @@ poller.start();
 void cleanOldUploads();
 /** Resolves once the HTTP server listens (the TUI waits for it); rejects if the port is taken. */
 export const ready = new Promise<void>((resolve, reject) => {
-  server.once('listening', () => resolve());
-  server.once('error', reject);
+  // Only for startup: once listening, later server errors must not vanish into a settled promise.
+  const onListening = () => {
+    server.off('error', onError);
+    resolve();
+  };
+  const onError = (err: Error) => {
+    server.off('listening', onListening);
+    reject(err);
+  };
+  server.once('listening', onListening);
+  server.once('error', onError);
 });
 // Server-only mode keeps failing loudly; the TUI handles the rejection itself.
 if (!tuiActive) {
@@ -607,14 +616,17 @@ server.listen(PORT, HOST, () => {
   console.log(`[office-desks] bridge on http://${HOST}:${PORT} (${DEMO ? 'DEMO data' : backend.name === 'orca' ? `orca backend, orca cli: ${resolveOrcaCommand()}` : `${backend.name} backend`})`);
 });
 
-// Native agents live in this process: stop them with it.
+// Native agents live in this process: stop them with it. The TUI handles signals itself
+// (it restores the terminal first, and also handles SIGHUP).
 let stopping = false;
-for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(sig, () => {
-    if (stopping) return;
-    stopping = true;
-    void backend.dispose().finally(() => process.exit(0));
-  });
+if (!tuiActive) {
+  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(sig, () => {
+      if (stopping) return;
+      stopping = true;
+      void backend.dispose().finally(() => process.exit(0));
+    });
+  }
 }
 
 export { backend, poller, PORT };

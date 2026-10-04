@@ -101,18 +101,21 @@ describe('ensureSpawnHelper', () => {
 describe('PtyHost reply muting', () => {
   it('forwards headless terminal replies to the process only while replies are on', async () => {
     const host = new PtyHost();
-    host.spawn('m1', { file: process.execPath, args: ['-e', "process.stdin.setRawMode(true);process.stdout.write('ready\\r\\n');process.stdin.on('data',d=>process.stdout.write('in:'+JSON.stringify(String(d))+'\\r\\n'))"], cwd: process.cwd(), env: { ...process.env } as Record<string, string> });
-    await until(() => host.screenLines('m1').some((l) => l.includes('ready')));
-    // A Device Attributes query written *to the terminal* makes xterm answer on its input side.
-    host.setReplies('m1', false);
-    (host as unknown as { feed(id: string, d: string): void }).feed('m1', '\x1b[c');
-    await new Promise((r) => setTimeout(r, 400));
-    expect(host.screenLines('m1').join('\n')).not.toContain('in:');
-    host.setReplies('m1', true);
-    (host as unknown as { feed(id: string, d: string): void }).feed('m1', '\x1b[c');
-    const end = Date.now() + 5000;
-    while (!host.screenLines('m1').join('\n').includes('in:') && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
-    expect(host.screenLines('m1').join('\n')).toContain('in:');
-    await host.dispose();
+    try {
+      host.spawn('m1', { file: process.execPath, args: ['-e', "process.stdin.setRawMode(true);process.stdout.write('ready\\r\\n');process.stdin.on('data',d=>process.stdout.write('in:'+JSON.stringify(String(d))+'\\r\\n'))"], cwd: process.cwd(), env: { ...process.env } as Record<string, string> });
+      await until(() => host.screenLines('m1').some((l) => l.includes('ready')));
+      // A Device Attributes query written *to the terminal* makes xterm answer on its input side.
+      host.setReplies('m1', false);
+      (host as unknown as { feed(id: string, d: string): void }).feed('m1', '\x1b[c');
+      await new Promise((r) => setTimeout(r, 400));
+      expect(host.screenLines('m1').join('\n')).not.toContain('in:');
+      host.setReplies('m1', true);
+      (host as unknown as { feed(id: string, d: string): void }).feed('m1', '\x1b[c');
+      const end = Date.now() + 5000;
+      while (!host.screenLines('m1').join('\n').includes('in:') && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+      expect(host.screenLines('m1').join('\n')).toContain('in:');
+    } finally {
+      await host.dispose();
+    }
   }, 15_000);
 });

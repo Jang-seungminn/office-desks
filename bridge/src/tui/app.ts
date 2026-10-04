@@ -2,10 +2,11 @@ import type { HireResult, HireSpec } from '../backend/types.js';
 import { validateHire } from '../hire.js';
 import type { OfficeSnapshot } from '../model.js';
 import { AttachSession, type AttachHost, type TermOut } from './attach.js';
-import { decodeKeys, type Key } from './keys.js';
-import { lobbyRows, renderLobby, type LobbyRow } from './lobby.js';
+import { decodeKeysAt, type Key } from './keys.js';
+import { lobbyFits, lobbyRows, renderLobby, type LobbyRow } from './lobby.js';
 import { Form } from './prompt.js';
-import { ALT_ON, CLEAR, HIDE_CURSOR, HOME, SHOW_CURSOR } from './screen.js';
+import { ALT_ON, CLEAR, HIDE_CURSOR, HOME, moveTo, SHOW_CURSOR } from './screen.js';
+import { displayWidth, clean } from './text.js';
 
 export interface TuiDeps {
   snapshot(): OfficeSnapshot;
@@ -29,19 +30,15 @@ type FormKind = 'repo' | 'agent' | 'work';
 const ESC_WAIT_MS = 50;
 const AGENT_FIELD = { label: '에이전트 (claude/codex/gemini)', initial: 'claude' };
 const PROMPT_FIELD = { label: '첫 지시 (선택)', optional: true };
-const FORMS: Record<FormKind, () => Form> = {
+const FORMS: Record<FormKind, (row: LobbyRow | null) => Form> = {
   repo: () => new Form([{ label: 'git 저장소 경로' }]),
   agent: () => new Form([AGENT_FIELD, PROMPT_FIELD]),
-  work: () => new Form([{ label: '새 워크트리 이름' }, AGENT_FIELD, PROMPT_FIELD]),
+  work: (row) => new Form([{ label: `새 워크트리 이름 (${row?.repo ?? ''})` }, AGENT_FIELD, PROMPT_FIELD]),
 };
+const BUSY: Record<FormKind, string> = { repo: '추가하는 중…', agent: '만드는 중…', work: '만드는 중…' };
 // An escape sequence cut off at the end of a chunk (lone ESC, ESC [ 9, ESC O).
 const INCOMPLETE_ESCAPE = /\x1b(?:\[[0-9;?]*[ -/]*|O)?$/;
 
-const RAW: Record<string, string> = {
-  up: '\x1b[A', down: '\x1b[B', right: '\x1b[C', left: '\x1b[D', enter: '\r', escape: '\x1b',
-  backspace: '\x7f', tab: '\t', 'ctrl-c': '\x03', 'ctrl-]': '\x1d',
-};
-const rawOf = (k: Key) => (k.name === 'char' ? k.ch : RAW[k.name]);
 const idOf = (r: LobbyRow | undefined) => (r ? (r.agentId ?? r.deskId) : null);
 
 export class App {
@@ -91,7 +88,8 @@ export class App {
     }
     if (this.pendingTimer) clearTimeout(this.pendingTimer);
     this.pendingTimer = null;
-    let data = this.pending + chunk;
+    const full = this.pending + chunk;
+    let data = full;
     this.pending = '';
     const cut = INCOMPLETE_ESCAPE.exec(data);
     if (cut) {
@@ -102,19 +100,22 @@ export class App {
         this.pendingTimer = null;
         if (this.pending !== held) return;
         this.pending = '';
-        if (held === '\x1b') void this.keys([{ name: 'escape' }]);
+        // In line with any input still being handled (a hire in flight, say).
+        if (held === '\x1b') this.queue = this.queue.then(() => this.keys([{ key: { name: 'escape' }, end: 0 }], '')).catch(() => {});
       }, this.escWaitMs);
     }
-    await this.keys(decodeKeys(data));
+    await this.keys(decodeKeysAt(data), full);
   }
 
-  private async keys(keys: Key[]): Promise<void> {
-    for (let i = 0; i < keys.length; i++) {
-      await this.key(keys[i]);
+  private async keys(keys: { key: Key; end: number }[], raw: string): Promise<void> {
+    for (const { key, end } of keys) {
+      await this.key(key);
       if (this.closed) return;
       if (this.mode === 'attach') {
-        // Whatever followed the Enter in the same chunk belongs to the agent.
-        const rest = keys.slice(i + 1).map(rawOf).join('');
+        // Whatever followed the Enter in the same chunk belongs to the agent, byte for byte
+        // (a held partial escape sequence included).
+        this.pending = '';
+        const rest = raw.slice(end);
         if (rest) this.session?.input(rest);
         return;
       }
@@ -162,6 +163,8 @@ export class App {
     this.mode = 'lobby';
     this.form = this.formKind = this.target = null;
     if (result.done === 'cancel') return;
+    this.notice = BUSY[kind];
+    this.render();
     try {
       this.notice = await this.submit(kind, result.values, target);
       void this.deps.refresh().catch(() => {});
@@ -186,7 +189,7 @@ export class App {
   }
 
   private openForm(kind: FormKind, row: LobbyRow | undefined): void {
-    this.form = FORMS[kind]();
+    this.form = FORMS[kind](row ?? null);
     this.formKind = kind;
     this.target = row ?? null;
     this.mode = 'form';
@@ -208,6 +211,8 @@ export class App {
 
   private quit(): void {
     this.closed = true;
+    this.session?.stop();
+    this.session = null;
     this.out.off?.('resize', this.onResize);
     this.offSnapshot?.();
     this.input.off?.('data', this.onData);
@@ -243,7 +248,8 @@ export class App {
 
   private refit(snapshotChanged = false): void {
     if (this.mode === 'attach') {
-      this.session?.resized();
+      // Only a real terminal resize concerns the attached agent; the lobby reloads on return.
+      if (!snapshotChanged) this.session?.resized();
       return;
     }
     if (snapshotChanged) this.reloadRows();
@@ -261,9 +267,16 @@ export class App {
   private render(): void {
     if (this.closed || this.mode === 'attach') return;
     let footer: string | undefined;
-    if (this.mode === 'form' && this.form) footer = this.form.line() + '  (Enter 다음 · Esc 취소)';
+    let cursor = HIDE_CURSOR;
+    const { columns: cols, rows: lines } = this.out;
+    if (this.mode === 'form' && this.form) {
+      const typed = this.form.line();
+      footer = typed + '  (Enter 다음 · Esc 취소)';
+      // The real cursor right after the typed text, so an IME composes in place.
+      if (lobbyFits(cols, lines)) cursor = moveTo(lines, Math.min(cols, displayWidth(clean(` ${typed}`)) + 1)) + SHOW_CURSOR;
+    }
     else if (this.mode === 'confirm') footer = `에이전트 ${this.rows.filter((r) => r.agentId).length}개가 함께 종료됩니다. 종료할까요? (y/N)`;
-    const lines = renderLobby({ rows: this.rows, selected: this.selected, url: this.deps.url, notice: this.notice, footer }, this.out.columns, this.out.rows);
-    this.out.write(HOME + lines.join('\r\n') + '\x1b[J');
+    const screen = renderLobby({ rows: this.rows, selected: this.selected, url: this.deps.url, notice: this.notice, footer }, cols, lines);
+    this.out.write(HIDE_CURSOR + HOME + screen.join('\r\n') + '\x1b[J' + cursor);
   }
 }
