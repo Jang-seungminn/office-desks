@@ -765,6 +765,67 @@ describe('App v3: presets, panes and mouse', () => {
     expect(await text()).toContain('q 나가기');
   });
 
+  it('keeps a cut-off report that followed a click on the list for list input (no stray keys)', async () => {
+    const { app, writes, text, selectedLine, resizes } = await setup(TWO, undefined, undefined, WIDE);
+    await app.handle('\r');
+    await app.handle(mouse(0, 3, 4) + '\x1b[<0;');
+    await app.handle('3;14m'); // as list keys, '1' and '4' would switch presets
+    expect(writes).toEqual([]);
+    expect(await selectedLine()).toMatch(/▸ b\b/);
+    expect(lastSize(resizes, 'p2')).toEqual([131, 27]);
+    expect(resizes.some(([, c]) => c !== 131)).toBe(false);
+    expect(await text()).toContain('q 나가기');
+  });
+
+  it('sends a paste flushed for lack of its end marker through the same mouse filter', async () => {
+    const { app, writes } = await setup();
+    await app.handle('\r');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await app.handle('\x1b[200~a\x1b[<0;5;5Mb');
+      expect(writes).toEqual([]);
+      vi.advanceTimersByTime(1000);
+    } finally {
+      vi.useRealTimers();
+    }
+    await wait(0);
+    // Inside a paste the bytes stay as pasted (carry-in D); nothing else is sent.
+    expect(writes).toEqual([['p1', 'a\x1b[<0;5;5Mb']]);
+  });
+
+  it('types an escape cut off after a click on another pane into that pane, whole', async () => {
+    const { app, writes } = await twoPanes();
+    await app.handle('\t');
+    await app.handle('\r'); // typing into a (pane 1)
+    await app.handle(mouse(0, P1 + 2, 3) + '\x1b[');
+    await app.handle('A');
+    expect(writes).toEqual([['p2', '\x1b[A']]);
+  });
+
+  it('refuses x, d and a on an empty focused pane instead of acting on another pane\'s agent', async () => {
+    const { app, calls, text } = await setup(TWO, undefined, undefined, WIDE);
+    await app.handle('2');
+    await app.handle('\t');
+    for (const k of ['x', 'd', 'a']) {
+      await app.handle(k);
+      const t = await text();
+      expect(t).toContain('이 칸은 비어 있어요');
+      expect(t).not.toContain('(y/N)');
+      await app.handle('y');
+    }
+    expect(calls).toEqual([]);
+    await app.handle('j');
+    await app.handle('x');
+    expect(await text()).toContain('에이전트를 종료할까요? app/b · claude (y/N)');
+  });
+
+  it('fits the list help in 100 columns, q first', async () => {
+    const { screen } = await setup();
+    const help = (await screen()).at(-1)!.trimEnd();
+    expect(help.startsWith(' q 나가기')).toBe(true);
+    expect(help.endsWith('d 삭제')).toBe(true);
+  });
+
   it('drops a held partial mouse report in panel focus instead of sending it', async () => {
     const { app, writes } = await setup(TWO, undefined, undefined, undefined, 5);
     await app.handle('\r');

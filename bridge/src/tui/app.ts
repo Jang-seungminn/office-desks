@@ -59,7 +59,8 @@ type Mode = 'list' | 'panel' | 'form' | 'confirm' | 'zoom';
 
 const ESC_WAIT_MS = 50;
 const PASTE_WAIT_MS = 1000;
-const LIST_HELP = 'q 나가기 · Enter 입력 · ↑↓ 이동 · 1-4 화면 · Tab 칸 · z 크게 · a 추가 · n 새 작업 · p 프로젝트 · x 종료 · d 삭제 · PgUp 기록';
+// Fits 100 columns (with the leading space), q first.
+const LIST_HELP = 'q 나가기 · Enter 입력 · 1-4 분할 · Tab 칸 · z 크게 · a 추가 · n 작업 · p 프로젝트 · x 종료 · d 삭제';
 const PANEL_HELP = '패널 입력 중 · Ctrl+] 목록으로 · 드래그하면 복사 · 터미널 선택은 Shift/Option+드래그';
 const EXITED = '에이전트가 종료됐어요';
 const WHEEL_LINES = 3;
@@ -115,8 +116,7 @@ export class App {
   ) {
     this.done = new Promise((r) => (this.resolveDone = r));
     // A held paste or escape whose rest never came goes to the agent, in line with other input.
-    // A partial mouse report whose rest never came is dropped, never typed.
-    this.panelInput = new PanelInput((held) => this.enqueue(async () => void (PARTIAL_MOUSE.test(held) || this.sendToAgent(held))), escWaitMs, PASTE_WAIT_MS);
+    this.panelInput = new PanelInput((held) => this.enqueue(async () => this.flushHeld(held)), escWaitMs, PASTE_WAIT_MS);
     this.renderer = new Renderer(out, () => this.view(), renderMs);
   }
 
@@ -247,6 +247,10 @@ export class App {
     else if (k.name === 'ctrl-c' || ch === 'q') this.askQuit();
     else if (ch === 'z') this.zoom();
     else if (ch === 'p') this.openForm('repo', row);
+    else if ((ch === 'a' || ch === 'x' || ch === 'd') && row?.agentId && !this.panes.agents[this.panes.focused]) {
+      // Tab moved to an empty pane: the selected agent lives in another one, not here.
+      this.notice = '이 칸은 비어 있어요 — 목록에서 고르세요';
+    }
     else if (ch === 'a' && row) this.openForm('agent', row);
     else if (ch === 'n') {
       if (row) this.openForm('work', row);
@@ -364,15 +368,18 @@ export class App {
       this.notice = EXITED;
       return;
     }
+    // Already typing (a click on another pane): anything PanelInput holds arrived after that click,
+    // so it belongs to the newly focused agent and is kept; resetting would type its rest as text.
     if (this.mode !== 'panel') this.panelInput.reset();
     this.mode = 'panel';
     this.typingPty = pty;
   }
 
-  private toList(): void {
+  /** List focus; `keepHeld` leaves held bytes for panelData to hand on (a click mid-chunk). */
+  private toList(keepHeld = false): void {
     this.mode = 'list';
     this.typingPty = null;
-    this.panelInput.reset();
+    if (!keepHeld) this.panelInput.reset();
   }
 
   private leavePanel(notice: string | null): void {
@@ -417,6 +424,18 @@ export class App {
     }
   }
 
+  /**
+   * Held bytes whose rest never came (a paste without its end, a cut-off escape): a partial mouse
+   * report is dropped, and any mouse report outside a paste is taken out, so none reaches an agent.
+   */
+  private flushHeld(held: string): void {
+    if (PARTIAL_MOUSE.test(held)) return;
+    const text = splitMouse(held)
+      .map((p) => (p.kind === 'text' ? p.text : ''))
+      .join('');
+    if (text) this.sendToAgent(text);
+  }
+
   /** Bytes typed in panel focus, encoded for the agent's own terminal modes. */
   private sendToAgent(data: string): void {
     if (this.closed || this.mode !== 'panel') return;
@@ -441,14 +460,14 @@ export class App {
     if (ev.kind === 'wheelUp' || ev.kind === 'wheelDown') {
       const up = ev.kind === 'wheelUp';
       if (hit.area === 'list') {
-        if (this.mode === 'panel') this.toList();
+        if (this.mode === 'panel') this.toList(true);
         this.move(up ? -1 : 1);
       } else if (hit.area === 'pane' || hit.area === 'head') this.scrollPane(hit.pane, up ? WHEEL_LINES : -WHEEL_LINES);
       return;
     }
     this.clearSelection();
     if (hit.area === 'list') {
-      if (this.mode === 'panel') this.toList();
+      if (this.mode === 'panel') this.toList(true);
       const at = sidebarRowAt(this.rows, this.selected, L.list, hit.y);
       if (at !== null && at !== this.selected) {
         this.selected = at;
@@ -459,7 +478,7 @@ export class App {
       this.followFocused();
       const pty = this.panePty(hit.pane);
       if (pty && this.deps.host.has(pty)) this.focusPanel();
-      else if (this.mode === 'panel') this.toList();
+      else if (this.mode === 'panel') this.toList(true);
       const term = this.paneTerminal(hit.pane);
       if (hit.area === 'pane' && ev.button === 0 && term) {
         const at = { line: topLine(term, this.panes.scroll[hit.pane]) + hit.y, col: hit.x };
