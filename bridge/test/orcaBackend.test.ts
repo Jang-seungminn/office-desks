@@ -221,10 +221,12 @@ describe('OrcaBackend v2', () => {
 
   it('declares what Orca can do and refuses native-only calls', async () => {
     const b = new OrcaBackend(fake().orca);
-    expect(b.capabilities).toEqual({ usage: true, search: true, board: true, hire: true, changes: true, transcripts: true, focus: true, repos: false });
+    expect(b.capabilities).toEqual({ usage: true, search: true, board: true, hire: true, changes: true, transcripts: true, focus: true, repos: false, stop: false, remove: false });
     expect(b.messages.noSession).toMatch(/Agent Session History/);
     expect(b.hook('x', 'y', {})).toBe(false);
     await expect(b.addRepo('/tmp')).rejects.toMatchObject({ code: 'unsupported' });
+    await expect(b.stopAgent('x:main')).rejects.toMatchObject({ code: 'unsupported' });
+    await expect(b.removeWorktree('r::/p')).rejects.toMatchObject({ code: 'unsupported' });
     await expect(b.dispose()).resolves.toBeUndefined();
   });
 });

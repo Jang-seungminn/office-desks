@@ -51,7 +51,7 @@ function notWritable(err: unknown): unknown {
 /** Everything the office needs, through the Orca CLI. Every argv is built here. */
 export class OrcaBackend implements OfficeBackend {
   readonly name: string = 'orca';
-  readonly capabilities: BackendCapabilities = { usage: true, search: true, board: true, hire: true, changes: true, transcripts: true, focus: true, repos: false };
+  readonly capabilities: BackendCapabilities = { usage: true, search: true, board: true, hire: true, changes: true, transcripts: true, focus: true, repos: false, stop: false, remove: false };
   readonly messages: BackendMessages = {
     noSession: 'Orca 세션 검색에서 이 에이전트의 대화 기록을 찾지 못했습니다. (Orca Settings → Agent Session History가 켜져 있어야 합니다)',
     hireDisabled: '이 백엔드에서는 새 작업을 만들 수 없어요',
@@ -132,6 +132,14 @@ export class OrcaBackend implements OfficeBackend {
 
   addRepo(_repoPath: string): Promise<void> {
     return Promise.reject(new BackendError('Orca에서는 Orca 앱에서 프로젝트를 추가해 주세요', 'unsupported'));
+  }
+
+  stopAgent(_agentId: string): Promise<void> {
+    return Promise.reject(new BackendError('이 백엔드에서는 할 수 없어요', 'unsupported'));
+  }
+
+  removeWorktree(_deskId: string): Promise<void> {
+    return Promise.reject(new BackendError('이 백엔드에서는 할 수 없어요', 'unsupported'));
   }
 
   hook(_agentId: string, _token: string, _payload: unknown): boolean {

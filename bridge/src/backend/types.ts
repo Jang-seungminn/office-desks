@@ -83,6 +83,10 @@ export interface OfficeBackend {
   usage(): Promise<UsageSnapshot | null>;
   /** Register a local git repo as a project, for capabilities.repos. */
   addRepo(repoPath: string): Promise<void>;
+  /** Stop a running agent. */
+  stopAgent(agentId: string): Promise<void>;
+  /** Remove a worktree; refuses the main checkout, running agents and uncommitted changes. Keeps the branch. */
+  removeWorktree(deskId: string): Promise<void>;
   /** An agent hook event from a backend-spawned agent; returns false if unknown or unauthorized. */
   hook(agentId: string, token: string, payload: unknown): boolean;
   /** Stop everything the backend started; called once on shutdown. */

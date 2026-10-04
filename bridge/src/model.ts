@@ -89,6 +89,10 @@ export interface BackendCapabilities {
   focus: boolean;
   /** Projects are added by the bridge (addRepo) rather than by the host app. */
   repos: boolean;
+  /** Stop a running agent. */
+  stop: boolean;
+  /** Remove a worktree (never the main checkout, never with agents or changes). */
+  remove: boolean;
 }
 
 export interface BackendInfo {

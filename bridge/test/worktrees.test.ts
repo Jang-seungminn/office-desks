@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { addWorktree, listWorktrees, parsePorcelain, resolveRepo, worktreeDest } from '../src/native/worktrees.js';
+import { addWorktree, listWorktrees, parsePorcelain, removeWorktree, resolveRepo, worktreeDest } from '../src/native/worktrees.js';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
@@ -44,6 +44,26 @@ describe('git worktrees', () => {
     ]);
     // Resolving from inside a linked worktree still names the main checkout.
     expect((await resolveRepo(dest)).path).toBe(rec.path);
+  });
+
+  it('removes a clean worktree but keeps its branch', async () => {
+    const repo = scratchRepo();
+    const home = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'od-home-')));
+    const dest = worktreeDest(home, 'app', 'fix-login');
+    await addWorktree(repo, dest, 'fix-login', null);
+    await removeWorktree(repo, dest);
+    expect((await listWorktrees(repo)).map((w) => path.normalize(w.path))).not.toContain(path.normalize(dest));
+    expect(git(repo, 'branch', '--list', 'fix-login').trim()).not.toBe('');
+  });
+
+  it('refuses a dirty worktree and leaves it alone', async () => {
+    const repo = scratchRepo();
+    const home = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'od-home-')));
+    const dest = worktreeDest(home, 'app', 'wip');
+    await addWorktree(repo, dest, 'wip', null);
+    writeFileSync(path.join(dest, 'new.txt'), 'x');
+    await expect(removeWorktree(repo, dest)).rejects.toThrow();
+    expect(existsSync(dest)).toBe(true);
   });
 
   it('rejects a folder that is not a git repository with a readable error', async () => {

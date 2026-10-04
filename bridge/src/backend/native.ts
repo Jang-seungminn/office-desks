@@ -9,7 +9,7 @@ import { agentEnv, findCommand } from '../native/env.js';
 import { applyHook, hookSettings, initialHookState, relayScript, type HookState } from '../native/hooks.js';
 import type { PtyHost } from '../native/ptyHost.js';
 import type { Registry } from '../native/registry.js';
-import { addWorktree, listWorktrees, resolveRepo, worktreeDest, type WorktreeInfo } from '../native/worktrees.js';
+import { addWorktree, listWorktrees, removeWorktree, resolveRepo, worktreeDest, type WorktreeInfo } from '../native/worktrees.js';
 import { composerState } from '../screen.js';
 import { orcaDeskName, toSnapshot, type OrcaTerminalRow, type OrcaWorktreeRow } from '../stateMapper.js';
 import {
@@ -74,7 +74,7 @@ const ptyId = (handle: string) => handle.replace(/^pty_/, '');
 /** Office Desks running the agents itself: PTYs, git worktrees and Claude hooks, no Orca. */
 export class NativeBackend implements OfficeBackend {
   readonly name: string = 'native';
-  readonly capabilities: BackendCapabilities = { usage: false, search: false, board: true, hire: true, changes: true, transcripts: true, focus: false, repos: true };
+  readonly capabilities: BackendCapabilities = { usage: false, search: false, board: true, hire: true, changes: true, transcripts: true, focus: false, repos: true, stop: true, remove: true };
   readonly messages: BackendMessages = {
     noSession: '이 에이전트의 대화 기록이 아직 없어요. 첫 지시를 보내면 생깁니다.',
     hireDisabled: '이 백엔드에서는 새 작업을 만들 수 없어요',
@@ -343,6 +343,31 @@ export class NativeBackend implements OfficeBackend {
   async addRepo(repoPath: string): Promise<void> {
     if (!path.isAbsolute(repoPath)) throw new BackendError('절대 경로를 입력해 주세요', 'not_absolute');
     await this.deps.registry.addRepo(await resolveRepo(repoPath, this.git));
+  }
+
+  async stopAgent(agentId: string): Promise<void> {
+    const id = this.terminalOf(agentId);
+    if (!id) throw new BackendError('에이전트를 찾지 못했어요', 'not_found');
+    this.deps.pty.kill(id);
+  }
+
+  async removeWorktree(deskId: string): Promise<void> {
+    const sep = deskId.indexOf('::');
+    const repo = this.deps.registry.repos.find((r) => r.id === deskId.slice(0, sep));
+    const wtPath = deskId.slice(sep + 2);
+    if (sep < 0 || !repo) throw new BackendError('워크트리를 찾지 못했어요', 'not_found');
+    if (slash(path.normalize(repo.path)) === wtPath) throw new BackendError('메인 체크아웃은 지울 수 없어요', 'main_checkout');
+    if ([...this.agents.values()].some((a) => a.deskId === deskId)) {
+      throw new BackendError('에이전트가 실행 중인 워크트리는 지울 수 없어요 (x로 먼저 종료)', 'has_agents');
+    }
+    try {
+      await removeWorktree(repo.path, wtPath, this.git);
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      const detail = /modified or untracked/.test(msg) ? '' : ` — ${msg.split('\n')[0]}`;
+      throw new BackendError(`변경사항이 있는 워크트리는 지울 수 없어요${detail}`, 'dirty');
+    }
+    this.worktrees.delete(repo.path);
   }
 
   async dispose(): Promise<void> {

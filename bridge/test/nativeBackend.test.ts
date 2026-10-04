@@ -137,6 +137,62 @@ describe('NativeBackend desk names', () => {
   });
 });
 
+describe('NativeBackend stop and remove', () => {
+  const FEAT = 'abcdef123456::/h/worktrees/app/feat';
+  const hireMain = (b: NativeBackend) => b.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null });
+
+  it('stops an agent by killing its terminal', async () => {
+    const { backend, pty } = await setup();
+    await hireMain(backend);
+    const id = pty.spawned[0].id;
+    await backend.stopAgent(`${id}:main`);
+    expect(pty.has(id)).toBe(false);
+    expect((await backend.snapshot()).desks.find((d) => d.isMain)!.agents).toEqual([]);
+  });
+
+  it('reports an unknown agent as not found', async () => {
+    const { backend } = await setup();
+    await expect(backend.stopAgent('nope:main')).rejects.toMatchObject({ code: 'not_found' });
+  });
+
+  it('refuses the main checkout and unknown desks', async () => {
+    const { backend } = await setup();
+    await expect(backend.removeWorktree('abcdef123456::/p/app')).rejects.toMatchObject({ code: 'main_checkout' });
+    await expect(backend.removeWorktree('zzz::/p/app')).rejects.toMatchObject({ code: 'not_found' });
+    await expect(backend.removeWorktree('garbage')).rejects.toMatchObject({ code: 'not_found' });
+  });
+
+  it('refuses a worktree with a running agent', async () => {
+    const { backend, gitCalls } = await setup();
+    await backend.hire({ kind: 'agent', deskId: FEAT, agent: 'claude', prompt: null });
+    await expect(backend.removeWorktree(FEAT)).rejects.toMatchObject({ code: 'has_agents' });
+    expect(gitCalls.some((c) => c[1] === 'worktree' && c[2] === 'remove')).toBe(false);
+  });
+
+  it('removes an idle worktree through git, without --force', async () => {
+    const { backend, gitCalls } = await setup();
+    await backend.removeWorktree(FEAT);
+    expect(gitCalls).toContainEqual(['/p/app', 'worktree', 'remove', '/h/worktrees/app/feat']);
+  });
+
+  it('maps a git refusal to dirty', async () => {
+    const { backend } = await setup(async (_cwd, args) => {
+      if (args[1] === 'remove') throw new Error("fatal: '/h/worktrees/app/feat' contains modified or untracked files, use --force to delete it");
+      return PORCELAIN;
+    });
+    const err = await backend.removeWorktree(FEAT).catch((e: unknown) => e as Error);
+    expect(err).toMatchObject({ code: 'dirty', message: '변경사항이 있는 워크트리는 지울 수 없어요' });
+  });
+
+  it('appends git\'s message when the refusal is about something else', async () => {
+    const { backend } = await setup(async (_cwd, args) => {
+      if (args[1] === 'remove') throw new Error('fatal: cannot remove a locked working tree');
+      return PORCELAIN;
+    });
+    await expect(backend.removeWorktree(FEAT)).rejects.toMatchObject({ code: 'dirty', message: expect.stringContaining(' — fatal: cannot remove a locked working tree') });
+  });
+});
+
 describe('NativeBackend hire and hooks', () => {
   it('spawns claude with a session id, hook settings and a scrubbed env', async () => {
     const { backend, pty } = await setup();
