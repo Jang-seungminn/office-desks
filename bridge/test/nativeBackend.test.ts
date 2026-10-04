@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -43,12 +43,12 @@ class FakePty implements PtyLike {
 const REPO = { id: 'abcdef123456', path: '/p/app', name: 'app' };
 const PORCELAIN = 'worktree /p/app\nHEAD a\nbranch refs/heads/main\n\nworktree /h/worktrees/app/feat\nHEAD b\nbranch refs/heads/feat\n\n';
 
-async function setup(git: (cwd: string, args: string[]) => Promise<string> = async () => PORCELAIN) {
+async function setup(git: (cwd: string, args: string[]) => Promise<string> = async () => PORCELAIN, pty: FakePty = new FakePty()) {
+  const clock = { t: 1_000_000 };
   const home = mkdtempSync(path.join(os.tmpdir(), 'od-native-'));
   const registry = new Registry(path.join(home, 'state.json'));
   await registry.load();
   await registry.addRepo(REPO);
-  const pty = new FakePty();
   const gitCalls: string[][] = [];
   const backend = new NativeBackend({
     pty,
@@ -64,8 +64,9 @@ async function setup(git: (cwd: string, args: string[]) => Promise<string> = asy
     relay: '/r/hook-relay.mjs',
     node: '/n/node',
     sleep: async () => {},
+    now: () => clock.t,
   });
-  return { backend, pty, registry, home, gitCalls };
+  return { backend, pty, registry, home, gitCalls, clock };
 }
 
 const tokenOf = (pty: FakePty, i = 0) => new URL(pty.spawned[i].opts.env.OFFICE_DESKS_HOOK_URL).searchParams.get('token')!;
@@ -185,20 +186,43 @@ describe('NativeBackend input, board, sessions, repos', () => {
     expect(registry.meta('abcdef123456::/p/app')).toEqual({ workspaceStatus: 'todo' });
   });
 
-  it('finds the transcript from the hook, or by session id under the projects folder', async () => {
-    const { backend, pty, home } = await setup();
+  it('finds the transcript by session id (rate-limited), or from the hook path without scanning', async () => {
+    const { backend, pty, home, clock } = await setup();
     await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null });
     const sid = pty.spawned[0].opts.args[1];
     const agentId = `${pty.spawned[0].id}:main`;
-    const s = await backend.snapshot();
-    const desk = s.desks[1];
+    const desk = (await backend.snapshot()).desks[1];
     const agent = desk.agents[0];
     expect(await backend.findSession(desk, agent)).toBeNull();
     const dir = path.join(home, 'claude-projects', '-p-app');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(path.join(dir, `${sid}.jsonl`), '{}\n');
-    expect(await backend.findSession(desk, agent)).toBe(path.join(dir, `${sid}.jsonl`));
-    expect(backend.cachedSession(agentId)).toBe(path.join(dir, `${sid}.jsonl`));
+    const byId = path.join(dir, `${sid}.jsonl`);
+    writeFileSync(byId, '{}\n');
+    expect(await backend.findSession(desk, agent)).toBeNull(); // rate-limited
+    clock.t += 5001;
+    expect(await backend.findSession(desk, agent)).toBe(byId);
+    expect(backend.cachedSession(agentId)).toBe(byId);
+
+    // A hook-supplied path is authoritative: no scan while it is missing.
+    const hookFile = path.join(home, 'hook-transcript.jsonl');
+    backend.hook(agentId, tokenOf(pty), { hook_event_name: 'SessionStart', transcript_path: hookFile });
+    expect(backend.cachedSession(agentId)).toBeNull();
+    clock.t += 5001;
+    expect(backend.cachedSession(agentId)).toBeNull();
+    writeFileSync(hookFile, '{}\n');
+    expect(backend.cachedSession(agentId)).toBe(hookFile);
+  });
+
+  it('cleans up when the spawn fails', async () => {
+    const pty = new FakePty();
+    pty.spawn = () => {
+      throw new Error('spawn failed');
+    };
+    const { backend, home } = await setup(undefined, pty);
+    await expect(backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null })).rejects.toThrow('spawn failed');
+    expect((await backend.snapshot()).desks[1].agents).toEqual([]);
+    const dir = path.join(home, 'agents');
+    expect(existsSync(dir) ? readdirSync(dir) : []).toEqual([]);
   });
 
   it('registers a repo from any folder inside it', async () => {
@@ -208,10 +232,13 @@ describe('NativeBackend input, board, sessions, repos', () => {
     await expect(backend.addRepo('relative/path')).rejects.toMatchObject({ code: 'not_absolute' });
   });
 
-  it('kills every agent on dispose', async () => {
-    const { backend, pty } = await setup();
+  it('kills every agent on dispose and removes settings files', async () => {
+    const { backend, pty, home } = await setup();
     await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null });
+    const dir = path.join(home, 'agents');
+    expect(readdirSync(dir)).toHaveLength(1);
     await backend.dispose();
     expect(pty.screens.size).toBe(0);
+    expect(readdirSync(dir)).toEqual([]);
   });
 });

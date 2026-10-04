@@ -227,7 +227,13 @@ export class NativeBackend implements OfficeBackend {
       transcript: null,
       lookedAt: 0,
     });
-    this.deps.pty.spawn(id, { file: agentType, args, cwd, env });
+    try {
+      this.deps.pty.spawn(id, { file: agentType, args, cwd, env });
+    } catch (err) {
+      this.agents.delete(id);
+      if (settingsFile) await rm(settingsFile, { force: true });
+      throw err;
+    }
   }
 
   hook(agentId: string, token: string, payload: unknown): boolean {
@@ -251,8 +257,6 @@ export class NativeBackend implements OfficeBackend {
   }
 
   async findSession(_desk: OfficeDesk, agent: OfficeAgent): Promise<string | null> {
-    const a = this.agents.get(agent.id.replace(/:main$/, ''));
-    if (a) a.lookedAt = 0; // an explicit request may always look again
     return this.cachedSession(agent.id);
   }
 
@@ -260,7 +264,8 @@ export class NativeBackend implements OfficeBackend {
   cachedSession(agentId: string): string | null {
     const a = this.agents.get(agentId.replace(/:main$/, ''));
     if (!a?.sessionId) return null;
-    if (a.transcript && existsSync(a.transcript)) return a.transcript;
+    // The hook named the file: never scan, just wait for it to appear on disk.
+    if (a.transcript) return existsSync(a.transcript) ? a.transcript : null;
     if (this.now() - a.lookedAt < SESSION_RESCAN_MS && a.lookedAt) return null;
     a.lookedAt = this.now();
     const root = this.deps.claudeProjects ?? path.join(os.homedir(), '.claude', 'projects');
@@ -289,7 +294,8 @@ export class NativeBackend implements OfficeBackend {
   }
 
   async dispose(): Promise<void> {
+    const files = [...this.agents.values()].flatMap((a) => (a.settingsFile ? [a.settingsFile] : []));
     await this.deps.pty.dispose();
-    await Promise.all([...this.agents.values()].map((a) => (a.settingsFile ? rm(a.settingsFile, { force: true }) : undefined)));
+    await Promise.all(files.map((f) => rm(f, { force: true })));
   }
 }
