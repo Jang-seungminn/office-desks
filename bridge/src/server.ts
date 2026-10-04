@@ -12,7 +12,7 @@ import { AwardBook, awardsFile } from './awards.js';
 import { changeSummary, fileDiff } from './gitInfo.js';
 import { validateHire } from './hire.js';
 import { createBackend } from './backend/index.js';
-import { BackendBusyError, type BackendError, type OfficeBackend } from './backend/types.js';
+import { BackendBusyError, BackendError, type OfficeBackend } from './backend/types.js';
 import { charBytes, keyBytes } from './keys.js';
 import { answerQuestions, validateChoices } from './answer.js';
 import { composerState, screenSupport } from './screen.js';
@@ -31,12 +31,16 @@ const DEV_WEB_PORT = 5173;
 const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 
 // Only accept a session whose transcript actually contains what we searched for.
-const backend: OfficeBackend = createBackend(process.env, async (filePath, key) => {
-  const t = await readTranscript(filePath);
-  if (key.title) return t.title?.toLowerCase() === key.title.toLowerCase() || t.messages.length > 0;
-  const needle = key.phrase.slice(0, 40);
-  return t.messages.some((m) => m.role !== 'tool' && m.text.replace(/\s+/g, ' ').includes(needle));
-});
+const backend: OfficeBackend = await createBackend(
+  process.env,
+  async (filePath, key) => {
+    const t = await readTranscript(filePath);
+    if (key.title) return t.title?.toLowerCase() === key.title.toLowerCase() || t.messages.length > 0;
+    const needle = key.phrase.slice(0, 40);
+    return t.messages.some((m) => m.role !== 'tool' && m.text.replace(/\s+/g, ' ').includes(needle));
+  },
+  { port: PORT },
+);
 // Sample awards and org chart for the demo office (not a backend concern).
 const DEMO = backend.name === 'demo';
 const commands = new CommandCatalog();
@@ -404,7 +408,13 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     if (!backend.capabilities.hire) return json(res, 400, { error: backend.messages.hireDisabled });
     const spec = validateHire(body, poller.current.desks);
     if ('error' in spec) return json(res, 400, { error: spec.error });
-    const result = await backend.hire(spec);
+    let result;
+    try {
+      result = await backend.hire(spec);
+    } catch (err) {
+      if (err instanceof Error) return json(res, 400, { error: err.message });
+      throw err;
+    }
     if (result.warning) return json(res, 200, { ok: true, warning: result.warning });
     void poller.refresh();
     return json(res, 200, { ok: true });
@@ -434,6 +444,20 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     const body = await readJson<FocusRequest>(req);
     if (!knownHandle(body.terminalHandle)) return json(res, 404, { error: 'unknown terminal' });
     await backend.focus(body.terminalHandle);
+    return json(res, 200, { ok: true });
+  }
+
+  if (pathname === '/api/repos') {
+    const body = await readJson<{ path?: string }>(req);
+    if (!backend.capabilities.repos) return json(res, 400, { error: '이 백엔드에서는 여기서 프로젝트를 추가할 수 없어요' });
+    if (typeof body.path !== 'string' || !body.path.trim() || body.path.length > 1000) return json(res, 400, { error: '저장소 경로를 입력해 주세요' });
+    try {
+      await backend.addRepo(body.path.trim());
+    } catch (err) {
+      if (err instanceof BackendError) return json(res, 400, { error: err.message, code: err.code });
+      throw err;
+    }
+    void poller.refresh();
     return json(res, 200, { ok: true });
   }
 
@@ -477,6 +501,19 @@ const server = createServer((req, res) => {
   try {
     if (!isAllowedRequest(req.headers, allowedPorts)) return json(res, 403, { error: 'forbidden origin' });
     const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`);
+    if (req.method === 'POST' && url.pathname.startsWith('/hook/')) {
+      // Agent hooks from our own spawned agents (bridge/hook-relay.mjs); the per-agent token is the key.
+      readJson<unknown>(req, 2 * 1024 * 1024)
+        .then((payload) => {
+          const ok = backend.hook(decodeURIComponent(url.pathname.slice('/hook/'.length)), url.searchParams.get('token') ?? '', payload);
+          if (ok) void poller.refresh();
+          res.writeHead(ok ? 204 : 404).end();
+        })
+        .catch(() => {
+          if (!res.headersSent) res.writeHead(400).end();
+        });
+      return;
+    }
     if (url.pathname.startsWith('/api/')) {
       handleApi(req, res, url).catch((err: Error) => {
         const status = err instanceof SyntaxError || err instanceof UploadError ? 400 : (err as BackendError).code === 'terminal_not_writable' ? 409 : 502;
@@ -548,3 +585,13 @@ void cleanOldUploads();
 server.listen(PORT, HOST, () => {
   console.log(`[office-desks] bridge on http://${HOST}:${PORT} (${DEMO ? 'DEMO data' : backend.name === 'orca' ? `orca backend, orca cli: ${resolveOrcaCommand()}` : `${backend.name} backend`})`);
 });
+
+// Native agents live in this process: stop them with it.
+let stopping = false;
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => {
+    if (stopping) return;
+    stopping = true;
+    void backend.dispose().finally(() => process.exit(0));
+  });
+}

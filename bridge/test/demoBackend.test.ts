@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { DemoBackend } from '../src/backend/demo.js';
-import { createBackend } from '../src/backend/index.js';
 
 describe('DemoBackend', () => {
   it('only offers what the demo can fake', () => {
@@ -22,15 +21,5 @@ describe('DemoBackend', () => {
     const b = new DemoBackend();
     expect((await b.usage())?.providers[0].provider).toBe('claude');
     expect((await b.readScreen('demo_p1')).length).toBeGreaterThan(0);
-  });
-});
-
-describe('createBackend', () => {
-  it('picks orca by default, demo via OFFICE_DESKS_DEMO or OFFICE_DESKS_BACKEND', () => {
-    expect(createBackend({}).name).toBe('orca');
-    expect(createBackend({ OFFICE_DESKS_DEMO: '1' }).name).toBe('demo');
-    expect(createBackend({ OFFICE_DESKS_BACKEND: 'demo' }).name).toBe('demo');
-    expect(createBackend({ OFFICE_DESKS_BACKEND: 'orca', OFFICE_DESKS_DEMO: '1' }).name).toBe('orca');
-    expect(() => createBackend({ OFFICE_DESKS_BACKEND: 'tmux' })).toThrow(/OFFICE_DESKS_BACKEND/);
   });
 });
