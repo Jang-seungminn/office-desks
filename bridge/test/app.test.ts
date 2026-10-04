@@ -38,7 +38,7 @@ function setup(desks: unknown[] = [{ id: 'r1::/w/app', repoId: 'r1', repo: 'app'
     snap = s;
     listeners.forEach((fn) => fn());
   };
-  return { app, out, calls, hostWrites, setSnap, host: deps.host };
+  return { app, out, calls, hostWrites, setSnap, host: deps.host, deps, input };
 }
 
 describe('App', () => {
@@ -119,17 +119,24 @@ describe('App controller additions', () => {
     { id: 'd2', repoId: 'r1', repo: 'app', name: 'b', branch: 'main', agents: [{ id: 'a2', agentType: 'claude', state: 'done', activity: 'y', terminalHandle: 'p2' }] },
   ];
 
-  it('joins an escape sequence split across chunks', async () => {
+  const selectedLine = (text: string) => strip(text).split('\n').flatMap((l) => l.split('\r')).filter((l) => l.includes('▸')).pop() ?? '';
+
+  it('joins an escape sequence split across chunks (lone ESC, then [B)', async () => {
     const { app, out } = setup(two);
     await app.handle('\x1b');
     await app.handle('[B');
-    await app.handle('\x1b[');
-    await app.handle('Bx');
-    await wait(80);
     out.text = '';
-    await app.handle('\r');
-    // second row (a2) has no terminal in setup(): the notice proves it was selected
-    expect(strip(out.text)).toContain('에이전트가 이미 종료됐어요');
+    await app.handle('x');
+    expect(selectedLine(out.text)).toMatch(/▸ b\b/);
+  });
+
+  it('joins an escape sequence split across chunks (ESC [, then B)', async () => {
+    const { app, out } = setup(two);
+    await app.handle('\x1b[');
+    await app.handle('B');
+    out.text = '';
+    await app.handle('x');
+    expect(selectedLine(out.text)).toMatch(/▸ b\b/);
   });
 
   it('delivers a lone ESC as escape after a short wait', async () => {
@@ -156,5 +163,95 @@ describe('App controller additions', () => {
     expect(strip(out.text)).toContain('에이전트가 종료됐어요');
     await app.handle('p');
     expect(strip(out.text)).toContain('git 저장소 경로');
+  });
+
+  const agentDesk = (id: string, name: string, agentId: string) => ({ id, repoId: 'r1', repo: 'app', name, branch: 'main', agents: [{ id: agentId, agentType: 'claude', state: 'done', activity: name, terminalHandle: 'p' }] });
+  const snapOf = (desks: unknown[]) => ({ desks, updatedAt: 0, error: null }) as unknown as OfficeSnapshot;
+
+  it('serializes input chunks while a hire is in flight', async () => {
+    const { app, calls, deps, input } = setup();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    deps.hire = async (spec) => (calls.push(['hire', spec]), await gate, {});
+    let onData!: (d: string) => void;
+    (input as { on: unknown }).on = (_e: string, fn: (d: string) => void) => (onData = fn);
+    app.start();
+    onData('n');
+    onData('fix-a\r\r\r');
+    onData('p');
+    onData('/x\r');
+    await wait(20);
+    expect(calls.map((c) => (c as unknown[])[0])).toEqual(['hire']);
+    release();
+    await wait(20);
+    expect(calls.map((c) => (c as unknown[])[0])).toEqual(['hire', 'addRepo']);
+  });
+
+  it('writes nothing after quit, even when a hire resolves later', async () => {
+    const { app, out, deps } = setup();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    deps.hire = async () => (await gate, {});
+    const pending = app.handle('a\r\r');
+    await wait(5);
+    void pending;
+    await app.handle('q');
+    await app.handle('y');
+    await wait(5);
+    const before = out.text;
+    release();
+    await wait(20);
+    expect(out.text).toBe(before);
+  });
+
+  it('keeps the same agent selected after returning from attach', async () => {
+    const { app, out, setSnap } = setup([agentDesk('d1', 'zeta', 'a1')]);
+    await app.handle('\r');
+    setSnap(snapOf([agentDesk('d0', 'alpha', 'a0'), agentDesk('d1', 'zeta', 'a1')]));
+    out.text = '';
+    await app.handle('\x1d');
+    expect(selectedLine(out.text)).toMatch(/▸ zeta\b/);
+  });
+
+  it('keeps the selection on the same agent across a lobby snapshot update', async () => {
+    const { app, out, setSnap } = setup(two);
+    await app.handle('j');
+    setSnap(snapOf([agentDesk('d0', 'alpha', 'a0'), ...(two as never[])]));
+    expect(selectedLine(out.text)).toMatch(/▸ b\b/);
+  });
+
+  it('does not draw the lobby on a snapshot update while attached', async () => {
+    const { app, out, setSnap } = setup();
+    await app.handle('\r');
+    out.text = '';
+    setSnap(snapOf([agentDesk('d9', 'zzz', 'a9')]));
+    expect(strip(out.text)).not.toContain('Enter 붙기');
+  });
+
+  it('adds an agent to the selected worktree', async () => {
+    const { app, out, calls } = setup();
+    await app.handle('a');
+    await app.handle('\r');
+    await app.handle('hello\r');
+    expect(calls).toContainEqual(['hire', { kind: 'agent', deskId: 'r1::/w/app', agent: 'claude', prompt: 'hello' }]);
+    expect(strip(out.text)).toContain('에이전트를 띄웠어요');
+  });
+
+  it('treats Ctrl+C in the lobby like q', async () => {
+    const { app, out } = setup();
+    await app.handle('\x03');
+    expect(strip(out.text)).toContain('에이전트 1개가 함께 종료됩니다');
+    const empty = setup([]);
+    let quit = false;
+    void empty.app.done.then(() => (quit = true));
+    await empty.app.handle('\x03');
+    await wait(0);
+    expect(quit).toBe(true);
+  });
+
+  it('forwards the rest of the chunk after Enter to the agent', async () => {
+    const { app, hostWrites } = setup();
+    await app.handle('\rhi');
+    expect(hostWrites).toEqual(['hi']);
   });
 });
