@@ -31,4 +31,16 @@ describe('selection', () => {
     expect(topLine(t, 2)).toBe(3);
     expect(topLine(t, 99)).toBe(0);
   });
+
+  it('drops the filler cell left by a wide char that wrapped', async () => {
+    const t = new Terminal({ cols: 10, rows: 5, allowProposedApi: true });
+    await write(t, 'abcdefghi한글');
+    expect(selectionText(t, sel([0, 0], [1, 3]))).toBe('abcdefghi한글');
+  });
+
+  it('snaps a start on a continuation cell back to the wide char', async () => {
+    const t = new Terminal({ cols: 10, rows: 5, allowProposedApi: true });
+    await write(t, 'a한b');
+    expect(selectionText(t, sel([0, 2], [0, 3]))).toBe('한b');
+  });
 });

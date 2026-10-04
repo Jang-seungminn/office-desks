@@ -88,4 +88,19 @@ describe('PaneSet', () => {
     p.show('a', 4); // no change
     expect(p.scroll[1]).toBe(5);
   });
+
+  it('focusNext with no visible panes is a no-op', () => {
+    const p = new PaneSet(1);
+    p.focusNext(1, 0);
+    expect(p.focused).toBe(0);
+  });
+
+  it('show(null) clears the focused pane', () => {
+    const p = new PaneSet(2);
+    p.show('a', 2);
+    p.scroll[0] = 4;
+    p.show(null, 2);
+    expect(p.agents).toEqual([null, null, null, null]);
+    expect(p.scroll[0]).toBe(0);
+  });
 });

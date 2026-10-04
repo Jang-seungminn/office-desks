@@ -36,7 +36,13 @@ export interface TextBufferLike {
   cols: number;
   buffer: {
     active: {
-      getLine(y: number): { isWrapped: boolean; translateToString(trim?: boolean, start?: number, end?: number): string } | undefined;
+      getLine(y: number):
+        | {
+            isWrapped: boolean;
+            translateToString(trim?: boolean, start?: number, end?: number): string;
+            getCell(x: number): { getWidth(): number; getChars(): string } | undefined;
+          }
+        | undefined;
     };
   };
 }
@@ -47,12 +53,18 @@ export function selectionText(t: TextBufferLike, s: Selection): string {
   for (let y = a.line; y <= b.line; y++) {
     const line = t.buffer.active.getLine(y);
     if (!line) continue;
-    const start = y === a.line ? a.col : 0;
+    let start = y === a.line ? a.col : 0;
+    // A start on a wide char's continuation cell snaps back to the char itself.
+    if (start > 0 && line.getCell(start)?.getWidth() === 0) start--;
     const end = y === b.line ? b.col + 1 : t.cols;
     // Untrimmed, so a wrapped line's trailing cells survive the join; trimmed once at the end.
     const piece = line.translateToString(false, start, end);
-    if (y > a.line && line.isWrapped && out.length) out[out.length - 1] += piece;
-    else out.push(piece);
+    if (y > a.line && line.isWrapped && out.length) {
+      // A wide char that didn't fit leaves a blank filler cell at the end of the previous row.
+      const prev = t.buffer.active.getLine(y - 1);
+      const filler = line.getCell(0)?.getWidth() === 2 && prev?.getCell(t.cols - 1)?.getChars() === '';
+      out[out.length - 1] = (filler ? out[out.length - 1].slice(0, -1) : out[out.length - 1]) + piece;
+    } else out.push(piece);
   }
   return out.map((l) => l.replace(/\s+$/, '')).join('\n');
 }

@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { clipboardCommand, copyText, encodeForClipboard } from '../src/tui/clipboard.js';
+import { clipboardCommand, copyText, encodeForClipboard, spawnRunner } from '../src/tui/clipboard.js';
 
 const only = (...cmds: string[]) => (c: string) => cmds.includes(c);
 
@@ -65,5 +65,25 @@ describe('copyText', () => {
   it('rejects when nothing works and there is no OSC writer', async () => {
     const run = vi.fn().mockRejectedValue(new Error('x'));
     await expect(copyText('a', { platform: 'darwin', env: {}, run, has: () => true })).rejects.toThrow('복사하지 못했어요');
+  });
+});
+
+describe('hardening', () => {
+  it('kills a child that never exits and rejects', async () => {
+    const run = spawnRunner(150);
+    await expect(run(process.execPath, ['-e', 'setInterval(()=>{},1000)'], Buffer.from('x'))).rejects.toThrow('timed out');
+  });
+
+  it('turns a throwing writeOsc into the Korean error', async () => {
+    const writeOsc = () => {
+      throw new Error('EPIPE');
+    };
+    await expect(copyText('a', { platform: 'linux', env: {}, has: () => false, writeOsc })).rejects.toThrow('복사하지 못했어요');
+  });
+
+  it('refuses OSC 52 payloads over ~100 KB of base64', async () => {
+    const writeOsc = vi.fn();
+    await expect(copyText('a'.repeat(80_000), { platform: 'linux', env: {}, has: () => false, writeOsc })).rejects.toThrow('복사하지 못했어요');
+    expect(writeOsc).not.toHaveBeenCalled();
   });
 });

@@ -32,6 +32,7 @@ export class PaneSet {
   }
 
   focusNext(dir: 1 | -1, visible: number): void {
+    if (visible <= 0) return;
     this.focused = (this.focused + dir + visible) % visible;
   }
 
