@@ -5,7 +5,7 @@ import type { LobbyRow } from './lobby.js';
 import { Form } from './prompt.js';
 
 // What the list's forms and confirmations do: the questions they ask and the backend calls they
-// make. Each returns the notice to show; a thrown error becomes a ⚠️ notice in the App.
+// make. Each returns the notice to show; a thrown error becomes a '⚠ ' notice in the App.
 
 export type FormKind = 'repo' | 'agent' | 'work';
 export type ConfirmKind = 'quit' | 'stop' | 'remove';

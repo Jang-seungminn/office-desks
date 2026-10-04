@@ -93,7 +93,7 @@ async function setup(desks: unknown[] = TWO, agentText: Record<string, string> =
     await put(real, '');
     return Array.from({ length: real.rows }, (_, y) => real.buffer.active.getLine(y)!.translateToString(true));
   };
-  // Spaces collapsed: xterm draws ⚠️ one column wide where we count two, which shifts the rest.
+  // Spaces collapsed, so assertions don't depend on padding.
   const text = async () => (await screen()).join('\n').replace(/ +/g, ' ');
   const selectedLine = async () => (await screen()).find((l) => l.includes('▸')) ?? '';
   const emit = async (pty: string, s: string) => {
@@ -274,12 +274,24 @@ describe('App: sidebar and live panel', () => {
       throw new BackendError('에이전트가 실행 중인 워크트리는 지울 수 없어요 (x로 먼저 종료)', 'has_agents');
     };
     await app.handle('dy');
-    expect(await text()).toContain('⚠️ 에이전트가 실행 중인 워크트리는');
+    expect(await text()).toContain('⚠ 에이전트가 실행 중인 워크트리는');
     deps.removeWorktree = async () => {
       throw new BackendError('메인 체크아웃은 지울 수 없어요', 'main_checkout');
     };
     await app.handle('dy');
     expect(await text()).toContain('메인 체크아웃은 지울 수 없어요');
+  });
+
+  it('draws an error notice exactly as composed: no stray double space after the warning sign', async () => {
+    const { app, deps, screen } = await setup([...TWO, emptyDesk('d3', 'c')]);
+    deps.removeWorktree = async () => {
+      throw new BackendError('변경사항이 있는 워크트리는 지울 수 없어요', 'dirty');
+    };
+    await app.handle('jj');
+    await app.handle('d');
+    await app.handle('y');
+    const help = (await screen()).at(-1)!.trimEnd();
+    expect(help).toBe(' ⚠ 변경사항이 있는 워크트리는 지울 수 없어요');
   });
 
   it('resizes the agents to the new panel and repaints in full on a terminal resize', async () => {
@@ -373,7 +385,7 @@ describe('App: forms, confirmations and input handling kept from M3', () => {
     expect(await text()).toContain('프로젝트를 추가했어요');
     await app.handle('p');
     await app.handle('/nope\r');
-    expect(await text()).toContain('⚠️ git 저장소가 아니에요: /nope');
+    expect(await text()).toContain('⚠ git 저장소가 아니에요: /nope');
   });
 
   it('starts new work through validateHire and shows a hire warning', async () => {
@@ -391,7 +403,7 @@ describe('App: forms, confirmations and input handling kept from M3', () => {
     await app.handle('n');
     await app.handle('bad name\r\r\r');
     expect(calls).toEqual([]);
-    expect(await text()).toContain('⚠️');
+    expect(await text()).toContain('⚠');
   });
 
   it('adds an agent to the selected worktree', async () => {

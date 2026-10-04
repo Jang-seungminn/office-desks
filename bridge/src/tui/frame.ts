@@ -39,12 +39,7 @@ export function fillRect(f: Frame, r: Rect, cell: Cell = BLANK): void {
 export function putText(f: Frame, row: number, col: number, text: string, st: Style, width: number): void {
   const chars: [string, number][] = [];
   for (const ch of clean(text)) {
-    const cp = ch.codePointAt(0)!;
-    if (cp === 0xfe0f && chars.length) {
-      chars[chars.length - 1] = [chars[chars.length - 1][0] + ch, 2];
-      continue;
-    }
-    const w = charWidth(cp);
+    const w = charWidth(ch.codePointAt(0)!);
     if (w > 0) chars.push([ch, w]);
   }
   const total = chars.reduce((s, [, w]) => s + w, 0);
@@ -78,7 +73,8 @@ export function diff(prev: Frame | null, next: Frame): string {
       if (next.get(y, start).width === 0 && start > 0) start--;
       out += `\x1b[${y + 1};${start + 1}H`;
       let c = start;
-      while (c < next.cols && (full || !same(prev!.get(y, c), next.get(y, c)) || next.get(y, c).width === 0)) {
+      // The first cell always (it may be an unchanged head whose trailing half changed).
+      while (c < next.cols && (c === start || full || !same(prev!.get(y, c), next.get(y, c)) || next.get(y, c).width === 0)) {
         const cell = next.get(y, c);
         if (cell.width !== 0) {
           if (!current || !sameStyle(current, cell.style)) {

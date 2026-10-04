@@ -70,7 +70,11 @@ describe('PtyHost', () => {
     expect(host.ids()).toEqual(['t1']);
     const t = host.terminal('t1')!;
     expect(t.cols).toBe(120);
-    expect(t.buffer.active.getLine(0)!.getCell(0)!.getChars()).toBe('r');
+    // ConPTY may start with a blank line or a clear: find the row rather than assume row 0.
+    const y = host.screenLines('t1').findIndex((l) => l.includes('ready'));
+    const x = host.screenLines('t1')[y].indexOf('ready');
+    const buf = t.buffer.active;
+    expect(buf.getLine(buf.viewportY + y)!.getCell(x)!.getChars()).toBe('r');
     host.resize('t1', 120, 40); // same size: no-op (no throw, no reflow)
     expect(host.size('t1')).toEqual({ cols: 120, rows: 40 });
     expect(host.terminal('nope')).toBeNull();

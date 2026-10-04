@@ -2,6 +2,7 @@ import { accessSync, chmodSync, constants, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import serializeAddon from '@xterm/addon-serialize';
+import unicode11Addon from '@xterm/addon-unicode11';
 import xtermHeadless from '@xterm/headless';
 import * as pty from 'node-pty';
 import { BackendError } from '../backend/types.js';
@@ -10,11 +11,24 @@ import { resolveWindowsCommand, unsafeForCmdShim } from '../orcaCli.js';
 
 const { Terminal } = xtermHeadless;
 const { SerializeAddon } = serializeAddon;
+const { Unicode11Addon } = unicode11Addon;
 type HeadlessTerminal = InstanceType<typeof Terminal>;
 
 const COLS = 120;
 const ROWS = 40;
 const GONE = '이 에이전트 터미널은 이미 종료됐어요';
+
+/**
+ * The headless screen an agent's output is parsed into. Unicode 11 widths, as real terminals and
+ * the agents themselves use: with xterm's default (Unicode 6) ✅ or 🚀 take one column, and every
+ * cell after them would land one column left of where the agent put it.
+ */
+export function agentTerminal(cols: number, rows: number): HeadlessTerminal {
+  const term = new Terminal({ cols, rows, allowProposedApi: true });
+  term.loadAddon(new Unicode11Addon());
+  term.unicode.activeVersion = '11';
+  return term;
+}
 
 /**
  * node-pty's prebuilt spawn-helper can arrive without its execute bit (npm 11 skips install
@@ -92,7 +106,7 @@ export class PtyHost {
     const cols = opts.cols ?? COLS;
     const rows = opts.rows ?? ROWS;
     const { file, args } = resolveSpawn(opts.file, opts.args);
-    const term = new Terminal({ cols, rows, allowProposedApi: true });
+    const term = agentTerminal(cols, rows);
     const proc = pty.spawn(file, args, { name: 'xterm-256color', cols, rows, cwd: opts.cwd, env: opts.env });
     const serializer = new SerializeAddon();
     term.loadAddon(serializer);

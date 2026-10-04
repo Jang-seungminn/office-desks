@@ -1,5 +1,8 @@
+import unicode11 from '@xterm/addon-unicode11';
 import { Terminal } from '@xterm/headless';
 import { describe, expect, it } from 'vitest';
+import { agentTerminal } from '../src/native/ptyHost.js';
+import { cellFromXterm } from '../src/tui/cells.js';
 import { diff, Frame } from '../src/tui/frame.js';
 import { drawPanel, maxScroll } from '../src/tui/panel.js';
 
@@ -38,5 +41,24 @@ describe('drawPanel', () => {
     drawPanel(f, { row: 0, col: 0, rows: 4, cols: 6 }, agent, 0);
     expect(Array.from({ length: 6 }, (_, x) => f.get(0, x).ch).join('')).toBe('abcdef');
     expect(f.get(3, 0).ch).toBe(' ');
+  });
+});
+
+describe('drawPanel with emoji', () => {
+  it('keeps cells in place after an emoji, as a real (Unicode 11) terminal draws them', async () => {
+    const agent = agentTerminal(20, 2);
+    await write(agent, 'ok ✅ done\x1b[1;14HX🚀y');
+    const at = (y: number, x: number) => cellFromXterm(agent.buffer.active.getLine(y)!.getCell(x)!);
+    expect(at(0, 3)).toMatchObject({ ch: '✅', width: 2 });
+    const f = new Frame(20, 2);
+    drawPanel(f, { row: 0, col: 0, rows: 2, cols: 20 }, agent, 0);
+    const real = new Terminal({ cols: 20, rows: 2, allowProposedApi: true });
+    real.loadAddon(new unicode11.Unicode11Addon());
+    real.unicode.activeVersion = '11';
+    await write(real, diff(null, f));
+    for (let x = 0; x < 20; x++) {
+      expect(cellFromXterm(real.buffer.active.getLine(0)!.getCell(x)!), `col ${x}`).toEqual(at(0, x));
+    }
+    expect(row(real, 0, 0, 20).trimEnd()).toBe('ok ✅ done   X🚀y');
   });
 });

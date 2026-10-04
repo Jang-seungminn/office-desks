@@ -249,7 +249,7 @@ export class App {
       this.notice = await run();
       void this.deps.refresh().catch(() => {});
     } catch (e) {
-      this.notice = '⚠️ ' + (e instanceof Error ? e.message : String(e));
+      this.notice = '⚠ ' + (e instanceof Error ? e.message : String(e));
     }
   }
 
