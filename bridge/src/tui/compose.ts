@@ -70,16 +70,16 @@ export function compose(v: View, cols: number, rows: number): { frame: Frame; cu
     headText = `${sel.repo}/${sel.desk} · ${sel.agentType ?? '?'}`;
     if (v.scroll > 0) headText += ' · ↑ 기록 보는 중';
   }
-  putText(frame, L.panelHead.row, L.panelHead.col, ` ${headText}`, head(!listFocus), L.panelHead.cols);
+  putText(frame, L.panes[0].head.row, L.panes[0].head.col, ` ${headText}`, head(!listFocus), L.panes[0].head.cols);
 
   let cursor: Cursor | null = null;
   if (sel?.agentId && v.agent) {
-    const c = drawPanel(frame, L.panel, v.agent, v.scroll);
+    const c = drawPanel(frame, L.panes[0].body, v.agent, v.scroll);
     if (!listFocus && v.scroll === 0 && c) cursor = v.agentCursorHidden ? { ...c, hidden: true } : c;
   } else {
-    fillRect(frame, L.panel);
+    fillRect(frame, L.panes[0].body);
     const hint = !v.rows.length ? 'p로 프로젝트를 추가하세요' : sel?.agentId ? '종료됨' : '에이전트가 없어요 — a로 띄우기';
-    centered(frame, L.panel, hint, DIM);
+    centered(frame, L.panes[0].body, hint, DIM);
   }
 
   putText(frame, L.help.row, L.help.col, v.help, style({}), L.help.cols);

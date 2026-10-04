@@ -301,7 +301,7 @@ export class App {
     const term = this.shownTerminal();
     if (!L || !term) return;
     this.seenBase = term.buffer.active.baseY;
-    this.scroll = Math.max(0, Math.min(maxScroll(term), this.scroll + dir * (L.panel.rows - 1)));
+    this.scroll = Math.max(0, Math.min(maxScroll(term), this.scroll + dir * (L.panes[0].body.rows - 1)));
   }
 
   private focusPanel(row: LobbyRow | undefined): void {
@@ -394,7 +394,7 @@ export class App {
   /** Every agent PTY at the panel's size, so switching agents never needs a resize. */
   private fitAgents(): void {
     const L = layout(this.out.columns, this.out.rows);
-    if (L) this.deps.resizeAgents(L.panel.cols, L.panel.rows);
+    if (L) this.deps.resizeAgents(L.panes[0].body.cols, L.panes[0].body.rows);
   }
 
   /** Follow the selected row's agent: its output (only) schedules renders. True when it changed. */

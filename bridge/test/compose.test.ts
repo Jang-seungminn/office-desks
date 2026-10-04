@@ -28,24 +28,24 @@ describe('compose', () => {
     expect(text(frame, 0)).toContain('Office Desks');
     expect(text(frame, 0)).toContain('http://x:1');
     expect(text(frame, 0)).toContain('✎ 1  ! 0');
-    expect(text(frame, 2, L.panel.col)).toContain('hello agent');
-    expect(text(frame, 1, L.panel.col)).toContain('proj/main · claude');
+    expect(text(frame, 2, L.panes[0].body.col)).toContain('hello agent');
+    expect(text(frame, 1, L.panes[0].body.col)).toContain('proj/main · claude');
     for (let y = 1; y <= 10; y++) expect(frame.get(y, L.sep.col).ch).toBe('│');
-    expect(cursor).toEqual({ row: L.panel.row + 1, col: L.panel.col + 6 });
+    expect(cursor).toEqual({ row: L.panes[0].body.row + 1, col: L.panes[0].body.col + 6 });
     expect(text(frame, 11)).toBe(' q 종료'.padEnd(80 - 2, ' ')); // 한글 is 4 cols for 2 chars
   });
 
   it('panel focus with the agent cursor hidden: still placed (IME), but marked hidden', async () => {
     const L = layout(80, 12)!;
     const { cursor } = compose(await view({ agentCursorHidden: true }), 80, 12);
-    expect(cursor).toEqual({ row: L.panel.row + 1, col: L.panel.col + 6, hidden: true });
+    expect(cursor).toEqual({ row: L.panes[0].body.row + 1, col: L.panes[0].body.col + 6, hidden: true });
   });
 
   it('list focus: no cursor, list head bold', async () => {
     const { frame, cursor } = compose(await view({ focus: 'list' }), 80, 12);
     expect(cursor).toBeNull();
     expect(frame.get(1, 1).style.bold).toBe(true);
-    expect(frame.get(1, layout(80, 12)!.panelHead.col).style.bold).toBe(false);
+    expect(frame.get(1, layout(80, 12)!.panes[0].head.col).style.bold).toBe(false);
   });
 
   it('help cursor when the list has focus', async () => {
@@ -56,15 +56,15 @@ describe('compose', () => {
   it('no agent: hint in the panel', async () => {
     const { frame } = compose(await view({ selected: 1, agent: null }), 80, 12);
     const L = layout(80, 12)!;
-    const all = Array.from({ length: L.panel.rows }, (_, i) => text(frame, L.panel.row + i, L.panel.col)).join('\n');
+    const all = Array.from({ length: L.panes[0].body.rows }, (_, i) => text(frame, L.panes[0].body.row + i, L.panes[0].body.col)).join('\n');
     expect(all).toContain('에이전트가 없어요 — a로 띄우기');
-    expect(text(frame, 1, L.panelHead.col)).toContain('(에이전트 없음)');
+    expect(text(frame, 1, L.panes[0].head.col)).toContain('(에이전트 없음)');
   });
 
   it('empty office: the panel hint points at p, not a', async () => {
     const { frame } = compose(await view({ rows: [], agent: null }), 80, 12);
     const L = layout(80, 12)!;
-    const all = Array.from({ length: L.panel.rows }, (_, i) => text(frame, L.panel.row + i, L.panel.col)).join('\n');
+    const all = Array.from({ length: L.panes[0].body.rows }, (_, i) => text(frame, L.panes[0].body.row + i, L.panes[0].body.col)).join('\n');
     expect(all).toContain('p로 프로젝트를 추가하세요');
     expect(all).not.toContain('a로 띄우기');
   });
@@ -72,13 +72,13 @@ describe('compose', () => {
   it('exited agent: row has agentId but no terminal', async () => {
     const { frame } = compose(await view({ agent: null }), 80, 12);
     const L = layout(80, 12)!;
-    const all = Array.from({ length: L.panel.rows }, (_, i) => text(frame, L.panel.row + i, L.panel.col)).join('\n');
+    const all = Array.from({ length: L.panes[0].body.rows }, (_, i) => text(frame, L.panes[0].body.row + i, L.panes[0].body.col)).join('\n');
     expect(all).toContain('종료됨');
   });
 
   it('scrolled back: head says so and no panel cursor', async () => {
     const { frame, cursor } = compose(await view({ scroll: 2 }), 80, 12);
-    expect(text(frame, 1, layout(80, 12)!.panelHead.col)).toContain('↑ 기록 보는 중');
+    expect(text(frame, 1, layout(80, 12)!.panes[0].head.col)).toContain('↑ 기록 보는 중');
     expect(cursor).toBeNull();
   });
 
