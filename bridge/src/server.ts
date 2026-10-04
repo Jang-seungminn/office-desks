@@ -11,13 +11,13 @@ import { loadOrg, orgFile, saveOrg, sanitizeOrg } from './org.js';
 import { AwardBook, awardsFile } from './awards.js';
 import { changeSummary, fileDiff } from './gitInfo.js';
 import { validateHire } from './hire.js';
-import { orcaHireArgs, OrcaBackend } from './backend/orca.js';
-import type { OfficeBackend } from './backend/types.js';
+import { OrcaBackend } from './backend/orca.js';
+import { BackendBusyError, type BackendError, type OfficeBackend } from './backend/types.js';
 import { charBytes, keyBytes } from './keys.js';
 import { answerQuestions, validateChoices } from './answer.js';
 import { composerState, screenSupport } from './screen.js';
 import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, WorktreeUpdate, HireRequest, SearchResult, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot, FileDiffResponse, OrgChart } from './model.js';
-import { createOrcaRunner, OrcaCliError, resolveOrcaCommand } from './orcaCli.js';
+import { createOrcaRunner, resolveOrcaCommand } from './orcaCli.js';
 import { OfficePoller } from './poller.js';
 import { isAllowedRequest, setSecurityHeaders } from './security.js';
 import { isLinkedImage, readLocalImage } from './localImage.js';
@@ -84,8 +84,7 @@ function knownHandle(handle: unknown): handle is string {
 }
 
 async function readScreen(handle: string): Promise<string[]> {
-  const r = (await orca(['terminal', 'read', '--terminal', handle, '--screen'])) as { terminal?: { tail?: string[] } };
-  return r?.terminal?.tail ?? [];
+  return backend.readScreen(handle);
 }
 
 function findAgent(agentId: string | null): { desk: OfficeDesk; agent: OfficeAgent } | null {
@@ -199,38 +198,23 @@ async function enrichFromTranscripts(desks: OfficeDesk[]): Promise<void> {
   );
 }
 
-/**
- * Orca refuses a prompt while the agent can't take one (mid-transition, dialog, …) and hands
- * back a request id; the exact same command plus that id may be retried later. Keep the
- * command server-side so the client only ever names the id.
- */
 /** Terminals currently being driven through a question dialog (one at a time each). */
 const answering = new Set<string>();
 
-const blockedPrompts = new Map<string, { args: string[]; at: number }>();
-const BLOCKED_TTL_MS = 10 * 60_000;
-
-async function deliver(res: ServerResponse, args: string[], retryOf?: string): Promise<void> {
+/** Submit a prompt; a busy agent becomes a 409 the panel can retry by request id. */
+async function deliver(res: ServerResponse, send: () => Promise<void>): Promise<void> {
   try {
-    const result = await orca(args);
-    if (retryOf) blockedPrompts.delete(retryOf);
-    void poller.refresh();
-    return json(res, 200, { ok: true, result });
+    await send();
   } catch (err) {
-    const e = err as OrcaCliError;
-    const requestId = /request ID:\s*([0-9a-f-]{8,64})/i.exec(e.message)?.[1] ?? retryOf;
-    if ((e.code === 'agent_prompt_blocked' || /agent_prompt_blocked/.test(e.message)) && requestId) {
-      const base = retryOf ? blockedPrompts.get(retryOf)?.args : args;
-      if (base) blockedPrompts.set(requestId, { args: base, at: Date.now() });
-      for (const [id, p] of blockedPrompts) if (Date.now() - p.at > BLOCKED_TTL_MS) blockedPrompts.delete(id);
-      return json(res, 409, {
-        code: 'agent_busy',
-        requestId,
-        error: '에이전트가 지금 새 메시지를 받을 수 없는 상태예요 (질문·권한 확인 중이거나 화면 전환 중). 잠시 후 다시 보내기를 눌러 주세요',
-      });
-    }
-    throw err;
+    if (!(err instanceof BackendBusyError)) throw err;
+    return json(res, 409, {
+      code: 'agent_busy',
+      requestId: err.requestId,
+      error: '에이전트가 지금 새 메시지를 받을 수 없는 상태예요 (질문·권한 확인 중이거나 화면 전환 중). 잠시 후 다시 보내기를 눌러 주세요',
+    });
   }
+  void poller.refresh();
+  return json(res, 200, { ok: true });
 }
 
 async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
@@ -292,15 +276,13 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     const q = (url.searchParams.get('q') ?? '').trim();
     if (!q || q.length > 200) return json(res, 400, { error: '검색어를 1~200자로 입력해 주세요' });
     if (DEMO) return json(res, 200, { results: [] });
-    const r = (await orca(['search', `--query=${q}`, '--scope=conversation', '--limit=30'])) as {
-      hits?: { agent?: string; title?: string; cwd?: string; updatedAt?: string; evidence?: { snippet?: string; role?: string }; source?: { filePath?: string }; resumeCommand?: string }[];
-    };
-    const results: SearchResult[] = (r?.hits ?? []).map((h) => {
+    const hits = await backend.searchConversations(q);
+    const results: SearchResult[] = hits.map((h) => {
       // Is this the session an agent in the office is running right now?
       let deskId: string | null = null;
       let agentId: string | null = null;
       for (const d of poller.current.desks) {
-        const a = d.agents.find((x) => h.source?.filePath && backend.cachedSession(x.id) === h.source.filePath);
+        const a = d.agents.find((x) => h.filePath && backend.cachedSession(x.id) === h.filePath);
         if (a) {
           deskId = d.id;
           agentId = a.id;
@@ -308,15 +290,15 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         }
       }
       return {
-        title: String(h.title ?? ''),
-        agent: String(h.agent ?? ''),
-        project: path.basename(h.cwd ?? ''),
-        updatedAt: h.updatedAt ?? null,
-        snippet: String(h.evidence?.snippet ?? ''),
-        role: h.evidence?.role ?? null,
+        title: h.title,
+        agent: h.agent,
+        project: path.basename(h.cwd),
+        updatedAt: h.updatedAt,
+        snippet: h.snippet,
+        role: h.role,
         deskId,
         agentId,
-        resumeCommand: agentId ? null : (h.resumeCommand ?? null),
+        resumeCommand: agentId ? null : h.resumeCommand,
       };
     });
     return json(res, 200, { results });
@@ -354,16 +336,15 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     // cmd.exe shims can't carry newlines in an argument on Windows; send those lines space-joined.
     const composed = composePrompt(text, imagePaths);
     const prompt = process.platform === 'win32' ? composed.replace(/\s*\r?\n\s*/g, ' ') : composed;
-    const args = ['terminal', 'send', '--terminal', body.terminalHandle, `--text=${prompt}`, '--enter'];
-    return deliver(res, args);
+    return deliver(res, () => backend.sendPrompt(body.terminalHandle, prompt));
   }
 
   if (pathname === '/api/send/retry') {
     // Re-issue a prompt Orca blocked, with its request id, so it can't be typed twice.
     const body = await readJson<{ requestId?: string }>(req);
-    const pending = typeof body.requestId === 'string' ? blockedPrompts.get(body.requestId) : undefined;
-    if (!pending || !knownHandle(pending.args[3])) return json(res, 404, { error: '다시 보낼 메시지를 찾지 못했습니다. 새로 보내주세요' });
-    return deliver(res, [...pending.args, `--retry-request=${body.requestId}`, '--wait-submit=10'], body.requestId);
+    const requestId = typeof body.requestId === 'string' ? body.requestId : '';
+    if (!knownHandle(backend.blockedHandle(requestId))) return json(res, 404, { error: '다시 보낼 메시지를 찾지 못했습니다. 새로 보내주세요' });
+    return deliver(res, () => backend.retryPrompt(requestId));
   }
 
   if (pathname === '/api/keys') {
@@ -371,8 +352,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     if (!knownHandle(body.terminalHandle)) return json(res, 404, { error: 'unknown terminal' });
     const bytes = body.char !== undefined ? charBytes(body.char) : keyBytes(body.key);
     if (!bytes) return json(res, 400, { error: 'unsupported key' });
-    // `--text=value` so text starting with `--` can never be parsed as another flag.
-    await orca(['terminal', 'send', '--terminal', body.terminalHandle, ...(body.key === 'enter' ? ['--enter'] : [`--text=${bytes}`])]);
+    await backend.sendKeys(body.terminalHandle, body.key === 'enter' ? { enter: true } : { bytes });
     void poller.refresh();
     return json(res, 200, { ok: true });
   }
@@ -396,7 +376,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         {
           readScreen: () => readScreen(handle),
           press: async (key) => {
-            await orca(['terminal', 'send', '--terminal', handle, ...(key === 'enter' ? ['--enter'] : [`--text=${keyBytes(key)}`])]);
+            await backend.sendKeys(handle, key === 'enter' ? { enter: true } : { bytes: keyBytes(key)! });
           },
           sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
         },
@@ -418,7 +398,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     const keys: TerminalKey[] = body.action === 'send-now' ? ['ctrl-enter'] : body.action === 'cancel' ? ['up', 'ctrl-u'] : [];
     if (!keys.length) return json(res, 400, { error: 'unknown action' });
     for (const key of keys) {
-      await orca(['terminal', 'send', '--terminal', body.terminalHandle, `--text=${keyBytes(key)}`]);
+      await backend.sendKeys(body.terminalHandle, { bytes: keyBytes(key)! });
       await new Promise((r) => setTimeout(r, 300));
     }
     void poller.refresh();
@@ -430,18 +410,8 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     if (DEMO) return json(res, 400, { error: '데모 모드에서는 만들 수 없어요' });
     const spec = validateHire(body, poller.current.desks);
     if ('error' in spec) return json(res, 400, { error: spec.error });
-    const result = (await orca(orcaHireArgs(spec))) as { terminal?: { handle?: string }; handle?: string };
-    if (spec.kind === 'agent' && spec.prompt) {
-      // The agent's TUI needs a moment; Orca can wait for it to be idle before we type.
-      const handle = result?.terminal?.handle ?? result?.handle;
-      if (handle) {
-        const wait = (await orca(['terminal', 'wait', `--terminal=${handle}`, '--for=tui-idle', '--timeout-ms=60000'])) as {
-          wait?: { satisfied?: boolean };
-        };
-        if (wait?.wait?.satisfied) await orca(['terminal', 'send', `--terminal=${handle}`, `--text=${spec.prompt}`, '--enter']);
-        else return json(res, 200, { ok: true, warning: '에이전트는 띄웠지만 준비가 늦어 첫 지시는 보내지 못했어요. 패널에서 보내 주세요' });
-      }
-    }
+    const result = await backend.hire(spec);
+    if (result.warning) return json(res, 200, { ok: true, warning: result.warning });
     void poller.refresh();
     return json(res, 200, { ok: true });
   }
@@ -450,19 +420,18 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     const body = await readJson<WorktreeUpdate>(req);
     const desk = poller.current.desks.find((d) => d.id === body.deskId);
     if (!desk || DEMO) return json(res, 404, { error: 'unknown worktree' });
-    const args = ['worktree', 'set', `--worktree=id:${desk.id}`];
+    const update: { workspaceStatus?: string; comment?: string } = {};
     if (body.workspaceStatus !== undefined) {
       if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(body.workspaceStatus)) return json(res, 400, { error: 'invalid status' });
-      args.push(`--workspace-status=${body.workspaceStatus}`);
+      update.workspaceStatus = body.workspaceStatus;
     }
     if (body.comment !== undefined) {
       const c = String(body.comment).replace(/\s+/g, ' ').trim();
       if (c.length > 200) return json(res, 400, { error: '코멘트는 200자까지 쓸 수 있어요' });
-      // Orca can't clear a comment; a single space is the closest (shown as empty everywhere).
-      args.push(`--comment=${c || ' '}`);
+      update.comment = c;
     }
-    if (args.length === 3) return json(res, 400, { error: 'nothing to change' });
-    await orca(args);
+    if (!Object.keys(update).length) return json(res, 400, { error: 'nothing to change' });
+    await backend.setBoard(desk.id, update);
     void poller.refresh();
     return json(res, 200, { ok: true });
   }
@@ -470,7 +439,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   if (pathname === '/api/focus') {
     const body = await readJson<FocusRequest>(req);
     if (!knownHandle(body.terminalHandle)) return json(res, 404, { error: 'unknown terminal' });
-    await orca(['terminal', 'switch', '--terminal', body.terminalHandle]);
+    await backend.focus(body.terminalHandle);
     return json(res, 200, { ok: true });
   }
 
@@ -517,7 +486,7 @@ const server = createServer((req, res) => {
     if (url.pathname.startsWith('/api/')) {
       handleApi(req, res, url).catch((err: Error) => {
         const status = err instanceof SyntaxError || err instanceof UploadError ? 400 : 502;
-        if (!res.headersSent) json(res, status, { error: err.message, code: (err as OrcaCliError).code });
+        if (!res.headersSent) json(res, status, { error: err.message, code: (err as BackendError).code });
       });
       return;
     }
