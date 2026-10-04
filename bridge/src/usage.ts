@@ -1,4 +1,3 @@
-import type { OrcaRunner } from './orcaCli.js';
 import type { UsageProvider, UsageSnapshot, UsageWindow } from './model.js';
 
 // Plan usage limits as Orca shows them in its status bar, from `orca account list`.
@@ -49,9 +48,4 @@ export function toUsage(rateLimits: Record<string, unknown> | undefined, now = D
     if (windows.length) providers.push({ provider: String(p.provider ?? key), windows });
   }
   return { providers, updatedAt: now };
-}
-
-export async function fetchUsage(orca: OrcaRunner): Promise<UsageSnapshot> {
-  const r = (await orca(['account', 'list'])) as { rateLimits?: Record<string, unknown> };
-  return toUsage(r?.rateLimits);
 }

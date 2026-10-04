@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import type { OfficeSnapshot } from '../src/model.js';
 import { OfficePoller } from '../src/poller.js';
+
+const office = (n: number): OfficeSnapshot => ({ desks: Array.from({ length: n }, (_, i) => ({ id: `d${i}`, agents: [] }) as never), updatedAt: Date.now(), error: null });
 
 describe('OfficePoller', () => {
   it('notifies only on change and keeps last desks on error', async () => {
     let fail = false;
-    const ps = { worktrees: [{ worktreeId: 'r::/a', displayName: 'a', agents: [] }] };
-    const poller = new OfficePoller(async (args) => {
+    const poller = new OfficePoller(async () => {
       if (fail) throw new Error('orca down');
-      return args[0] === 'worktree' ? ps : { terminals: [] };
+      return office(1);
     });
     const seen: string[] = [];
     poller.onChange((s) => seen.push(s.error ?? `desks:${s.desks.length}`));
@@ -21,36 +23,21 @@ describe('OfficePoller', () => {
     expect(seen).toEqual(['desks:1', 'orca down']);
     expect(poller.current.desks).toHaveLength(1);
   });
-});
 
-describe('OfficePoller CLI usage', () => {
-  it('lists terminals only when stale or when an unknown pane appears', async () => {
-    let now = 0;
-    const calls: string[] = [];
-    let panes = ['t1:l1'];
+  it('runs enrichment before change detection and shares an in-flight poll', async () => {
+    let polls = 0;
     const poller = new OfficePoller(
-      async (args) => {
-        calls.push(args.join(' '));
-        if (args[0] === 'worktree') return { worktrees: [{ worktreeId: 'r::/a', agents: panes.map((p) => ({ paneKey: p, state: 'working' })) }] };
-        return { terminals: panes.map((p) => ({ handle: `h-${p}`, tabId: p.split(':')[0], leafId: p.split(':')[1] })) };
+      async () => {
+        polls++;
+        return office(1);
       },
       1500,
-      undefined,
-      () => now,
+      async (s) => {
+        s.desks[0].name = 'enriched';
+      },
     );
-    await poller.refresh();
-    now = 1500;
-    await poller.refresh();
-    now = 3000;
-    await poller.refresh();
-    expect(calls.filter((c) => c === 'terminal list')).toHaveLength(1);
-    panes = ['t1:l1', 't2:l2']; // a new agent appears
-    now = 4500;
-    await poller.refresh();
-    expect(calls.filter((c) => c === 'terminal list')).toHaveLength(2);
-    expect(poller.current.desks[0].agents[1].terminalHandle).toBe('h-t2:l2');
-    now = 4500 + 16_000; // stale
-    await poller.refresh();
-    expect(calls.filter((c) => c === 'terminal list')).toHaveLength(3);
+    await Promise.all([poller.refresh(), poller.refresh()]);
+    expect(polls).toBe(1);
+    expect(poller.current.desks[0].name).toBe('enriched');
   });
 });

@@ -6,13 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { CommandCatalog } from './commands.js';
 import { createDemoAwards, createDemoRunner, demoEnrichment, demoOrg } from './demo.js';
-import { fetchUsage } from './usage.js';
 import { agentStats } from './stats.js';
 import { loadOrg, orgFile, saveOrg, sanitizeOrg } from './org.js';
 import { AwardBook, awardsFile } from './awards.js';
 import { changeSummary, fileDiff } from './gitInfo.js';
 import { validateHire } from './hire.js';
-import { orcaHireArgs } from './backend/orca.js';
+import { orcaHireArgs, OrcaBackend } from './backend/orca.js';
+import type { OfficeBackend } from './backend/types.js';
 import { charBytes, keyBytes } from './keys.js';
 import { answerQuestions, validateChoices } from './answer.js';
 import { composerState, screenSupport } from './screen.js';
@@ -21,7 +21,6 @@ import { createOrcaRunner, OrcaCliError, resolveOrcaCommand } from './orcaCli.js
 import { OfficePoller } from './poller.js';
 import { isAllowedRequest, setSecurityHeaders } from './security.js';
 import { isLinkedImage, readLocalImage } from './localImage.js';
-import { SessionResolver } from './sessionResolver.js';
 import { readTranscript } from './transcript.js';
 import { subagentFile, subagentIds, subagentInfos } from './subagents.js';
 import { cleanOldUploads, composePrompt, IMAGE_TYPES, saveImages, UploadError, uploadPath } from './uploads.js';
@@ -33,17 +32,17 @@ const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 
 const DEMO = Boolean(process.env.OFFICE_DESKS_DEMO);
 const orca = DEMO ? createDemoRunner() : createOrcaRunner();
-const commands = new CommandCatalog();
-const poller = new OfficePoller(orca, 1500, async (s) => {
-  await enrichFromTranscripts(s.desks);
-  updateAwards(s.desks);
-});
 // Only accept a session whose transcript actually contains what we searched for.
-const sessions = new SessionResolver(orca, async (filePath, key) => {
+const backend: OfficeBackend = new OrcaBackend(orca, async (filePath, key) => {
   const t = await readTranscript(filePath);
   if (key.title) return t.title?.toLowerCase() === key.title.toLowerCase() || t.messages.length > 0;
   const needle = key.phrase.slice(0, 40);
   return t.messages.some((m) => m.role !== 'tool' && m.text.replace(/\s+/g, ' ').includes(needle));
+});
+const commands = new CommandCatalog();
+const poller = new OfficePoller(() => backend.snapshot(), 1500, async (s) => {
+  await enrichFromTranscripts(s.desks);
+  updateAwards(s.desks);
 });
 
 const MIME: Record<string, string> = {
@@ -115,7 +114,7 @@ async function conversation(agentId: string | null, after: number, sub: string |
   const found = findAgent(agentId);
   if (!found) return empty('이 에이전트는 더 이상 사무실에 없습니다.');
   // The file path only ever comes from Orca's session index, never from the client.
-  const filePath = await sessions.resolve(found.desk, found.agent).catch(() => null);
+  const filePath = await backend.findSession(found.desk, found.agent).catch(() => null);
   if (!filePath) return empty('Orca 세션 검색에서 이 에이전트의 대화 기록을 찾지 못했습니다. (Orca Settings → Agent Session History가 켜져 있어야 합니다)');
   const main = await readTranscript(filePath);
   const subagents = subagentInfos(main.calls, await subagentIds(filePath));
@@ -186,8 +185,8 @@ async function enrichFromTranscripts(desks: OfficeDesk[]): Promise<void> {
         .filter((a) => a.agentType === 'claude' || a.agentType === 'codex')
         .map(async (agent) => {
           // Never block the office poll on a search: use what we know, refresh in the background.
-          void sessions.resolve(desk, agent).catch(() => null);
-          const filePath = sessions.cached(agent.id);
+          void backend.findSession(desk, agent).catch(() => null);
+          const filePath = backend.cachedSession(agent.id);
           if (!filePath) return;
           const t = await readTranscript(filePath).catch(() => null);
           if (!t) return;
@@ -255,7 +254,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     const agentId = url.searchParams.get('agentId');
     const desk = poller.current.desks.find((d) => d.agents.some((a) => a.id === agentId));
     const agent = desk?.agents.find((a) => a.id === agentId);
-    const filePath = desk && agent ? await sessions.resolve(desk, agent).catch(() => null) : null;
+    const filePath = desk && agent ? await backend.findSession(desk, agent).catch(() => null) : null;
     const img = filePath ? (await readTranscript(filePath)).images[Number(url.searchParams.get('i'))] : undefined;
     if (!img || !IMAGE_TYPES[img.mediaType]) return json(res, 404, { error: 'no such image' });
     return sendBinary(res, img.mediaType, Buffer.from(img.data, 'base64'));
@@ -265,7 +264,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     const found = findAgent(url.searchParams.get('agentId'));
     const want = url.searchParams.get('path') ?? '';
     if (!found || !path.isAbsolute(want)) return json(res, 404, { error: 'no such image' });
-    const filePath = await sessions.resolve(found.desk, found.agent).catch(() => null);
+    const filePath = await backend.findSession(found.desk, found.agent).catch(() => null);
     const t = filePath ? await readTranscript(filePath) : null;
     if (!t || !isLinkedImage(t.messages, want)) return json(res, 404, { error: 'image not referenced by this agent' });
     const image = readLocalImage(want);
@@ -301,7 +300,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       let deskId: string | null = null;
       let agentId: string | null = null;
       for (const d of poller.current.desks) {
-        const a = d.agents.find((x) => h.source?.filePath && sessions.cached(x.id) === h.source.filePath);
+        const a = d.agents.find((x) => h.source?.filePath && backend.cachedSession(x.id) === h.source.filePath);
         if (a) {
           deskId = d.id;
           agentId = a.id;
@@ -384,7 +383,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     const found = findAgent(body.agentId);
     const handle = found?.agent.terminalHandle;
     if (!found || !handle) return json(res, 404, { error: 'unknown agent' });
-    const filePath = await sessions.resolve(found.desk, found.agent).catch(() => null);
+    const filePath = await backend.findSession(found.desk, found.agent).catch(() => null);
     const ask = filePath ? (await readTranscript(filePath)).questions.find((q) => q.toolUseId === body.toolUseId) : undefined;
     if (!ask) return json(res, 404, { error: '질문을 찾지 못했습니다' });
     if (ask.status !== 'pending') return json(res, 409, { error: '이미 답했거나 취소된 질문입니다' });
@@ -563,7 +562,8 @@ void loadOrg(ORG_FILE).then((loaded) => {
 let usage: UsageSnapshot | null = null;
 async function refreshUsage(): Promise<void> {
   try {
-    const next = await fetchUsage(orca);
+    const next = await backend.usage();
+    if (!next) return;
     if (JSON.stringify(next.providers) === JSON.stringify(usage?.providers)) return;
     usage = next;
     for (const ws of wss.clients) if (ws.readyState === ws.OPEN) send(ws, { type: 'usage', usage });
