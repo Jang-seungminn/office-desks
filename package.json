@@ -22,6 +22,7 @@
   "files": [
     "bin",
     "bridge/dist",
+    "bridge/hook-relay.mjs",
     "web/dist",
     "README.md",
     "LICENSE"
