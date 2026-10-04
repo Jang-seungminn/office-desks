@@ -1,5 +1,8 @@
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { agentEnv } from '../src/native/env.js';
+import { agentEnv, findCommand } from '../src/native/env.js';
 
 describe('agentEnv', () => {
   it('drops Claude session markers and Orca variables but keeps user auth and config', () => {
@@ -42,5 +45,28 @@ describe('agentEnv', () => {
 
   it('keeps a CODEX_HOME the user chose', () => {
     expect(agentEnv({ CODEX_HOME: '/Users/me/.codex' }).CODEX_HOME).toBe('/Users/me/.codex');
+  });
+});
+
+describe('findCommand', () => {
+  it.skipIf(process.platform === 'win32')('finds an executable file on PATH, else null', () => {
+    const a = mkdtempSync(path.join(os.tmpdir(), 'od-which-'));
+    const b = mkdtempSync(path.join(os.tmpdir(), 'od-which-'));
+    writeFileSync(path.join(a, 'claude'), '#!/bin/sh\n');
+    chmodSync(path.join(a, 'claude'), 0o644); // not executable: skipped
+    writeFileSync(path.join(b, 'claude'), '#!/bin/sh\n');
+    chmodSync(path.join(b, 'claude'), 0o755);
+    mkdirSync(path.join(a, 'codex')); // a folder is not a command
+    const env = { PATH: [a, b].join(path.delimiter) };
+    expect(findCommand('claude', env)).toBe(path.join(b, 'claude'));
+    expect(findCommand('codex', env)).toBeNull();
+    expect(findCommand('gemini', env)).toBeNull();
+  });
+
+  it.runIf(process.platform === 'win32')('resolves a Windows command to an existing file', () => {
+    const a = mkdtempSync(path.join(os.tmpdir(), 'od-which-'));
+    writeFileSync(path.join(a, 'claude.cmd'), '@echo off\r\n');
+    expect(findCommand('claude', { PATH: a })).toBe(path.win32.join(a, 'claude.cmd'));
+    expect(findCommand('codex', { PATH: a })).toBeNull();
   });
 });

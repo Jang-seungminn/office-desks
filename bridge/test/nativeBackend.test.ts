@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -43,9 +43,13 @@ class FakePty implements PtyLike {
 const REPO = { id: 'abcdef123456', path: '/p/app', name: 'app' };
 const PORCELAIN = 'worktree /p/app\nHEAD a\nbranch refs/heads/main\n\nworktree /h/worktrees/app/feat\nHEAD b\nbranch refs/heads/feat\n\n';
 
-async function setup(git: (cwd: string, args: string[]) => Promise<string> = async () => PORCELAIN, pty: FakePty = new FakePty()) {
+async function setup(
+  git: (cwd: string, args: string[]) => Promise<string> = async () => PORCELAIN,
+  pty: FakePty = new FakePty(),
+  opts: { home?: string; which?: (cmd: string, env: Record<string, string>) => string | null } = {},
+) {
   const clock = { t: 1_000_000 };
-  const home = mkdtempSync(path.join(os.tmpdir(), 'od-native-'));
+  const home = opts.home ?? mkdtempSync(path.join(os.tmpdir(), 'od-native-'));
   const registry = new Registry(path.join(home, 'state.json'));
   await registry.load();
   await registry.addRepo(REPO);
@@ -57,6 +61,8 @@ async function setup(git: (cwd: string, args: string[]) => Promise<string> = asy
     hookUrl: (id, token) => `http://127.0.0.1:4317/hook/${id}?token=${token}`,
     git: async (cwd, args) => {
       gitCalls.push([cwd, ...args]);
+      // Like git, `worktree add` creates the folder.
+      if (args[0] === 'worktree' && args[1] === 'add') mkdirSync(args[4], { recursive: true });
       return git(cwd, args);
     },
     claudeProjects: path.join(home, 'claude-projects'),
@@ -65,6 +71,7 @@ async function setup(git: (cwd: string, args: string[]) => Promise<string> = asy
     node: '/n/node',
     sleep: async () => {},
     now: () => clock.t,
+    which: opts.which ?? ((cmd) => `/bin/${cmd}`),
   });
   return { backend, pty, registry, home, gitCalls, clock };
 }
@@ -104,15 +111,83 @@ describe('NativeBackend hire and hooks', () => {
     await backend.hire({ kind: 'worktree', repoId: 'abcdef123456', name: 'fix-login', agent: 'codex', baseBranch: 'origin/main', prompt: null });
     const dest = path.join(home, 'worktrees', 'app', 'fix-login');
     expect(gitCalls).toContainEqual(['/p/app', 'worktree', 'add', '-b', 'fix-login', dest, 'origin/main']);
-    expect(pty.spawned[0].opts).toMatchObject({ file: 'codex', args: [], cwd: dest });
+    // The agent runs in the real path, the one git lists (macOS tmp is /var → /private/var).
+    expect(pty.spawned[0].opts).toMatchObject({ file: 'codex', args: [], cwd: realpathSync.native(dest) });
+  });
+
+  it.skipIf(process.platform === 'win32')('puts the new agent on its desk when the office home is behind a symlink', async () => {
+    const real = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'od-real-')));
+    const link = path.join(mkdtempSync(path.join(os.tmpdir(), 'od-link-')), 'home');
+    symlinkSync(real, link);
+    const wt = `${real}/worktrees/app/fix-login`;
+    const porcelain = `worktree /p/app\nHEAD a\nbranch refs/heads/main\n\nworktree ${wt}\nHEAD b\nbranch refs/heads/fix-login\n\n`;
+    const { backend, pty } = await setup(async () => porcelain, undefined, { home: link });
+    await backend.hire({ kind: 'worktree', repoId: 'abcdef123456', name: 'fix-login', agent: 'claude', baseBranch: null, prompt: null });
+    expect(pty.spawned[0].opts.cwd).toBe(wt);
+    const desk = (await backend.snapshot()).desks.find((d) => d.id === `abcdef123456::${wt}`)!;
+    expect(desk.agents).toHaveLength(1);
+  });
+
+  it('refuses an agent command that is not installed, before creating anything', async () => {
+    const { backend, pty, gitCalls, home } = await setup(undefined, undefined, { which: () => null });
+    await expect(backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null })).rejects.toMatchObject({ code: 'agent_not_found' });
+    await expect(
+      backend.hire({ kind: 'worktree', repoId: 'abcdef123456', name: 'fix-login', agent: 'codex', baseBranch: null, prompt: null }),
+    ).rejects.toMatchObject({ code: 'agent_not_found', message: expect.stringContaining('codex') });
+    expect(gitCalls.some((c) => c[1] === 'worktree' && c[2] === 'add')).toBe(false);
+    expect(pty.spawned).toEqual([]);
+    expect((await backend.snapshot()).desks[1].agents).toEqual([]);
+    const dir = path.join(home, 'agents');
+    expect(existsSync(dir) ? readdirSync(dir) : []).toEqual([]);
+  });
+
+  it('looks the command up on the agent PATH', async () => {
+    const seen: [string, string | undefined][] = [];
+    const { backend } = await setup(undefined, undefined, {
+      which: (cmd, env) => {
+        seen.push([cmd, env.PATH]);
+        return `/bin/${cmd}`;
+      },
+    });
+    await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'gemini', prompt: null });
+    expect(seen).toEqual([['gemini', '/bin']]);
+  });
+
+  it('warns that only Claude gets the first prompt typed in', async () => {
+    const { backend, pty } = await setup();
+    expect(await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'codex', prompt: 'do it' })).toEqual({
+      warning: '첫 지시는 Claude에만 자동으로 전달돼요. 패널에서 보내 주세요',
+    });
+    expect(pty.spawned).toHaveLength(1);
+    expect(await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'codex', prompt: null })).toEqual({});
+    expect(await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: 'do it' })).toEqual({});
+  });
+
+  it('does not count the startup screen as waiting for the first 2 seconds, unless a hook arrived', async () => {
+    const { backend, pty, clock } = await setup();
+    await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null });
+    await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null });
+    const [a, b] = pty.spawned.map((s) => s.id);
+    pty.screens.set(a, TRUST);
+    pty.screens.set(b, TRUST);
+    backend.hook(`${b}:main`, tokenOf(pty, 1), { hook_event_name: 'SessionStart' }); // hook says done; the dialog on screen wins
+    const state = async (id: string) => (await backend.snapshot()).desks[1].agents.find((x) => x.id === `${id}:main`)!.rawState;
+    clock.t += 1999;
+    expect(await state(a)).toBe('unknown');
+    expect(await state(b)).toBe('waiting');
+    clock.t += 1;
+    expect(await state(a)).toBe('waiting');
   });
 
   it('delivers the pending first prompt once, on SessionStart, even after a trust dialog', async () => {
-    const { backend, pty } = await setup();
+    const ctx = await setup();
+    const { backend, pty } = ctx;
     await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: 'fix the login bug' });
     const id = pty.spawned[0].id;
     const agentId = `${id}:main`;
     pty.screens.set(id, TRUST);
+    const { clock } = ctx;
+    clock.t += 2000; // past the startup grace
     let s = await backend.snapshot();
     expect(s.desks[1].agents[0].state).toBe('waiting'); // the trust dialog needs the user
     expect(pty.writes).toEqual([]);
@@ -203,12 +278,19 @@ describe('NativeBackend input, board, sessions, repos', () => {
     expect(await backend.findSession(desk, agent)).toBe(byId);
     expect(backend.cachedSession(agentId)).toBe(byId);
 
+    // A hook path outside the projects folder, or for another session, is ignored.
+    backend.hook(agentId, tokenOf(pty), { hook_event_name: 'SessionStart', transcript_path: path.join(home, `${sid}.jsonl`) });
+    expect(backend.cachedSession(agentId)).toBe(byId);
+    backend.hook(agentId, tokenOf(pty), { hook_event_name: 'SessionStart', transcript_path: path.join(dir, 'other.jsonl') });
+    expect(backend.cachedSession(agentId)).toBe(byId);
+
     // A hook-supplied path is authoritative: no scan while it is missing.
-    const hookFile = path.join(home, 'hook-transcript.jsonl');
+    const hookFile = path.join(home, 'claude-projects', '-elsewhere', `${sid}.jsonl`);
     backend.hook(agentId, tokenOf(pty), { hook_event_name: 'SessionStart', transcript_path: hookFile });
     expect(backend.cachedSession(agentId)).toBeNull();
     clock.t += 5001;
     expect(backend.cachedSession(agentId)).toBeNull();
+    mkdirSync(path.dirname(hookFile), { recursive: true });
     writeFileSync(hookFile, '{}\n');
     expect(backend.cachedSession(agentId)).toBe(hookFile);
   });

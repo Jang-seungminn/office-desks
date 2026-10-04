@@ -1,11 +1,11 @@
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { runGit, type GitRunner } from '../gitInfo.js';
 import type { OfficeAgent, OfficeDesk, OfficeSnapshot, UsageSnapshot } from '../model.js';
-import { agentEnv } from '../native/env.js';
+import { agentEnv, findCommand } from '../native/env.js';
 import { applyHook, hookSettings, initialHookState, relayScript, type HookState } from '../native/hooks.js';
 import type { PtyHost } from '../native/ptyHost.js';
 import type { Registry } from '../native/registry.js';
@@ -37,6 +37,8 @@ export interface NativeDeps {
   relay?: string;
   node?: string;
   sleep?: (ms: number) => Promise<void>;
+  /** Where an agent command lives on the given PATH, or null when it isn't installed. */
+  which?: (cmd: string, env: Record<string, string>) => string | null;
 }
 
 interface Agent {
@@ -52,11 +54,17 @@ interface Agent {
   pending: string | null;
   transcript: string | null;
   lookedAt: number;
+  spawnedAt: number;
+  /** A valid hook arrived, so a dialog on screen is real (not the startup splash). */
+  hooked: boolean;
 }
 
 const WORKTREES_TTL_MS = 5000;
 const PASTE_SETTLE_MS = 400;
 const SESSION_RESCAN_MS = 5000;
+/** Claude's splash right after spawn looks like a menu; don't raise 🙋 for it. */
+const STARTUP_GRACE_MS = 2000;
+const PROMPT_NOT_SENT = '첫 지시는 Claude에만 자동으로 전달돼요. 패널에서 보내 주세요';
 
 const agentKey = (id: string) => `${id}:main`;
 /** Desk ids use forward slashes on every OS (git prints them that way on Windows too). */
@@ -139,7 +147,7 @@ export class NativeBackend implements OfficeBackend {
    */
   private rawState(a: Agent): string {
     const screen = composerState(this.deps.pty.screenLines(a.id), a.agentType);
-    if (screen === 'menu') return 'waiting';
+    if (screen === 'menu') return !a.hooked && this.now() - a.spawnedAt < STARTUP_GRACE_MS ? 'unknown' : 'waiting';
     if (a.hook.rawState === 'unknown') return screen === 'ready' || a.agentType !== 'claude' ? 'done' : 'unknown';
     return a.hook.rawState;
   }
@@ -182,6 +190,11 @@ export class NativeBackend implements OfficeBackend {
   async focus(): Promise<void> {}
 
   async hire(spec: HireSpec): Promise<HireResult> {
+    // Before any worktree exists: a missing command would otherwise leave an empty desk behind.
+    const env = agentEnv(this.deps.env ?? process.env);
+    if (!(this.deps.which ?? findCommand)(spec.agent, env)) {
+      throw new BackendError(`${spec.agent} 명령을 찾지 못했어요. 설치되어 있고 PATH에 있는지 확인해 주세요`, 'agent_not_found');
+    }
     let deskId: string;
     let cwd: string;
     if (spec.kind === 'agent') {
@@ -194,10 +207,12 @@ export class NativeBackend implements OfficeBackend {
       await mkdir(path.dirname(cwd), { recursive: true });
       await addWorktree(repo.path, cwd, spec.name, spec.baseBranch, this.git);
       this.worktrees.delete(repo.path);
+      // git lists the resolved path (symlinked home, macOS /var → /private/var); the desk id must match.
+      cwd = await realpath(cwd);
       deskId = `${repo.id}::${slash(cwd)}`;
     }
     await this.spawnAgent(deskId, cwd, spec.agent, spec.prompt);
-    return {};
+    return spec.prompt && spec.agent !== 'claude' ? { warning: PROMPT_NOT_SENT } : {};
   }
 
   private async spawnAgent(deskId: string, cwd: string, agentType: string, prompt: string | null): Promise<void> {
@@ -226,6 +241,8 @@ export class NativeBackend implements OfficeBackend {
       pending: agentType === 'claude' ? prompt : null,
       transcript: null,
       lookedAt: 0,
+      spawnedAt: this.now(),
+      hooked: false,
     });
     try {
       this.deps.pty.spawn(id, { file: agentType, args, cwd, env });
@@ -242,14 +259,27 @@ export class NativeBackend implements OfficeBackend {
     const want = Buffer.from(a.token);
     const got = Buffer.from(token);
     if (want.length !== got.length || !timingSafeEqual(want, got)) return false;
+    a.hooked = true;
     a.hook = applyHook(a.hook, payload as Record<string, unknown>, this.now());
-    if (a.hook.transcriptPath) a.transcript = a.hook.transcriptPath;
+    const p = a.hook.transcriptPath;
+    if (p && this.ownTranscript(a, p)) a.transcript = p;
     if (a.pending && a.hook.started) {
       const prompt = a.pending;
       a.pending = null;
       void this.paste(a.id, prompt).catch(() => undefined);
     }
     return true;
+  }
+
+  /** Only `<our session id>.jsonl` under Claude's projects folder; anything else falls back to the scan. */
+  private ownTranscript(a: Agent, p: string): boolean {
+    if (!a.sessionId || path.basename(p) !== `${a.sessionId}.jsonl`) return false;
+    const rel = path.relative(this.projectsRoot(), path.resolve(p));
+    return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+  }
+
+  private projectsRoot(): string {
+    return this.deps.claudeProjects ?? path.join(os.homedir(), '.claude', 'projects');
   }
 
   async setBoard(deskId: string, update: { workspaceStatus?: string; comment?: string }): Promise<void> {
@@ -268,7 +298,7 @@ export class NativeBackend implements OfficeBackend {
     if (a.transcript) return existsSync(a.transcript) ? a.transcript : null;
     if (this.now() - a.lookedAt < SESSION_RESCAN_MS && a.lookedAt) return null;
     a.lookedAt = this.now();
-    const root = this.deps.claudeProjects ?? path.join(os.homedir(), '.claude', 'projects');
+    const root = this.projectsRoot();
     try {
       for (const dir of readdirSync(root)) {
         const file = path.join(root, dir, `${a.sessionId}.jsonl`);

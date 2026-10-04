@@ -49,6 +49,9 @@ const poller = new OfficePoller(() => backend.snapshot(), 1500, async (s) => {
   updateAwards(s.desks);
 });
 
+/** Past NativeBackend's 2 s startup grace, in which a splash screen doesn't count as a dialog. */
+const HIRE_RECHECK_MS = 2500;
+
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -116,7 +119,7 @@ async function conversation(agentId: string | null, after: number, sub: string |
   });
   const found = findAgent(agentId);
   if (!found) return empty('이 에이전트는 더 이상 사무실에 없습니다.');
-  // The file path only ever comes from Orca's session index, never from the client.
+  // The file path comes from the backend (Orca's session index or the agent's own session id), never from the client.
   const filePath = await backend.findSession(found.desk, found.agent).catch(() => null);
   if (!filePath) return empty(backend.messages.noSession);
   const main = await readTranscript(filePath);
@@ -415,8 +418,10 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       if (err instanceof Error) return json(res, 400, { error: err.message });
       throw err;
     }
-    if (result.warning) return json(res, 200, { ok: true, warning: result.warning });
     void poller.refresh();
+    // Once more after the startup grace, so a trust dialog shows as waiting right away.
+    setTimeout(() => void poller.refresh(), HIRE_RECHECK_MS).unref();
+    if (result.warning) return json(res, 200, { ok: true, warning: result.warning });
     return json(res, 200, { ok: true });
   }
 
