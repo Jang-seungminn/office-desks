@@ -52,7 +52,7 @@ describe('OrcaBackend.snapshot', () => {
 describe('OrcaBackend input', () => {
   it('sends prompts, keys and focus with --flag=value text', async () => {
     const { orca, calls } = fake();
-    const b = new OrcaBackend(orca);
+    const b = new OrcaBackend(orca, undefined, Date.now, 'darwin');
     await b.sendPrompt('term_1', '--help\nme');
     await b.sendKeys('term_1', { bytes: '\x1b[A' });
     await b.sendKeys('term_1', { enter: true });
@@ -63,6 +63,12 @@ describe('OrcaBackend input', () => {
       ['terminal', 'send', '--terminal', 'term_1', '--enter'],
       ['terminal', 'switch', '--terminal', 'term_1'],
     ]);
+  });
+
+  it('joins prompt lines on Windows, where cmd.exe shims cannot carry newlines', async () => {
+    const { orca, calls } = fake();
+    await new OrcaBackend(orca, undefined, Date.now, 'win32').sendPrompt('term_1', 'a\n  b\r\nc');
+    expect(calls).toEqual([['terminal', 'send', '--terminal', 'term_1', '--text=a b c', '--enter']]);
   });
 
   it('reads the screen tail', async () => {
@@ -91,6 +97,13 @@ describe('OrcaBackend blocked prompts', () => {
       'terminal', 'send', '--terminal', 'term_1', '--text=hello', '--enter', '--retry-request=aaaaaaaa-1111', '--wait-submit=10',
     ]);
     expect(b.blockedHandle('aaaaaaaa-1111')).toBeNull();
+  });
+
+  it('matches a blocked prompt by message when the error code is generic', async () => {
+    const { orca } = fake(() => new OrcaCliError('agent_prompt_blocked: busy (request ID: cccccccc-3333)', 'orca_error'));
+    const err = await new OrcaBackend(orca).sendPrompt('term_1', 'hi').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BackendBusyError);
+    expect((err as BackendBusyError).requestId).toBe('cccccccc-3333');
   });
 
   it('chains a re-blocked retry to the original prompt', async () => {

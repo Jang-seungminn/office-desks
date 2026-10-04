@@ -329,9 +329,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     const text = typeof body.text === 'string' ? body.text : '';
     if (!text.trim() && !body.images?.length) return json(res, 400, { error: 'empty message' });
     const imagePaths = await saveImages(body.images);
-    // cmd.exe shims can't carry newlines in an argument on Windows; send those lines space-joined.
-    const composed = composePrompt(text, imagePaths);
-    const prompt = process.platform === 'win32' ? composed.replace(/\s*\r?\n\s*/g, ' ') : composed;
+    const prompt = composePrompt(text, imagePaths);
     return deliver(res, () => backend.sendPrompt(body.terminalHandle, prompt));
   }
 

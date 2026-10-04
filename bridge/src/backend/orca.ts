@@ -55,6 +55,7 @@ export class OrcaBackend implements OfficeBackend {
     private readonly orca: OrcaRunner,
     verify?: SessionVerifier,
     private readonly now: () => number = Date.now,
+    private readonly platform: NodeJS.Platform = process.platform,
   ) {
     this.sessions = new SessionResolver(orca, verify, now);
   }
@@ -83,7 +84,9 @@ export class OrcaBackend implements OfficeBackend {
   }
 
   sendPrompt(handle: string, text: string): Promise<void> {
-    return this.deliver(['terminal', 'send', '--terminal', handle, `--text=${text}`, '--enter']);
+    // cmd.exe shims can't carry newlines in an argument on Windows; send those lines space-joined.
+    const body = this.platform === 'win32' ? text.replace(/\s*\r?\n\s*/g, ' ') : text;
+    return this.deliver(['terminal', 'send', '--terminal', handle, `--text=${body}`, '--enter']);
   }
 
   retryPrompt(requestId: string): Promise<void> {
