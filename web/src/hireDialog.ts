@@ -75,7 +75,7 @@ export class HireDialog {
     this.el.querySelector('[data-add-repo]')?.addEventListener('click', () => void this.addRepo(form, opts));
     // Enter in the path field adds the project; it must never submit the hire form.
     form.querySelector<HTMLInputElement>('input[name=repoPath]')?.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter' || e.isComposing) return;
+      if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
       e.preventDefault();
       void this.addRepo(form, opts);
     });
@@ -123,8 +123,8 @@ export class HireDialog {
         : { repoId: data.repoId, name: data.name.trim(), baseBranch: data.baseBranch.trim() || undefined, agent: data.agent, prompt: data.prompt };
       const res = await postJson<{ warning?: string }>('/api/hire', body);
       if (res.warning) {
+        // The agent was already started: keep the button disabled so a second click can't start a duplicate.
         msg.textContent = `⚠️ ${res.warning}`;
-        btn.disabled = false;
         return;
       }
       this.close();
