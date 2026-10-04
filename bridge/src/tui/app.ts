@@ -394,17 +394,17 @@ export class App {
   private async panelData(data: string): Promise<void> {
     const parts = splitMouse(data);
     for (let i = 0; i < parts.length; i++) {
-      if (this.closed) return;
-      if (this.mode !== 'panel') {
-        // A click took focus to the list: what followed (and any held partial) is list input now.
-        const rest = parts.slice(i).map((p) => (p.kind === 'text' ? p.text : p.raw)).join('') + this.panelInput.take();
-        if (rest) await this.handle(rest);
-        return;
-      }
+      if (this.closed || this.mode !== 'panel') return; // the agent went away: the rest is dropped
       const part = parts[i];
       if (part.kind === 'mouse') {
         if (part.event) this.mouse(part.event);
         this.render();
+        if (this.mode !== 'panel') {
+          // A click took focus to the list: what followed (and any held partial) is list input now.
+          const rest = parts.slice(i + 1).map((p) => (p.kind === 'text' ? p.text : p.raw)).join('') + this.panelInput.take();
+          if (rest) await this.handle(rest);
+          return;
+        }
         continue;
       }
       if (this.selection || this.notice) {

@@ -299,6 +299,7 @@ describe('App: sidebar and live panel', () => {
     out.text = '';
     await app.handle('\x1d');
     expect(out.text).toContain('\x1b[?1049h\x1b[?2004h\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?25l\x1b[2J');
+    expect(out.text.lastIndexOf('\x1b[?1000h')).toBeGreaterThan(out.text.lastIndexOf('\x1b[?1000l'));
     expect(out.text).toContain('agent one screen');
     expect(resizes.at(-1)).toEqual(['p1', 71, 21]);
   });
@@ -742,6 +743,26 @@ describe('App v3: presets, panes and mouse', () => {
     await app.handle('4M');
     expect(await selectedLine()).toMatch(/▸ a\b/);
     expect(writes.map(([, d]) => d).join('')).not.toContain('<');
+  });
+
+  it('drops the rest of a chunk when typing finds the agent gone, mouse reports included', async () => {
+    const { app, deps, text, selectedLine } = await setup();
+    await app.handle('\r');
+    (deps.host as { has: (id: string) => boolean }).has = () => false;
+    await app.handle('ab' + mouse(65, 3, 5) + '2');
+    const t = await text();
+    expect(t).toContain('에이전트가 종료됐어요');
+    expect(t).not.toContain('창이 작아서');
+    expect(await selectedLine()).toMatch(/▸ a\b/);
+  });
+
+  it('takes what follows a click on the list, in the same chunk, as list keys', async () => {
+    const { app, writes, selectedLine, text } = await setup();
+    await app.handle('\r');
+    await app.handle('a' + mouse(0, 3, 3) + 'j');
+    expect(writes).toEqual([['p1', 'a']]);
+    expect(await selectedLine()).toMatch(/▸ b\b/);
+    expect(await text()).toContain('q 나가기');
   });
 
   it('drops a held partial mouse report in panel focus instead of sending it', async () => {
