@@ -41,14 +41,24 @@ const BRIGHT: Color = { mode: 'palette', index: 6 };
 const DIM = style({ dim: true });
 
 /** Toggle inverse on the body cells the selection covers (buffer coordinates, so scroll-proof). */
+// A wide char is toggled whole (both halves), so the highlight matches the copied text.
 function overlay(f: Frame, body: Rect, t: HeadlessLike, scroll: number, sel: Selection): void {
   const top = topLine(t, scroll);
   for (let y = 0; y < body.rows; y++) {
+    const row = body.row + y;
+    const mark = new Array<boolean>(body.cols).fill(false);
     for (let x = 0; x < body.cols; x++) {
       if (!isSelected(sel, top + y, x)) continue;
-      const c = f.get(body.row + y, body.col + x);
-      f.set(body.row + y, body.col + x, { ...c, style: { ...c.style, inverse: !c.style.inverse } });
+      mark[x] = true;
+      const w = f.get(row, body.col + x).width;
+      if (w === 0 && x > 0) mark[x - 1] = true;
+      if (w === 2 && x + 1 < body.cols) mark[x + 1] = true;
     }
+    mark.forEach((on, x) => {
+      if (!on) return;
+      const c = f.get(row, body.col + x);
+      f.set(row, body.col + x, { ...c, style: { ...c.style, inverse: !c.style.inverse } });
+    });
   }
 }
 
@@ -90,11 +100,12 @@ export function compose(v: View, cols: number, rows: number): { frame: Frame; cu
   const typing = !listFocus;
   let cursor: Cursor | null = null;
   const n = Math.min(L.panes.length, v.panes.length);
+  const focusedPane = Math.max(0, Math.min(v.focusedPane, n - 1));
   for (let i = 0; i < n; i++) {
     const pane = L.panes[i];
     const pv = v.panes[i];
-    const focused = i === v.focusedPane;
-    let headText = '(비어 있음)';
+    const focused = i === focusedPane;
+    let headText = v.rows.length ? '(비어 있음)' : '(에이전트 없음)';
     if (pv.row) {
       headText = '(에이전트 없음)';
       if (pv.row.agentId) {
@@ -110,7 +121,9 @@ export function compose(v: View, cols: number, rows: number): { frame: Frame; cu
       if (focused && typing && pv.scroll === 0 && c) cursor = pv.cursorHidden ? { ...c, hidden: true } : c;
     } else {
       fillRect(frame, pane.body);
-      const hint = !v.rows.length ? 'p로 프로젝트를 추가하세요' : pv.row?.agentId ? '종료됨' : '에이전트가 없어요 — a로 띄우기';
+      let hint = '목록에서 고르면 여기 보여요';
+      if (!v.rows.length) hint = 'p로 프로젝트를 추가하세요';
+      else if (pv.row) hint = pv.row.agentId ? '종료됨' : '에이전트가 없어요 — a로 띄우기';
       centered(frame, pane.body, hint, DIM);
     }
   }

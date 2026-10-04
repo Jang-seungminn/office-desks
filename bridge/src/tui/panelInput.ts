@@ -34,6 +34,13 @@ export class PanelInput {
     return { send: dropOrphanEnds(data), leave: false };
   }
 
+  /** Hand over whatever is held (panel focus ended mid-sequence) and stop waiting for its rest. */
+  take(): string {
+    const held = this.held;
+    this.reset();
+    return held;
+  }
+
   /** Drop whatever is held (panel focus ended). */
   reset(): void {
     this.held = '';

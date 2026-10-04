@@ -5,6 +5,7 @@ import { format } from 'node:util';
 import { NativeBackend } from '../backend/native.js';
 import { officeHome } from '../home.js';
 import { App, type TuiDeps } from './app.js';
+import { copyText } from './clipboard.js';
 import { restoreSequence } from './screen.js';
 
 const PORT_RANGE = 20;
@@ -178,15 +179,14 @@ export async function runTui(): Promise<void> {
       // PtyHost hands out its headless xterm Terminal, which has `modes`.
       terminal: (pty) => backend.pty.terminal(pty) as ReturnType<TuiDeps['terminal']>,
       cursorHidden: (pty) => backend.pty.cursorHidden(pty),
-      resizeAgents: (c, r) => {
-        for (const id of backend.pty.ids()) {
-          try {
-            backend.pty.resize(id, c, r);
-          } catch {
-            // a dying PTY: its exit event follows; never let a resize take the TUI down
-          }
+      resizeAgent: (id, c, r) => {
+        try {
+          backend.pty.resize(id, c, r);
+        } catch {
+          // a dying PTY: its exit event follows; never let a resize take the TUI down
         }
       },
+      copyText: (t) => copyText(t, { writeOsc: (s) => stdout.write(s) }),
       host: backend.pty,
       url: `http://127.0.0.1:${port}`,
     },

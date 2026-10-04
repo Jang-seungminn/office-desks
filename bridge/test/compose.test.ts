@@ -178,11 +178,50 @@ describe('compose', () => {
     expect(compose(base({ preset: 2, focusedPane: 1, panes: scrolled }), 160, 30).cursor).toBeNull();
   });
 
-  it('empty pane shows (비어 있음)', async () => {
+  it('empty pane shows (비어 있음) and a neutral hint, not a launch hint', async () => {
     const t = await agentWith('x');
     const { frame } = compose(base({ preset: 2, panes: [pv(rows[0], t), pv(null, null)] }), 160, 30);
     const L = layout(160, 30, 2)!;
     expect(text(frame, L.panes[1].head.row, L.panes[1].head.col)).toContain('(비어 있음)');
+    const b = L.panes[1].body;
+    const body = Array.from({ length: b.rows }, (_, i) => text(frame, b.row + i, b.col, b.cols)).join('\n');
+    expect(body).toContain('목록에서 고르면 여기 보여요');
+    expect(body).not.toContain('a로 띄우기');
+    expect(frame.get(b.row + Math.floor((b.rows - 1) / 2), b.col + Math.floor(b.cols / 2)).style.dim).toBe(true);
+  });
+
+  it('empty office: head (에이전트 없음) and the p hint in every pane', async () => {
+    const { frame } = compose(base({ rows: [], preset: 2, panes: [pv(null, null), pv(null, null)] }), 160, 30);
+    const L = layout(160, 30, 2)!;
+    for (const p of L.panes) {
+      expect(text(frame, p.head.row, p.head.col, p.head.cols)).toContain('(에이전트 없음)');
+      const body = Array.from({ length: p.body.rows }, (_, i) => text(frame, p.body.row + i, p.body.col, p.body.cols)).join('\n');
+      expect(body).toContain('p로 프로젝트를 추가하세요');
+    }
+  });
+
+  it('selection overlay covers both halves of a wide char', async () => {
+    const t = await agentWith('ab한글cd');
+    const r = layout(80, 12)!.panes[0].body;
+    // Ends on 한's right half (col 3) and starts on 글's left... both chars fully reversed.
+    const cases: [number, number, boolean[]][] = [
+      [3, 3, [false, false, true, true, false, false]], // continuation cell of 한
+      [4, 4, [false, false, false, false, true, true]], // lead cell of 글
+      [1, 2, [false, true, true, true, false, false]],
+    ];
+    for (const [from, to, want] of cases) {
+      const selection = { pane: 0, anchor: { line: 0, col: from }, head: { line: 0, col: to } };
+      const { frame } = compose(base({ panes: [pv(rows[0], t, { selection })] }), 80, 12);
+      expect(Array.from({ length: 6 }, (_, x) => frame.get(r.row, r.col + x).style.inverse)).toEqual(want);
+    }
+  });
+
+  it('clamps an out-of-range focused pane to the drawn panes', async () => {
+    const a = await agentWith('ab');
+    const L = layout(80, 12)!;
+    const { frame, cursor } = compose(base({ focusedPane: 3, panes: [pv(rows[0], a)] }), 80, 12);
+    expect(frame.get(L.panes[0].head.row, L.panes[0].head.col + 1).style.bold).toBe(true);
+    expect(cursor).toEqual({ row: L.panes[0].body.row, col: L.panes[0].body.col + 2 });
   });
 
   it('preset 4 frame rows are cols wide with no split wide chars', async () => {
