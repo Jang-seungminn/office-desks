@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import type { Department, OrgChart } from './model.js';
+import { officeHome } from './home.js';
 
 // The org chart (departments and which projects sit in them) is the user's own setup, so the
 // bridge keeps it in a small JSON file in their home folder: every browser sees the same office.
@@ -10,8 +10,8 @@ export const DEPARTMENT_THEMES = ['dev', 'design', 'research', 'ops', 'etc'] as 
 const MAX_DEPARTMENTS = 20;
 const MAX_NAME = 20;
 
-export function orgFile(home = os.homedir()): string {
-  return path.join(home, '.office-desks', 'org.json');
+export function orgFile(home?: string): string {
+  return home ? path.join(home, '.office-desks', 'org.json') : path.join(officeHome(), 'org.json');
 }
 
 /** Validate and normalise an org chart coming from the browser (or a hand-edited file). */

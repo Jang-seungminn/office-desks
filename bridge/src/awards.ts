@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import type { Award, AwardBoard, OfficeDesk } from './model.js';
+import { officeHome } from './home.js';
 
 // Employee of the day: whoever did the most work today (instructions handled weigh 10, each
 // tool call 1). The leader is tracked through the day; when the date changes it goes into the
@@ -14,8 +14,8 @@ export function localDate(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-export function awardsFile(home = os.homedir()): string {
-  return path.join(home, '.office-desks', 'awards.json');
+export function awardsFile(home?: string): string {
+  return home ? path.join(home, '.office-desks', 'awards.json') : path.join(officeHome(), 'awards.json');
 }
 
 /** Today's best candidate among the agents in the office (none if nobody worked today). */
