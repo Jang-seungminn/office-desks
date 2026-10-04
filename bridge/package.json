@@ -11,6 +11,7 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
+    "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "^6.0.0",
     "cross-spawn": "^7.0.6",
     "node-pty": "1.1.0",

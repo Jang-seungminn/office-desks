@@ -23,7 +23,7 @@ import {
   type OfficeBackend,
 } from './types.js';
 
-export type PtyLike = Pick<PtyHost, 'spawn' | 'has' | 'write' | 'screenLines' | 'onExit' | 'kill' | 'dispose'>;
+export type PtyLike = Pick<PtyHost, 'spawn' | 'has' | 'write' | 'screenLines' | 'onExit' | 'kill' | 'dispose' | 'onData' | 'resize' | 'serialize' | 'setReplies' | 'size'>;
 
 export interface NativeDeps {
   pty: PtyLike;
@@ -81,6 +81,17 @@ export class NativeBackend implements OfficeBackend {
   };
 
   private agents = new Map<string, Agent>();
+
+  /** The PTY host, for the TUI's attach view. */
+  get pty(): PtyLike {
+    return this.deps.pty;
+  }
+
+  /** The PTY id of a live agent (`<id>:main` → `<id>`), or null when it is gone. */
+  terminalOf(agentId: string): string | null {
+    const id = agentId.replace(/:main$/, '');
+    return this.agents.has(id) && this.deps.pty.has(id) ? id : null;
+  }
   private worktrees = new Map<string, { at: number; list: WorktreeInfo[] }>();
   private readonly git: GitRunner;
   private readonly now: () => number;

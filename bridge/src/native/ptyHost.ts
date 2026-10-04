@@ -1,12 +1,14 @@
 import { accessSync, chmodSync, constants, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import serializeAddon from '@xterm/addon-serialize';
 import xtermHeadless from '@xterm/headless';
 import * as pty from 'node-pty';
 import { BackendError } from '../backend/types.js';
 import { resolveWindowsCommand, unsafeForCmdShim } from '../orcaCli.js';
 
 const { Terminal } = xtermHeadless;
+const { SerializeAddon } = serializeAddon;
 type HeadlessTerminal = InstanceType<typeof Terminal>;
 
 const COLS = 120;
@@ -71,6 +73,9 @@ export interface PtyOptions {
 interface Session {
   proc: pty.IPty;
   term: HeadlessTerminal;
+  serializer: InstanceType<typeof SerializeAddon>;
+  listeners: Set<(d: string) => void>;
+  replies: boolean;
 }
 
 /** Agent processes in pseudo-terminals, each mirrored into a headless xterm we can read like a screen. */
@@ -88,18 +93,24 @@ export class PtyHost {
     const { file, args } = resolveSpawn(opts.file, opts.args);
     const term = new Terminal({ cols, rows, allowProposedApi: true });
     const proc = pty.spawn(file, args, { name: 'xterm-256color', cols, rows, cwd: opts.cwd, env: opts.env });
-    proc.onData((d) => term.write(d));
+    const serializer = new SerializeAddon();
+    term.loadAddon(serializer);
+    const session: Session = { proc, term, serializer, listeners: new Set(), replies: true };
+    proc.onData((d) => {
+      term.write(d);
+      for (const fn of session.listeners) fn(d);
+    });
     // TUIs query the terminal (cursor position, device attributes) and wait for the answer.
     term.onData((d) => {
-      if (this.sessions.get(id)?.proc === proc) proc.write(d);
+      if (this.sessions.get(id) === session && session.replies) proc.write(d);
     });
     proc.onExit(({ exitCode }) => {
-      if (this.sessions.get(id)?.proc !== proc) return;
+      if (this.sessions.get(id) !== session) return;
       this.sessions.delete(id);
       term.dispose();
       for (const fn of this.exitListeners) fn(id, exitCode);
     });
-    this.sessions.set(id, { proc, term });
+    this.sessions.set(id, session);
   }
 
   has(id: string): boolean {
@@ -119,6 +130,45 @@ export class PtyHost {
     const lines: string[] = [];
     for (let y = 0; y < s.term.rows; y++) lines.push(buf.getLine(buf.viewportY + y)?.translateToString(true) ?? '');
     return lines;
+  }
+
+  /** Live output of one agent (the attach view); returns an unsubscribe function. */
+  onData(id: string, fn: (data: string) => void): () => void {
+    const s = this.sessions.get(id);
+    if (!s) return () => {};
+    s.listeners.add(fn);
+    return () => s.listeners.delete(fn);
+  }
+
+  resize(id: string, cols: number, rows: number): void {
+    const s = this.sessions.get(id);
+    if (!s || cols < 2 || rows < 2) return;
+    s.proc.resize(cols, rows);
+    s.term.resize(cols, rows);
+  }
+
+  size(id: string): { cols: number; rows: number } | null {
+    const s = this.sessions.get(id);
+    return s ? { cols: s.term.cols, rows: s.term.rows } : null;
+  }
+
+  /** The current screen as escape sequences, to repaint a real terminal losslessly. */
+  serialize(id: string): string {
+    return this.sessions.get(id)?.serializer.serialize() ?? '';
+  }
+
+  /**
+   * While a real terminal is attached it answers the agent's terminal queries itself;
+   * the headless copy must stay quiet or the agent gets every answer twice.
+   */
+  setReplies(id: string, on: boolean): void {
+    const s = this.sessions.get(id);
+    if (s) s.replies = on;
+  }
+
+  /** Feed bytes to the headless screen as if the process printed them (tests). */
+  feed(id: string, data: string): void {
+    this.sessions.get(id)?.term.write(data);
   }
 
   onExit(fn: (id: string, exitCode: number) => void): () => void {

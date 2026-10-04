@@ -13,6 +13,27 @@ class FakePty implements PtyLike {
   spawned: { id: string; opts: PtyOptions }[] = [];
   writes: [string, string][] = [];
   screens = new Map<string, string[]>();
+  data = new Map<string, Set<(d: string) => void>>();
+  sizes = new Map<string, { cols: number; rows: number }>();
+  replies = new Map<string, boolean>();
+  onData(id: string, fn: (d: string) => void): () => void {
+    const set = this.data.get(id) ?? new Set();
+    set.add(fn);
+    this.data.set(id, set);
+    return () => set.delete(fn);
+  }
+  resize(id: string, cols: number, rows: number): void {
+    this.sizes.set(id, { cols, rows });
+  }
+  serialize(id: string): string {
+    return (this.screens.get(id) ?? []).join('\r\n');
+  }
+  setReplies(id: string, on: boolean): void {
+    this.replies.set(id, on);
+  }
+  size(id: string): { cols: number; rows: number } | null {
+    return this.screens.has(id) ? (this.sizes.get(id) ?? { cols: 120, rows: 40 }) : null;
+  }
   private exits = new Set<(id: string, code: number) => void>();
   spawn(id: string, opts: PtyOptions): void {
     this.spawned.push({ id, opts });
@@ -365,6 +386,17 @@ describe('NativeBackend input, board, sessions, repos', () => {
     await backend.addRepo('/q/other/src');
     expect(registry.repos.map((r) => r.path)).toContain(path.normalize('/q/other'));
     await expect(backend.addRepo('relative/path')).rejects.toMatchObject({ code: 'not_absolute' });
+  });
+
+  it('exposes the live terminal of an agent for attaching', async () => {
+    const { backend, pty } = await setup();
+    await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null });
+    const id = pty.spawned[0].id;
+    expect(backend.terminalOf(`${id}:main`)).toBe(id);
+    expect(backend.pty).toBe(pty);
+    pty.kill(id);
+    expect(backend.terminalOf(`${id}:main`)).toBeNull();
+    expect(backend.terminalOf('nope:main')).toBeNull();
   });
 
   it('kills every agent on dispose and removes settings files', async () => {
