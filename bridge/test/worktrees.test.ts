@@ -8,7 +8,7 @@ import { addWorktree, listWorktrees, parsePorcelain, resolveRepo, worktreeDest }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
 function scratchRepo(): string {
-  const dir = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'od-git-')));
+  const dir = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'od-git-')));
   git(dir, 'init', '-q', '-b', 'main');
   git(dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
   return dir;
@@ -33,7 +33,7 @@ describe('git worktrees', () => {
     expect(rec).toMatchObject({ path: repo, name: path.basename(repo) });
     expect(rec.id).toMatch(/^[0-9a-f]{12}$/);
 
-    const home = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'od-home-')));
+    const home = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'od-home-')));
     const dest = worktreeDest(home, rec.name, 'fix-login');
     expect(dest).toBe(path.join(home, 'worktrees', rec.name, 'fix-login'));
     await addWorktree(repo, dest, 'fix-login', null);
