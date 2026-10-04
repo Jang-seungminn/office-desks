@@ -70,3 +70,11 @@ export function splitMouse(data: string): Part[] {
 
 /** A partial mouse report (held for its rest, which never came): never typed into an agent. */
 export const PARTIAL_MOUSE = /^\x1b\[<[0-9;]*$/;
+
+/** Input with every mouse report taken out (outside a paste), a trailing cut-off one included. */
+export function withoutMouse(data: string): string {
+  return splitMouse(data)
+    .map((p) => (p.kind === 'text' ? p.text : ''))
+    .join('')
+    .replace(/\x1b\[<[0-9;]*$/, '');
+}

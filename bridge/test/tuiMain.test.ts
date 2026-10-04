@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createExit, installRestore, notTtyMessage, pickPort, portFromEnv } from '../src/tui/main.js';
+import { createExit, installRestore, mouseFromEnv, notTtyMessage, pickPort, portFromEnv } from '../src/tui/main.js';
 import { ALT_OFF, SHOW_CURSOR } from '../src/tui/screen.js';
 
 describe('pickPort', () => {
@@ -83,5 +83,18 @@ describe('notTtyMessage', () => {
     expect(notTtyMessage({ isTTY: true }, { isTTY: true })).toBeNull();
     expect(notTtyMessage({ isTTY: false }, { isTTY: true })).toMatch(/터미널/);
     expect(notTtyMessage({}, { isTTY: true })).toMatch(/--no-tui/);
+  });
+});
+
+describe('mouseFromEnv', () => {
+  it('is on for darwin and linux, off for win32, and OFFICE_DESKS_MOUSE=1/0 forces it', () => {
+    expect(mouseFromEnv('darwin', {})).toBe(true);
+    expect(mouseFromEnv('linux', {})).toBe(true);
+    expect(mouseFromEnv('win32', {})).toBe(false);
+    for (const p of ['darwin', 'linux', 'win32'] as const) {
+      expect(mouseFromEnv(p, { OFFICE_DESKS_MOUSE: '1' })).toBe(true);
+      expect(mouseFromEnv(p, { OFFICE_DESKS_MOUSE: '0' })).toBe(false);
+      expect(mouseFromEnv(p, { OFFICE_DESKS_MOUSE: '' })).toBe(p !== 'win32');
+    }
   });
 });

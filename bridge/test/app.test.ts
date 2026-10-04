@@ -4,6 +4,7 @@ import { BackendError } from '../src/backend/types.js';
 import type { OfficeSnapshot } from '../src/model.js';
 import { watchCursor } from '../src/native/ptyHost.js';
 import { App, type TuiDeps } from '../src/tui/app.js';
+import type { MouseEvent } from '../src/tui/mouse.js';
 
 // The App against real headless terminals: one per agent (its screen) and one for the user's
 // terminal, which every byte the App writes goes through, so assertions read the screen as seen.
@@ -29,6 +30,7 @@ async function setup(
   renderMs?: number,
   size: [number, number] = [100, 24],
   escWaitMs?: number,
+  over: Partial<TuiDeps> = {},
 ) {
   let snap = snapOf(desks);
   const listeners = new Set<() => void>();
@@ -85,6 +87,7 @@ async function setup(
     copyText: async (t) => (copies.push(t), 'file'),
     host,
     url: 'http://127.0.0.1:4318',
+    ...over,
   };
   const real = new Terminal({ cols: size[0], rows: size[1], allowProposedApi: true });
   const resizeFns = new Set<() => void>();
@@ -826,12 +829,142 @@ describe('App v3: presets, panes and mouse', () => {
     expect(help.endsWith('d 삭제')).toBe(true);
   });
 
-  it('drops a held partial mouse report in panel focus instead of sending it', async () => {
+  it('drops a held partial mouse report in panel focus once the long wait runs out (never typed)', async () => {
     const { app, writes } = await setup(TWO, undefined, undefined, undefined, 5);
     await app.handle('\r');
-    await app.handle('\x1b[<0;5');
-    await wait(40);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await app.handle('\x1b[<0;5');
+      vi.advanceTimersByTime(1100);
+      await Promise.resolve();
+      vi.runOnlyPendingTimers();
+    } finally {
+      vi.useRealTimers();
+    }
+    await wait(0);
     expect(writes).toEqual([]);
+  });
+
+  it('waits long for the rest of a split mouse report in panel focus: the tail is never typed', async () => {
+    const lines = Array.from({ length: 5 }, (_, i) => `say OK ${i}`).join('\r\n');
+    const { app, writes, copies } = await setup(TWO, { p1: lines, p2: '' }, undefined, undefined, 50);
+    await app.handle(mouse(0, P0 + 4, 2) + mouse(32, P0 + 5, 2)); // a drag: panel focus
+    const spy = vi.spyOn(app as unknown as { mouse: (e: MouseEvent) => void }, 'mouse');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await app.handle('\x1b[<0;35');
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+      await app.handle(';3m');
+      vi.runOnlyPendingTimers();
+    } finally {
+      vi.useRealTimers();
+    }
+    await wait(0);
+    expect(writes).toEqual([]);
+    expect(spy.mock.calls.map(([e]) => e.kind)).toEqual(['release']);
+    expect(copies).toEqual(['OK']);
+  });
+
+  it('waits long for the rest of a split mouse report in list focus: no stray list keys', async () => {
+    const { app, writes, resizes } = await setup(TWO, undefined, undefined, undefined, 50);
+    const spy = vi.spyOn(app as unknown as { mouse: (e: MouseEvent) => void }, 'mouse');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await app.handle('\x1b[<0;3');
+      vi.advanceTimersByTime(100);
+      await Promise.resolve();
+      await app.handle(';14m'); // as list keys, '1' and '4' would switch presets
+      vi.runOnlyPendingTimers();
+    } finally {
+      vi.useRealTimers();
+    }
+    await wait(0);
+    expect(writes).toEqual([]);
+    expect(resizes.every(([, c, r]) => c === 71 && r === 21)).toBe(true);
+    expect(spy.mock.calls.map(([e]) => e.kind)).toEqual(['release']);
+  });
+
+  it('drops a held partial mouse report in list focus once the long wait runs out', async () => {
+    const { app, writes, resizes, selectedLine } = await setup(TWO, undefined, undefined, undefined, 50);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await app.handle('\x1b[<0;3');
+      vi.advanceTimersByTime(1100);
+      await Promise.resolve();
+      vi.runOnlyPendingTimers();
+    } finally {
+      vi.useRealTimers();
+    }
+    await wait(0);
+    await app.handle('j');
+    expect(writes).toEqual([]);
+    expect(resizes.every(([, c, r]) => c === 71 && r === 21)).toBe(true);
+    expect(await selectedLine()).toMatch(/▸ b\b/);
+  });
+
+  it('says the copy was handed to the terminal when only OSC 52 was possible', async () => {
+    const { app, text } = await setup(TWO, { p1: 'say OK now', p2: '' }, undefined, undefined, undefined, { copyText: async () => 'osc52' });
+    await app.handle(mouse(0, P0 + 4, 2) + mouse(32, P0 + 5, 2) + mouse(0, P0 + 5, 2, 'm'));
+    await wait(0);
+    const t = await text();
+    expect(t).toContain('복사를 터미널에 맡겼어요 (터미널이 지원하면 복사돼요)');
+    expect(t).not.toContain('복사했어요');
+  });
+
+  it('clears the selection on a terminal resize (xterm reflows), and a drag cut by a resize copies nothing', async () => {
+    const { app, copies, inverseAt, resize } = await setup(TWO, { p1: 'say OK now', p2: '' });
+    await app.handle(mouse(0, P0 + 4, 2) + mouse(32, P0 + 5, 2) + mouse(0, P0 + 5, 2, 'm'));
+    await wait(0);
+    expect(copies).toEqual(['OK']);
+    expect(await inverseAt(P0 + 4, 2)).toBe(true);
+    resize(100, 25);
+    expect(await inverseAt(P0 + 4, 2)).toBe(false);
+    await app.handle(mouse(0, P0 + 4, 2) + mouse(32, P0 + 5, 2));
+    resize(100, 24);
+    await app.handle(mouse(0, P0 + 5, 2, 'm'));
+    await wait(0);
+    expect(copies).toEqual(['OK']);
+  });
+
+  it('returns the focused pane to live output when text is sent to its agent', async () => {
+    const lines = Array.from({ length: 40 }, (_, i) => `L${i}`).join('\r\n');
+    const { app, writes, text } = await setup(TWO, { p1: lines, p2: '' });
+    await app.handle('\r');
+    await app.handle(mouse(64, P0 + 5, 10));
+    expect(await text()).toContain('↑ 기록 보는 중');
+    await app.handle('x');
+    expect(writes).toEqual([['p1', 'x']]);
+    const t = await text();
+    expect(t).not.toContain('↑ 기록 보는 중');
+    expect(t).toContain('L39');
+  });
+
+  it('keeps the scroll of the pane Tab leaves', async () => {
+    const lines = Array.from({ length: 40 }, (_, i) => `L${i}`).join('\r\n');
+    const { app, screen } = await twoPanes({ p1: '', p2: lines });
+    await app.handle('\x1b[5~'); // pane 2 (agent b) scrolled back
+    expect((await screen())[1]).toContain('↑ 기록 보는 중');
+    await app.handle('\x1b[Z'); // Shift+Tab leaves pane 2
+    expect((await screen())[1]).toContain('↑ 기록 보는 중');
+    await app.handle('\t'); // back to pane 2
+    await app.handle('\t'); // Tab leaves pane 2
+    expect((await screen())[1]).toContain('↑ 기록 보는 중');
+  });
+
+  it('never forwards mouse reports that follow z in the same chunk to the zoomed agent', async () => {
+    const { app, writes } = await setup();
+    await app.handle('z' + mouse(0, 40, 5) + 'x' + mouse(0, 41, 5, 'm') + '\x1b[<0;4');
+    expect(writes).toEqual([['p1', 'x']]);
+  });
+
+  it('leaves mouse reporting off when the mouse is disabled, at start and after zoom', async () => {
+    const { app, out } = await setup(TWO, undefined, undefined, undefined, undefined, { mouse: false });
+    await app.handle('z');
+    await app.handle('\x1d');
+    expect(out.text).not.toContain('\x1b[?1000h');
+    expect(out.text).not.toContain('\x1b[?1006h');
+    expect(out.text).toContain('\x1b[?2004h');
   });
 
   it('keeps mouse-looking bytes inside a bracketed paste as pasted text', async () => {

@@ -8,7 +8,7 @@ import { decodeKeysAt, type Key } from './keys.js';
 import { layout, type Layout, type Preset } from './layout.js';
 import { lobbyRows, type LobbyRow } from './lobby.js';
 import type { MouseEvent } from './mouse.js';
-import { clampToBody, hitTest, PARTIAL_MOUSE, splitMouse } from './mouseActions.js';
+import { clampToBody, hitTest, PARTIAL_MOUSE, splitMouse, withoutMouse } from './mouseActions.js';
 import { maxScroll, type HeadlessLike } from './panel.js';
 import { INCOMPLETE_ESCAPE, PanelInput } from './panelInput.js';
 import { PaneSet } from './panes.js';
@@ -41,6 +41,8 @@ export interface TuiDeps {
   /** Size one agent's PTY (a pane's body); must not throw for a dying PTY. */
   resizeAgent(ptyId: string, cols: number, rows: number): void;
   copyText(text: string): Promise<'file' | 'command' | 'osc52'>;
+  /** Turn on mouse reporting in the real terminal (default true); off leaves the terminal's own selection. */
+  mouse?: boolean;
   host: AttachHost;
   url: string;
 }
@@ -62,9 +64,11 @@ const PASTE_WAIT_MS = 1000;
 // Fits 100 columns (with the leading space), q first.
 const LIST_HELP = 'q 나가기 · Enter 입력 · 1-4 분할 · Tab 칸 · z 크게 · a 추가 · n 작업 · p 프로젝트 · x 종료 · d 삭제';
 const PANEL_HELP = '패널 입력 중 · Ctrl+] 목록으로 · 드래그하면 복사 · 터미널 선택은 Shift/Option+드래그';
+const PANEL_HELP_NO_MOUSE = '패널 입력 중 · Ctrl+] 목록으로';
 const EXITED = '에이전트가 종료됐어요';
 const WHEEL_LINES = 3;
 const PRESETS: Record<string, Preset> = { '1': 1, '2': 2, '3': 3, '4': 4 };
+const MOUSE_START = '\x1b[<';
 
 const idOf = (r: LobbyRow | undefined) => (r ? (r.agentId ?? r.deskId) : null);
 
@@ -120,8 +124,13 @@ export class App {
     this.renderer = new Renderer(out, () => this.view(), renderMs);
   }
 
+  /** Screen setup on start and after zoom: alternate screen, paste mode and (if on) mouse reports. */
+  private screenOn(): string {
+    return ALT_ON + PASTE_ON + (this.deps.mouse === false ? '' : MOUSE_ON) + HIDE_CURSOR + CLEAR;
+  }
+
   start(): void {
-    this.out.write(ALT_ON + PASTE_ON + MOUSE_ON + HIDE_CURSOR + CLEAR);
+    this.out.write(this.screenOn());
     this.rows = lobbyRows(this.deps.snapshot());
     this.input.on('data', this.onData);
     this.out.on?.('resize', this.onResize);
@@ -145,6 +154,8 @@ export class App {
       this.pending = cut[0];
       data = data.slice(0, cut.index);
       const held = this.pending;
+      // A cut-off mouse report is never a key: wait long for its rest, and drop it if none comes.
+      const wait = held.startsWith(MOUSE_START) ? PASTE_WAIT_MS : this.escWaitMs;
       this.pendingTimer = setTimeout(() => {
         this.pendingTimer = null;
         if (this.pending !== held) return;
@@ -156,7 +167,7 @@ export class App {
             await this.keys([{ key: { name: 'escape' }, end: 0 }], '');
           });
         }
-      }, this.escWaitMs);
+      }, wait);
     }
     await this.keys(decodeKeysAt(data), full);
   }
@@ -189,7 +200,8 @@ export class App {
         // (a held partial escape sequence included).
         this.pending = '';
         this.clearPending();
-        const rest = raw.slice(end);
+        // A zoomed agent never gets mouse reports (mouse mode goes off as zoom starts).
+        const rest = this.mode === 'zoom' ? withoutMouse(raw.slice(end)) : raw.slice(end);
         if (rest) await this.handle(rest);
         return;
       }
@@ -235,7 +247,8 @@ export class App {
 
   private async listKey(k: Key): Promise<void> {
     const row = this.rows[this.selected];
-    if (k.name !== 'pgup' && k.name !== 'pgdn') this.panes.scroll[this.panes.focused] = 0;
+    // Tab and Shift+Tab leave a pane as it is (scrolled back, say).
+    if (!['pgup', 'pgdn', 'tab', 'shift-tab'].includes(k.name)) this.panes.scroll[this.panes.focused] = 0;
     const ch = k.name === 'char' ? k.ch : null;
     if (k.name === 'up' || ch === 'k') this.move(-1);
     else if (k.name === 'down' || ch === 'j') this.move(1);
@@ -444,6 +457,10 @@ export class App {
     try {
       if (!pty || !term || !this.deps.host.has(pty)) throw new Error('gone');
       this.deps.host.write(pty, encodePanelInput(data, term.modes));
+      if (this.panes.scroll[this.panes.focused] > 0) {
+        this.panes.scroll[this.panes.focused] = 0; // typing goes back to live output
+        this.render();
+      }
     } catch {
       this.leavePanel(EXITED); // the exit event may still be in flight
     }
@@ -514,8 +531,8 @@ export class App {
   /** Not awaited: a slow clipboard command must not hold up input. */
   private async copy(text: string): Promise<void> {
     try {
-      await this.deps.copyText(text);
-      this.notice = `복사했어요 (${[...text].length}자)`;
+      const how = await this.deps.copyText(text);
+      this.notice = how === 'osc52' ? '복사를 터미널에 맡겼어요 (터미널이 지원하면 복사돼요)' : `복사했어요 (${[...text].length}자)`;
     } catch {
       this.notice = '⚠ 복사하지 못했어요';
     }
@@ -550,7 +567,7 @@ export class App {
       this.notice = reason === 'exited' ? EXITED : null;
       this.reloadRows();
       // The agent may have left the alternate screen (and paste/mouse modes) on its way out.
-      this.out.write(ALT_ON + PASTE_ON + MOUSE_ON + HIDE_CURSOR + CLEAR);
+      this.out.write(this.screenOn());
       this.renderer.invalidate();
       this.refreshPanes(); // and zoom sized this agent to the whole screen: fit it back
       this.render();
@@ -608,6 +625,7 @@ export class App {
 
   /** Preset or terminal size changed: clamp focus, refit and repaint everything. */
   private layoutChanged(): void {
+    this.clearSelection(); // the agents reflow: buffer lines no longer hold the selected text
     const before = this.panes.focused;
     this.panes.clamp(this.visible());
     if (this.panes.focused !== before) this.followFocused();
@@ -715,7 +733,8 @@ export class App {
     }
     if (this.mode === 'confirm') return { help: ` ${confirmQuestion(this.confirmKind!, this.target, this.rows)}`, helpCursor: null };
     if (this.notice) return { help: ` ${this.notice}`, helpCursor: null };
-    return { help: ` ${this.mode === 'panel' ? PANEL_HELP : LIST_HELP}`, helpCursor: null };
+    const panelHelp = this.deps.mouse === false ? PANEL_HELP_NO_MOUSE : PANEL_HELP;
+    return { help: ` ${this.mode === 'panel' ? panelHelp : LIST_HELP}`, helpCursor: null };
   }
 
   private view(): View | null {
