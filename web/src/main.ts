@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type { AwardBoard, OfficeSnapshot, OrgChart } from '../../bridge/src/model';
 import { connectOffice, type ConnectionState } from './api';
+import { backendInfo, setBackendInfo } from './backend';
 import { OfficeScene, type Selection } from './officeScene';
 import { Panel } from './panel';
 import { modelLine } from './format';
@@ -235,16 +236,16 @@ function renderStatus(): void {
   const conn = { open: '🟢 연결됨', connecting: '🟡 연결 중', closed: '🔴 브리지 끊김' }[connection];
   statusLeft.innerHTML = `
     <span>${conn}</span>
-    <button class="hire" data-hire title="새 워크트리를 만들고 에이전트를 띄웁니다">➕ 새 작업</button>
+    ${backendInfo().capabilities.hire ? '<button class="hire" data-hire title="새 워크트리를 만들고 에이전트를 띄웁니다">➕ 새 작업</button>' : ''}
     <button class="search" data-ceo title="회사 현황과 조직도(부서) 관리">👑 사장실</button>
-    <button class="search" data-search title="모든 에이전트 대화 검색 (단축키 Ctrl/⌘+K)">🔍 검색</button>
+    ${backendInfo().capabilities.search ? '<button class="search" data-search title="모든 에이전트 대화 검색 (단축키 Ctrl/⌘+K)">🔍 검색</button>' : ''}
     <button class="search" data-help title="단축키 보기 (?)">⌨ ?</button>
     <span>🏢 워크트리 ${snapshot?.desks.length ?? 0}</span>
     <span>⌨️ 일하는 중 ${busy}</span>
     ${attention.length ? `<button class="report" data-reports title="완료하거나 확인을 요청한 에이전트로 이동">📬 새 보고 ${attention.length}</button>` : ''}
     ${!('Notification' in window) ? '' : Notification.permission === 'default' ? '<button class="bell" data-bell title="에이전트가 끝나면 데스크톱 알림">🔔 알림 켜기</button>' : Notification.permission === 'granted' ? '<button class="bell on" data-bell-test title="눌러서 테스트 알림 보내기">🔔 알림 켜짐</button>' : '<span class="bell-off" title="브라우저 설정에서 이 사이트의 알림을 허용해야 합니다">🔕 알림 차단됨</span>'}
     ${waiting ? `<button class="alert" data-waiting title="확인이 필요한 에이전트로 이동">🙋 확인 필요 ${waiting}</button>` : '<span>🙋 확인 필요 0</span>'}
-    ${snapshot?.error ? `<span class="alert" title="${esc(snapshot.error)}">⚠️ Orca 오류</span>` : ''}`;
+    ${snapshot?.error ? `<span class="alert" title="${esc(snapshot.error)}">⚠️ ${backendInfo().name === 'orca' ? 'Orca' : '백엔드'} 오류</span>` : ''}`;
   const badge = new Set([...attention.map((a) => a.agentId), ...agents.filter((a) => a.state === 'waiting').map((a) => a.id)]).size;
   document.title = badge ? `(${badge}) Office Desks` : 'Office Desks';
 }
@@ -277,6 +278,14 @@ connectOffice(
     ceo.refresh();
     panel.refresh(snapshot);
     announceAward(a);
+  },
+  (b) => {
+    setBackendInfo(b);
+    renderStatus();
+    if (snapshot) {
+      scene.setSnapshot(snapshot);
+      panel.refresh(snapshot);
+    }
   },
 );
 
@@ -318,7 +327,7 @@ const helpEl = document.getElementById('help')!;
 helpEl.addEventListener('click', () => (helpEl.hidden = true));
 
 document.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && backendInfo().capabilities.search) {
     e.preventDefault();
     searchBox.open();
     return;

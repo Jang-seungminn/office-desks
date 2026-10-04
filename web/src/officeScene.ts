@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { backendInfo } from './backend';
 import type { AwardBoard, OfficeAgent, OfficeDesk, OfficeSnapshot, OrgChart, UsageSnapshot } from '../../bridge/src/model';
 import {
   characterTexture,
@@ -722,7 +723,7 @@ export class OfficeScene extends Phaser.Scene {
 
     if (!desks.length) {
       this.podLayer.add(
-        this.add.text(MARGIN, ry + ZONE_GAP, 'Orca 워크트리를 기다리는 중…', { ...PX14, color: '#2b2118' }),
+        this.add.text(MARGIN, ry + ZONE_GAP, backendInfo().capabilities.repos ? '프로젝트가 없어요 — 아래 ➕ 새 작업에서 git 저장소를 추가하세요' : 'Orca 워크트리를 기다리는 중…', { ...PX14, color: '#2b2118' }),
       );
     }
 

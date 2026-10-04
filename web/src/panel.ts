@@ -10,6 +10,7 @@ import type {
   TerminalKey,
   TerminalScreen,
 } from '../../bridge/src/model';
+import { backendInfo } from './backend';
 import { ApiError, postJson } from './api';
 import { renderMarkdown } from './markdown';
 import { modelLine } from './format';
@@ -364,7 +365,7 @@ export class Panel {
   private statusSelect(current: string | null): string {
     const labels: Record<string, string> = { todo: '할 일', 'in-progress': '진행 중', 'in-review': '리뷰 중', completed: '완료' };
     const ids = [...new Set([...Object.keys(labels), ...(current ? [current] : [])])];
-    return `<select class="board-status" data-board-status title="Orca 보드 상태">${ids
+    return `<select class="board-status" data-board-status title="보드 상태">${ids
       .map((id) => `<option value="${esc(id)}"${id === current ? ' selected' : ''}>📋 ${esc(labels[id] ?? id)}</option>`)
       .join('')}</select>`;
   }
@@ -373,7 +374,7 @@ export class Panel {
     if (!this.desk) return;
     try {
       await postJson('/api/worktree', { deskId: this.desk.id, ...update });
-      this.feedback.textContent = '✅ Orca에 저장했습니다';
+      this.feedback.textContent = '✅ 저장했습니다';
     } catch (err) {
       this.feedback.textContent = `⚠️ ${(err as Error).message}`;
     }
@@ -383,7 +384,7 @@ export class Panel {
     const row = this.info.querySelector<HTMLElement>('[data-comment-row]');
     if (!row || !this.desk) return;
     this.editingComment = true;
-    row.innerHTML = `💬 <input class="comment-input" maxlength="200" placeholder="워크트리 코멘트 (Orca 카드에 표시)" />
+    row.innerHTML = `💬 <input class="comment-input" maxlength="200" placeholder="워크트리 코멘트" />
       <button type="button" class="link" data-save-comment>저장</button><button type="button" class="link" data-cancel-comment>취소</button>`;
     const input = row.querySelector<HTMLInputElement>('input')!;
     input.value = this.desk.comment;
@@ -425,12 +426,16 @@ export class Panel {
         <p class="muted">${d.branch ? `<code>${esc(d.branch)}</code> · ` : ''}<span class="path">${esc(d.path)}</span></p>
         <p>
           ${!a ? `<button type="button" class="hire-here" data-hire-here>🧑 에이전트 추가</button> ` : ''}${a ? `<span class="pill">${esc(a.agentType)}</span>${modelLine(a.model, a.effort) ? ` <span class="pill model">${esc(modelLine(a.model, a.effort)!)}</span>` : ''} <span class="state state-${a.state}">${STATE_LABEL[a.state] ?? a.state}</span> <span class="muted">${esc(ago(a.since))}</span>` : '<span class="pill">빈 자리</span>'}
-          ${this.statusSelect(d.workspaceStatus)}
+          ${backendInfo().capabilities.board ? this.statusSelect(d.workspaceStatus) : ''}
         </p>
         ${a ? employeeCard(a, this.department(d.repoId), this.awardsOf(a.id)) : ''}
         ${a ? `<div class="activity-row"><p class="activity">${esc(a.activity)}</p>${this.stopButton(a)}</div>` : ''}
-        <p class="comment" data-comment-row>💬 <span class="comment-text">${d.comment ? esc(d.comment) : '<span class="muted">코멘트 없음</span>'}</span>
-          <button type="button" class="link" data-edit-comment>편집</button></p>
+        ${
+          backendInfo().capabilities.board
+            ? `<p class="comment" data-comment-row>💬 <span class="comment-text">${d.comment ? esc(d.comment) : '<span class="muted">코멘트 없음</span>'}</span>
+          <button type="button" class="link" data-edit-comment>편집</button></p>`
+            : ''
+        }
         ${d.pr ? `<p class="pr">🔀 ${d.pr.url ? `<a href="${esc(d.pr.url)}" target="_blank" rel="noopener noreferrer">PR${d.pr.number ? ` #${d.pr.number}` : ''}</a>` : `PR${d.pr.number ? ` #${d.pr.number}` : ''}`}${d.pr.title ? ` · ${esc(d.pr.title)}` : ''}${d.pr.state ? ` <span class="pill">${esc(d.pr.state)}</span>` : ''}</p>` : ''}`;
     }
     applyCardWidths(this.info);
@@ -444,6 +449,7 @@ export class Panel {
     if (!a && d && this.tab !== 'changes') this.showTab('changes');
     this.sendBtn.disabled = !handle;
     this.focusBtn.disabled = !handle;
+    this.focusBtn.hidden = !backendInfo().capabilities.focus;
     this.textarea.disabled = !handle;
     if (!a && this.selection.agentId === null) {
       this.convo.innerHTML = '<p class="muted">이 워크트리에서 실행 중인 에이전트가 없습니다.</p>';
