@@ -10,8 +10,8 @@ const text = (f: Frame, row: number, col = 0, n = f.cols - col) =>
   Array.from({ length: n }, (_, i) => f.get(row, col + i)).map((c) => (c.width === 0 ? '' : c.ch)).join('');
 
 const rows: LobbyRow[] = [
-  { deskId: 'd1', repoId: 'r1', repo: 'proj', desk: 'main', agentId: 'a1', agentType: 'claude', state: 'typing', activity: '' },
-  { deskId: 'd2', repoId: 'r1', repo: 'proj', desk: 'feat', agentId: null, agentType: null, state: null, activity: '' },
+  { deskId: 'd1', repoId: 'r1', repo: 'proj', desk: 'main', isMain: true, agentId: 'a1', agentType: 'claude', state: 'typing', activity: '' },
+  { deskId: 'd2', repoId: 'r1', repo: 'proj', desk: 'feat', isMain: false, agentId: null, agentType: null, state: null, activity: '' },
 ];
 
 async function view(patch: Partial<View> = {}): Promise<View> {
@@ -53,6 +53,14 @@ describe('compose', () => {
     const all = Array.from({ length: L.panel.rows }, (_, i) => text(frame, L.panel.row + i, L.panel.col)).join('\n');
     expect(all).toContain('에이전트가 없어요 — a로 띄우기');
     expect(text(frame, 1, L.panelHead.col)).toContain('(에이전트 없음)');
+  });
+
+  it('empty office: the panel hint points at p, not a', async () => {
+    const { frame } = compose(await view({ rows: [], agent: null }), 80, 12);
+    const L = layout(80, 12)!;
+    const all = Array.from({ length: L.panel.rows }, (_, i) => text(frame, L.panel.row + i, L.panel.col)).join('\n');
+    expect(all).toContain('p로 프로젝트를 추가하세요');
+    expect(all).not.toContain('a로 띄우기');
   });
 
   it('exited agent: row has agentId but no terminal', async () => {

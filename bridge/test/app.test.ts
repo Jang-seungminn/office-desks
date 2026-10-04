@@ -264,22 +264,51 @@ describe('App: sidebar and live panel', () => {
     expect(await text()).toContain('종료할 에이전트가 없어요');
   });
 
-  it('removes a worktree after y and shows backend refusals as notices', async () => {
-    const { app, calls, deps, text } = await setup();
+  it('removes an idle worktree after y and shows backend refusals as notices', async () => {
+    const { app, calls, deps, text } = await setup([...TWO, emptyDesk('d3', 'c')]);
+    await app.handle('jj');
     await app.handle('d');
-    expect(await text()).toContain('워크트리를 지울까요? a (브랜치는 남아요) (y/N)');
+    expect(await text()).toContain('워크트리를 지울까요? c (브랜치는 남아요) (y/N)');
     await app.handle('y');
-    expect(calls).toEqual([['removeWorktree', 'd1']]);
+    expect(calls).toEqual([['removeWorktree', 'd3']]);
     deps.removeWorktree = async () => {
-      throw new BackendError('에이전트가 실행 중인 워크트리는 지울 수 없어요 (x로 먼저 종료)', 'has_agents');
+      throw new BackendError('변경사항이 있는 워크트리는 지울 수 없어요', 'dirty');
     };
-    await app.handle('dy');
-    expect(await text()).toContain('⚠ 에이전트가 실행 중인 워크트리는');
-    deps.removeWorktree = async () => {
-      throw new BackendError('메인 체크아웃은 지울 수 없어요', 'main_checkout');
-    };
-    await app.handle('dy');
-    expect(await text()).toContain('메인 체크아웃은 지울 수 없어요');
+    await app.handle('d');
+    await app.handle('y');
+    expect(await text()).toContain('⚠ 변경사항이 있는 워크트리는 지울 수 없어요');
+  });
+
+  it('refuses d at once, without asking, on the main checkout and on a worktree with an agent', async () => {
+    const main = { ...emptyDesk('d0', 'm'), isMain: true };
+    const { app, calls, text } = await setup([...TWO, main]);
+    await app.handle('d');
+    let t = await text();
+    expect(t).toContain('에이전트가 실행 중인 워크트리는 지울 수 없어요 (x로 먼저 종료)');
+    expect(t).not.toContain('(y/N)');
+    await app.handle('y');
+    await app.handle('jj');
+    await app.handle('d');
+    t = await text();
+    expect(t).toContain('메인 체크아웃은 지울 수 없어요');
+    expect(t).not.toContain('(y/N)');
+    await app.handle('y');
+    expect(calls).toEqual([]);
+  });
+
+  it('never takes the answer to a confirmation from the chunk that opened it', async () => {
+    const { app, calls, text } = await setup([...TWO, emptyDesk('d3', 'c')]);
+    await app.handle('xy'); // a pasted "xy" on a terminal without bracketed paste
+    expect(calls).toEqual([]);
+    await app.handle('n');
+    await app.handle('jjdy');
+    expect(calls).toEqual([]);
+    expect(await text()).toContain('워크트리를 지울까요? c');
+    await app.handle('y');
+    expect(calls).toEqual([['removeWorktree', 'd3']]);
+    await app.handle('d');
+    await app.handle('y');
+    expect(calls).toEqual([['removeWorktree', 'd3'], ['removeWorktree', 'd3']]);
   });
 
   it('draws an error notice exactly as composed: no stray double space after the warning sign', async () => {

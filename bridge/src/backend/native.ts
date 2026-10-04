@@ -356,16 +356,24 @@ export class NativeBackend implements OfficeBackend {
     const repo = this.deps.registry.repos.find((r) => r.id === deskId.slice(0, sep));
     const wtPath = deskId.slice(sep + 2);
     if (sep < 0 || !repo) throw new BackendError('워크트리를 찾지 못했어요', 'not_found');
-    if (slash(path.normalize(repo.path)) === wtPath) throw new BackendError('메인 체크아웃은 지울 수 없어요', 'main_checkout');
+    const failed = (err: unknown) => new BackendError(`워크트리를 지우지 못했어요 — ${String((err as Error)?.message ?? err).split('\n')[0]}`, 'remove_failed');
+    // Git's own listing decides what this desk is (fresh, not the snapshot cache).
+    let wt: WorktreeInfo | undefined;
+    try {
+      wt = (await listWorktrees(repo.path, this.git)).find((w) => slash(w.path) === wtPath);
+    } catch (err) {
+      throw failed(err);
+    }
+    if (!wt) throw new BackendError('워크트리를 찾지 못했어요', 'not_found');
+    if (wt.isMain) throw new BackendError('메인 체크아웃은 지울 수 없어요', 'main_checkout');
     if ([...this.agents.values()].some((a) => a.deskId === deskId)) {
       throw new BackendError('에이전트가 실행 중인 워크트리는 지울 수 없어요 (x로 먼저 종료)', 'has_agents');
     }
     try {
       await removeWorktree(repo.path, wtPath, this.git);
     } catch (err) {
-      const msg = (err as Error).message ?? '';
-      const detail = /modified or untracked/.test(msg) ? '' : ` — ${msg.split('\n')[0]}`;
-      throw new BackendError(`변경사항이 있는 워크트리는 지울 수 없어요${detail}`, 'dirty');
+      if (/modified or untracked/.test((err as Error)?.message ?? '')) throw new BackendError('변경사항이 있는 워크트리는 지울 수 없어요', 'dirty');
+      throw failed(err);
     }
     this.worktrees.delete(repo.path);
   }

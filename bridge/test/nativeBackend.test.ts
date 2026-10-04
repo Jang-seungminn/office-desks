@@ -155,11 +155,20 @@ describe('NativeBackend stop and remove', () => {
     await expect(backend.stopAgent('nope:main')).rejects.toMatchObject({ code: 'not_found' });
   });
 
-  it('refuses the main checkout and unknown desks', async () => {
-    const { backend } = await setup();
+  it('refuses the main checkout and unknown desks, going by git\'s own listing', async () => {
+    const { backend, gitCalls } = await setup();
     await expect(backend.removeWorktree('abcdef123456::/p/app')).rejects.toMatchObject({ code: 'main_checkout' });
     await expect(backend.removeWorktree('zzz::/p/app')).rejects.toMatchObject({ code: 'not_found' });
     await expect(backend.removeWorktree('garbage')).rejects.toMatchObject({ code: 'not_found' });
+    await expect(backend.removeWorktree('abcdef123456::/h/worktrees/app/gone')).rejects.toMatchObject({ code: 'not_found' });
+    expect(gitCalls.some((c) => c[1] === 'worktree' && c[2] === 'remove')).toBe(false);
+  });
+
+  it('knows the main checkout from git even when the registered path is spelled differently', async () => {
+    const MAIN_ELSEWHERE = 'worktree /real/app\nHEAD a\nbranch refs/heads/main\n\nworktree /h/worktrees/app/feat\nHEAD b\nbranch refs/heads/feat\n\n';
+    const { backend, gitCalls } = await setup(async () => MAIN_ELSEWHERE);
+    await expect(backend.removeWorktree('abcdef123456::/real/app')).rejects.toMatchObject({ code: 'main_checkout' });
+    expect(gitCalls.some((c) => c[1] === 'worktree' && c[2] === 'remove')).toBe(false);
   });
 
   it('refuses a worktree with a running agent', async () => {
@@ -184,12 +193,23 @@ describe('NativeBackend stop and remove', () => {
     expect(err).toMatchObject({ code: 'dirty', message: '변경사항이 있는 워크트리는 지울 수 없어요' });
   });
 
-  it('appends git\'s message when the refusal is about something else', async () => {
+  it('reports any other git failure as remove_failed with git\'s first line', async () => {
     const { backend } = await setup(async (_cwd, args) => {
-      if (args[1] === 'remove') throw new Error('fatal: cannot remove a locked working tree');
+      if (args[1] === 'remove') throw new Error('fatal: cannot remove a locked working tree\nlock reason: x');
       return PORCELAIN;
     });
-    await expect(backend.removeWorktree(FEAT)).rejects.toMatchObject({ code: 'dirty', message: expect.stringContaining(' — fatal: cannot remove a locked working tree') });
+    await expect(backend.removeWorktree(FEAT)).rejects.toMatchObject({
+      code: 'remove_failed',
+      message: '워크트리를 지우지 못했어요 — fatal: cannot remove a locked working tree',
+    });
+  });
+
+  it('reports a failed listing as remove_failed and removes nothing', async () => {
+    const { backend, gitCalls } = await setup(async () => {
+      throw new Error('fatal: not a git repository');
+    });
+    await expect(backend.removeWorktree(FEAT)).rejects.toMatchObject({ code: 'remove_failed', message: '워크트리를 지우지 못했어요 — fatal: not a git repository' });
+    expect(gitCalls.some((c) => c[1] === 'worktree' && c[2] === 'remove')).toBe(false);
   });
 });
 

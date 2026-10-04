@@ -67,6 +67,9 @@ export class App {
   private formKind: FormKind | null = null;
   private confirmKind: ConfirmKind | null = null;
   private target: LobbyRow | null = null;
+  /** Input chunks seen so far, and the one that opened the confirmation (never its answer). */
+  private chunks = 0;
+  private confirmChunk = -1;
   private session: AttachSession | null = null;
   private pending = '';
   private pendingTimer: NodeJS.Timeout | null = null;
@@ -112,6 +115,7 @@ export class App {
     if (this.closed) return;
     if (this.mode === 'zoom') return void this.session?.input(chunk);
     if (this.mode === 'panel') return this.panelChunk(chunk);
+    this.chunks++;
     this.clearPending();
     const full = this.pending + chunk;
     let data = full;
@@ -126,7 +130,12 @@ export class App {
         if (this.pending !== held) return;
         this.pending = '';
         // In line with any input still being handled (a hire in flight, say).
-        if (held === '\x1b') this.enqueue(() => this.keys([{ key: { name: 'escape' }, end: 0 }], ''));
+        if (held === '\x1b') {
+          this.enqueue(async () => {
+            this.chunks++; // a key of its own, not part of the chunk it arrived with
+            await this.keys([{ key: { name: 'escape' }, end: 0 }], '');
+          });
+        }
       }, this.escWaitMs);
     }
     await this.keys(decodeKeysAt(data), full);
@@ -217,7 +226,11 @@ export class App {
     } else if (ch === 'x') {
       if (row?.agentId) this.ask('stop', row);
       else if (row) this.notice = '종료할 에이전트가 없어요';
-    } else if (ch === 'd' && row) this.ask('remove', row);
+    } else if (ch === 'd' && row) {
+      if (row.isMain) this.notice = '메인 체크아웃은 지울 수 없어요';
+      else if (row.agentId) this.notice = '에이전트가 실행 중인 워크트리는 지울 수 없어요 (x로 먼저 종료)';
+      else this.ask('remove', row);
+    }
   }
 
   private async formKey(k: Key): Promise<void> {
@@ -232,6 +245,8 @@ export class App {
   }
 
   private async confirmKey(k: Key): Promise<void> {
+    // A pasted "dy" (no bracketed paste) must not answer its own question: wait for the next chunk.
+    if (this.chunks === this.confirmChunk) return;
     const kind = this.confirmKind!;
     const target = this.target;
     this.mode = 'list';
@@ -263,6 +278,7 @@ export class App {
   private ask(kind: ConfirmKind, row: LobbyRow | null): void {
     this.confirmKind = kind;
     this.target = row;
+    this.confirmChunk = this.chunks;
     this.mode = 'confirm';
   }
 

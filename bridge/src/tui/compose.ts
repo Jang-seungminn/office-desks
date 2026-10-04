@@ -70,7 +70,8 @@ export function compose(v: View, cols: number, rows: number): { frame: Frame; cu
     if (!listFocus && v.scroll === 0) cursor = c;
   } else {
     fillRect(frame, L.panel);
-    centered(frame, L.panel, sel?.agentId ? '종료됨' : '에이전트가 없어요 — a로 띄우기', DIM);
+    const hint = !v.rows.length ? 'p로 프로젝트를 추가하세요' : sel?.agentId ? '종료됨' : '에이전트가 없어요 — a로 띄우기';
+    centered(frame, L.panel, hint, DIM);
   }
 
   putText(frame, L.help.row, L.help.col, v.help, style({}), L.help.cols);

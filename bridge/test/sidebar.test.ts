@@ -4,7 +4,7 @@ import type { LobbyRow } from '../src/tui/lobby.js';
 import { drawSidebar } from '../src/tui/sidebar.js';
 
 const row = (repo: string, desk: string, agentId: string | null, state: string | null): LobbyRow => ({
-  deskId: `${repo}::/${desk}`, repoId: repo, repo, desk, agentId, agentType: agentId ? 'claude' : null, state, activity: '',
+  deskId: `${repo}::/${desk}`, repoId: repo, repo, desk, isMain: false, agentId, agentType: agentId ? 'claude' : null, state, activity: '',
 });
 const line = (f: Frame, y: number, cols: number) => Array.from({ length: cols }, (_, x) => f.get(y, x).ch).join('');
 
