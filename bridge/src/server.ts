@@ -5,19 +5,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { CommandCatalog } from './commands.js';
-import { createDemoAwards, createDemoRunner, demoEnrichment, demoOrg } from './demo.js';
+import { createDemoAwards, demoOrg } from './demo.js';
 import { agentStats } from './stats.js';
 import { loadOrg, orgFile, saveOrg, sanitizeOrg } from './org.js';
 import { AwardBook, awardsFile } from './awards.js';
 import { changeSummary, fileDiff } from './gitInfo.js';
 import { validateHire } from './hire.js';
-import { OrcaBackend } from './backend/orca.js';
+import { createBackend } from './backend/index.js';
 import { BackendBusyError, type BackendError, type OfficeBackend } from './backend/types.js';
 import { charBytes, keyBytes } from './keys.js';
 import { answerQuestions, validateChoices } from './answer.js';
 import { composerState, screenSupport } from './screen.js';
 import type { AnswerRequest, ConversationResponse, FocusRequest, KeyRequest, QueueRequest, TerminalKey, WorktreeUpdate, HireRequest, SearchResult, OfficeAgent, OfficeDesk, SendRequest, ServerMessage, TerminalScreen, UsageSnapshot, FileDiffResponse, OrgChart } from './model.js';
-import { createOrcaRunner, resolveOrcaCommand } from './orcaCli.js';
+import { resolveOrcaCommand } from './orcaCli.js';
 import { OfficePoller } from './poller.js';
 import { isAllowedRequest, setSecurityHeaders } from './security.js';
 import { isLinkedImage, readLocalImage } from './localImage.js';
@@ -30,15 +30,15 @@ const PORT = Number(process.env.OFFICE_DESKS_PORT ?? 4317);
 const DEV_WEB_PORT = 5173;
 const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 
-const DEMO = Boolean(process.env.OFFICE_DESKS_DEMO);
-const orca = DEMO ? createDemoRunner() : createOrcaRunner();
 // Only accept a session whose transcript actually contains what we searched for.
-const backend: OfficeBackend = new OrcaBackend(orca, async (filePath, key) => {
+const backend: OfficeBackend = createBackend(process.env, async (filePath, key) => {
   const t = await readTranscript(filePath);
   if (key.title) return t.title?.toLowerCase() === key.title.toLowerCase() || t.messages.length > 0;
   const needle = key.phrase.slice(0, 40);
   return t.messages.some((m) => m.role !== 'tool' && m.text.replace(/\s+/g, ' ').includes(needle));
 });
+// Sample awards and org chart for the demo office (not a backend concern).
+const DEMO = backend.name === 'demo';
 const commands = new CommandCatalog();
 const poller = new OfficePoller(() => backend.snapshot(), 1500, async (s) => {
   await enrichFromTranscripts(s.desks);
@@ -172,12 +172,8 @@ function updateAwards(desks: OfficeDesk[]): void {
 
 /** Add what only transcripts know (running subagents, model, effort) to every agent. */
 async function enrichFromTranscripts(desks: OfficeDesk[]): Promise<void> {
-  if (!DEMO) for (const d of desks) d.changes = cachedChanges(d);
-  if (DEMO) {
-    for (const a of desks.flatMap((d) => d.agents)) Object.assign(a, demoEnrichment(a.id));
-    for (const [i, d] of desks.entries()) d.changes = d.agents.length ? { files: (i % 4) + 1, added: 12 + i * 37, deleted: i * 9 } : null;
-    return;
-  }
+  if (backend.capabilities.changes) for (const d of desks) d.changes = cachedChanges(d);
+  if (!backend.capabilities.transcripts) return;
   await Promise.all(
     desks.flatMap((desk) =>
       desk.agents
@@ -265,7 +261,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   if (req.method === 'GET' && (pathname === '/api/changes' || pathname === '/api/diff')) {
     // Only worktrees Orca reports; files only from git's own list of changes.
     const desk = poller.current.desks.find((d) => d.id === url.searchParams.get('deskId'));
-    if (!desk || DEMO) return json(res, 404, { error: 'unknown worktree' });
+    if (!desk || !backend.capabilities.changes) return json(res, 404, { error: 'unknown worktree' });
     const summary = await changeSummary(desk.path);
     if (pathname === '/api/changes') return json(res, 200, summary);
     const file = summary.files.find((f) => f.path === url.searchParams.get('file'));
@@ -275,7 +271,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   if (req.method === 'GET' && pathname === '/api/search') {
     const q = (url.searchParams.get('q') ?? '').trim();
     if (!q || q.length > 200) return json(res, 400, { error: '검색어를 1~200자로 입력해 주세요' });
-    if (DEMO) return json(res, 200, { results: [] });
+    if (!backend.capabilities.search) return json(res, 200, { results: [] });
     const hits = await backend.searchConversations(q);
     const results: SearchResult[] = hits.map((h) => {
       // Is this the session an agent in the office is running right now?
@@ -407,7 +403,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
 
   if (pathname === '/api/hire') {
     const body = await readJson<HireRequest>(req);
-    if (DEMO) return json(res, 400, { error: '데모 모드에서는 만들 수 없어요' });
+    if (!backend.capabilities.hire) return json(res, 400, { error: '데모 모드에서는 만들 수 없어요' });
     const spec = validateHire(body, poller.current.desks);
     if ('error' in spec) return json(res, 400, { error: spec.error });
     const result = await backend.hire(spec);
@@ -419,7 +415,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   if (pathname === '/api/worktree') {
     const body = await readJson<WorktreeUpdate>(req);
     const desk = poller.current.desks.find((d) => d.id === body.deskId);
-    if (!desk || DEMO) return json(res, 404, { error: 'unknown worktree' });
+    if (!desk || !backend.capabilities.board) return json(res, 404, { error: 'unknown worktree' });
     const update: { workspaceStatus?: string; comment?: string } = {};
     if (body.workspaceStatus !== undefined) {
       if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(body.workspaceStatus)) return json(res, 400, { error: 'invalid status' });
@@ -551,5 +547,5 @@ poller.setIdle(true); // until a browser connects
 poller.start();
 void cleanOldUploads();
 server.listen(PORT, HOST, () => {
-  console.log(`[office-desks] bridge on http://${HOST}:${PORT} (${DEMO ? 'DEMO data' : `orca cli: ${resolveOrcaCommand()}`})`);
+  console.log(`[office-desks] bridge on http://${HOST}:${PORT} (${DEMO ? 'DEMO data' : `${backend.name} backend, orca cli: ${resolveOrcaCommand()}`})`);
 });
