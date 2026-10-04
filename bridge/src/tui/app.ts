@@ -480,9 +480,17 @@ export class App {
       selected: this.selected,
       focus: this.mode === 'panel' ? 'panel' : 'list',
       url: this.deps.url,
-      agent: this.shownTerminal(),
-      agentCursorHidden: this.shownPty ? this.deps.cursorHidden(this.shownPty) : false,
-      scroll: this.scroll,
+      preset: 1,
+      focusedPane: 0,
+      panes: [
+        {
+          row: this.rows[this.selected] ?? null,
+          agent: this.shownTerminal(),
+          cursorHidden: this.shownPty ? this.deps.cursorHidden(this.shownPty) : false,
+          scroll: this.scroll,
+          selection: null,
+        },
+      ],
       ...this.help(),
     };
   }

@@ -1,6 +1,6 @@
 import { Terminal } from '@xterm/headless';
 import { describe, expect, it } from 'vitest';
-import { compose, type View } from '../src/tui/compose.js';
+import { compose, type PaneView, type View } from '../src/tui/compose.js';
 import type { Frame } from '../src/tui/frame.js';
 import { layout } from '../src/tui/layout.js';
 import type { LobbyRow } from '../src/tui/lobby.js';
@@ -14,11 +14,24 @@ const rows: LobbyRow[] = [
   { deskId: 'd2', repoId: 'r1', repo: 'proj', desk: 'feat', isMain: false, agentId: null, agentType: null, state: null, activity: '' },
 ];
 
-async function view(patch: Partial<View> = {}): Promise<View> {
-  const agent = new Terminal({ cols: 20, rows: 5, allowProposedApi: true });
-  await write(agent, 'hello agent\r\nsecond');
-  return { rows, selected: 0, focus: 'panel', url: 'http://x:1', agent, scroll: 0, agentCursorHidden: false, help: ' q 종료', helpCursor: null, ...patch };
+type Patch = Partial<Omit<View, 'panes'>> & { agent?: Terminal | null; scroll?: number; agentCursorHidden?: boolean };
+
+async function view(patch: Patch = {}): Promise<View> {
+  const { agent: ag, scroll = 0, agentCursorHidden = false, ...rest } = patch;
+  const agent = ag === undefined ? new Terminal({ cols: 20, rows: 5, allowProposedApi: true }) : ag;
+  if (ag === undefined) await write(agent!, 'hello agent\r\nsecond');
+  const v = { rows, selected: 0, focus: 'panel' as const, url: 'http://x:1', help: ' q 종료', helpCursor: null, preset: 1 as const, focusedPane: 0, ...rest };
+  return { ...v, panes: [{ row: v.rows[v.selected] ?? null, agent, cursorHidden: agentCursorHidden, scroll, selection: null }] };
 }
+
+async function agentWith(content: string): Promise<Terminal> {
+  const t = new Terminal({ cols: 40, rows: 6, allowProposedApi: true });
+  await write(t, content);
+  return t;
+}
+
+const pv = (row: LobbyRow | null, agent: Terminal | null, extra: Partial<PaneView> = {}): PaneView => ({ row, agent, cursorHidden: false, scroll: 0, selection: null, ...extra });
+const base = (patch: Partial<View>): View => ({ rows, selected: 0, focus: 'panel', url: 'u', help: '', helpCursor: null, preset: 1, focusedPane: 0, panes: [], ...patch });
 
 describe('compose', () => {
   it('panel focus: title, panel text, separator, cursor and help', async () => {
@@ -45,7 +58,7 @@ describe('compose', () => {
     const { frame, cursor } = compose(await view({ focus: 'list' }), 80, 12);
     expect(cursor).toBeNull();
     expect(frame.get(1, 1).style.bold).toBe(true);
-    expect(frame.get(1, layout(80, 12)!.panes[0].head.col).style.bold).toBe(false);
+    expect(frame.get(1, layout(80, 12)!.panes[0].head.col).style.bold).toBe(true); // v3: focused pane head stays bright in list focus
   });
 
   it('help cursor when the list has focus', async () => {
@@ -100,6 +113,88 @@ describe('compose', () => {
         }
         expect(frame.get(y, c - 1).width).not.toBe(2);
       }
+    }
+  });
+
+  it('preset 2: two agents side by side, divider, only the focused head bold', async () => {
+    const a = await agentWith('AAA one');
+    const b = await agentWith('BBB two');
+    const v = base({ preset: 2, focusedPane: 1, panes: [pv(rows[0], a), pv(rows[0], b)] });
+    const { frame } = compose(v, 160, 30);
+    const L = layout(160, 30, 2)!;
+    expect(L.preset).toBe(2);
+    for (const [i, t] of [a, b].entries()) {
+      const r = L.panes[i].body;
+      const line = t.buffer.active.getLine(0)!;
+      for (let x = 0; x < 7; x++) expect(frame.get(r.row, r.col + x).ch).toBe(line.getCell(x)!.getChars() || ' ');
+    }
+    const d = L.dividers[0];
+    for (let y = d.row; y < d.row + d.rows; y++) expect(frame.get(y, d.col).ch).toBe('│');
+    expect(frame.get(L.panes[0].head.row, L.panes[0].head.col + 1).style.bold).toBe(false);
+    expect(frame.get(L.panes[1].head.row, L.panes[1].head.col + 1).style.bold).toBe(true);
+  });
+
+  it('preset 4 at 200x50: four heads and a crossing', async () => {
+    const ts = await Promise.all([1, 2, 3, 4].map((n) => agentWith(`t${n}`)));
+    const { frame } = compose(base({ preset: 4, panes: ts.map((t) => pv(rows[0], t)) }), 200, 50);
+    const L = layout(200, 50, 4)!;
+    expect(L.panes).toHaveLength(4);
+    for (const p of L.panes) expect(text(frame, p.head.row, p.head.col, 20)).toContain('proj/main · claude');
+    const [v, h] = L.dividers;
+    expect(frame.get(h.row, v.col).ch).toBe('┼');
+    expect(frame.get(h.row, v.col + 1).ch).toBe('─');
+    expect(frame.get(v.row, v.col).ch).toBe('│');
+  });
+
+  it('preset 4 at 100x36 falls back to 3: two panes', async () => {
+    const ts = await Promise.all([1, 2, 3, 4].map((n) => agentWith(`t${n}`)));
+    const { frame } = compose(base({ preset: 4, panes: ts.map((t) => pv(rows[0], t)) }), 100, 36);
+    const L = layout(100, 36, 4)!;
+    expect(L.preset).toBe(3);
+    expect(L.panes).toHaveLength(2);
+    expect(frame.get(L.dividers[0].row, L.dividers[0].col + 3).ch).toBe('─');
+  });
+
+  it('selection overlay toggles inverse on the selected cells only', async () => {
+    const t = await agentWith('say ok now');
+    const selection = { pane: 0, anchor: { line: 0, col: 4 }, head: { line: 0, col: 5 } };
+    const { frame } = compose(base({ panes: [pv(rows[0], t, { selection })] }), 80, 12);
+    const r = layout(80, 12)!.panes[0].body;
+    const inv = Array.from({ length: 10 }, (_, x) => frame.get(r.row, r.col + x).style.inverse);
+    expect(inv).toEqual([false, false, false, false, true, true, false, false, false, false]);
+  });
+
+  it('cursor comes only from the focused pane in panel focus', async () => {
+    const a = await agentWith('ab');
+    const b = await agentWith('abcdef');
+    const L = layout(160, 30, 2)!;
+    const panes = [pv(rows[0], a), pv(rows[0], b)];
+    const c1 = compose(base({ preset: 2, focusedPane: 1, panes }), 160, 30).cursor;
+    expect(c1).toEqual({ row: L.panes[1].body.row, col: L.panes[1].body.col + 6 });
+    const c0 = compose(base({ preset: 2, focusedPane: 0, panes }), 160, 30).cursor;
+    expect(c0).toEqual({ row: L.panes[0].body.row, col: L.panes[0].body.col + 2 });
+    expect(compose(base({ preset: 2, focusedPane: 1, focus: 'list', panes }), 160, 30).cursor).toBeNull();
+    const scrolled = [pv(rows[0], a), pv(rows[0], b, { scroll: 1 })];
+    expect(compose(base({ preset: 2, focusedPane: 1, panes: scrolled }), 160, 30).cursor).toBeNull();
+  });
+
+  it('empty pane shows (비어 있음)', async () => {
+    const t = await agentWith('x');
+    const { frame } = compose(base({ preset: 2, panes: [pv(rows[0], t), pv(null, null)] }), 160, 30);
+    const L = layout(160, 30, 2)!;
+    expect(text(frame, L.panes[1].head.row, L.panes[1].head.col)).toContain('(비어 있음)');
+  });
+
+  it('preset 4 frame rows are cols wide with no split wide chars', async () => {
+    const ts = await Promise.all([1, 2, 3, 4].map((n) => agentWith(`한글 ${n}`.repeat(9))));
+    const { frame } = compose(base({ preset: 4, panes: ts.map((t) => pv(rows[0], t)) }), 201, 50);
+    for (let y = 0; y < 50; y++) {
+      for (let x = 0; x < 201; x++) {
+        const cell = frame.get(y, x);
+        if (cell.width === 2) expect(frame.get(y, x + 1).width).toBe(0);
+        if (cell.width === 0) expect(frame.get(y, x - 1).width).toBe(2);
+      }
+      expect(frame.get(y, 200).width).not.toBe(2);
     }
   });
 });
