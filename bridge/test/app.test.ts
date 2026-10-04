@@ -99,6 +99,12 @@ async function setup(desks: unknown[] = TWO, agentText: Record<string, string> =
   const emit = async (pty: string, s: string) => {
     await put(terms.get(pty)!, s);
     for (const fn of data.get(pty) ?? []) fn(s);
+    await put(terms.get(pty)!, ''); // past the App's parse barrier: its render is now scheduled
+  };
+  /** Like PtyHost: the headless write is queued (parsed later) and listeners are told at once. */
+  const emitRaw = (pty: string, s: string) => {
+    terms.get(pty)!.write(s);
+    for (const fn of data.get(pty) ?? []) fn(s);
   };
   const exit = (pty: string) => {
     terms.get(pty)?.dispose();
@@ -115,7 +121,7 @@ async function setup(desks: unknown[] = TWO, agentText: Record<string, string> =
     real.resize(cols, rows);
     resizeFns.forEach((fn) => fn());
   };
-  return { app, out, deps, calls, writes, resizes, terms, screen, text, selectedLine, emit, exit, setSnap, resize, input: () => onInput };
+  return { app, out, deps, calls, writes, resizes, terms, screen, text, selectedLine, emit, emitRaw, exit, setSnap, resize, input: () => onInput };
 }
 
 describe('App: sidebar and live panel', () => {
@@ -195,6 +201,15 @@ describe('App: sidebar and live panel', () => {
     app.flush();
     await wait(30);
     expect(out.text).toBe('');
+  });
+
+  it('draws agent output only once its headless terminal has parsed it', async () => {
+    const { app, emitRaw, terms, text } = await setup();
+    emitRaw('p1', ' parsed later');
+    app.flush(); // nothing parsed yet: a draw now would show the old screen and never be redone
+    await put(terms.get('p1')!, '');
+    await wait(40);
+    expect(await text()).toContain('agent one screen parsed later');
   });
 
   it('coalesces agent output into one render after a short delay', async () => {

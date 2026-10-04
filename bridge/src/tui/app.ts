@@ -27,10 +27,16 @@ export interface TuiDeps {
   stopAgent(agentId: string): Promise<void>;
   removeWorktree(deskId: string): Promise<void>;
   terminalOf(agentId: string): string | null;
-  terminal(ptyId: string): (HeadlessLike & { modes: { bracketedPasteMode: boolean; applicationCursorKeysMode: boolean } }) | null;
+  /** The agent's headless terminal; `write('', cb)` is used only as a barrier (cb once parsed). */
+  terminal(ptyId: string): (HeadlessLike & { modes: AgentModes; write(data: string, cb?: () => void): void }) | null;
   resizeAgents(cols: number, rows: number): void;
   host: AttachHost;
   url: string;
+}
+
+export interface AgentModes {
+  bracketedPasteMode: boolean;
+  applicationCursorKeysMode: boolean;
 }
 
 export interface TermIn {
@@ -379,8 +385,21 @@ export class App {
     this.offShown = null;
     this.shownPty = pty;
     this.scroll = 0;
-    if (pty) this.offShown = this.deps.host.onData(pty, () => this.renderer.schedule());
+    if (pty) this.offShown = this.deps.host.onData(pty, () => this.outputSeen(pty));
     return true;
+  }
+
+  /**
+   * PtyHost queues output into the headless terminal and tells us at once; xterm parses it later
+   * (in slices, for a burst). Drawing only after an empty write's callback means the screen we
+   * copy is the one that output produced, not a half-parsed one that nothing would redraw.
+   */
+  private outputSeen(pty: string): void {
+    const term = this.deps.terminal(pty);
+    if (!term) return this.renderer.schedule();
+    term.write('', () => {
+      if (pty === this.shownPty) this.renderer.schedule();
+    });
   }
 
   /** The shown agent's headless terminal, fetched fresh: it is disposed when the agent exits. */
