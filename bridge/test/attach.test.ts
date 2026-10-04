@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { AttachSession, type AttachHost } from '../src/tui/attach.js';
-import { RESET_MODES } from '../src/tui/screen.js';
+import serializeAddon from '@xterm/addon-serialize';
+import xtermHeadless from '@xterm/headless';
+import { AttachSession, dropsRegion, type AttachHost } from '../src/tui/attach.js';
+import { POP_TITLE, PUSH_TITLE, RESET_MODES } from '../src/tui/screen.js';
+
+const { Terminal } = xtermHeadless;
+const { SerializeAddon } = serializeAddon;
 
 function fakeHost() {
   const data = new Set<(d: string) => void>();
@@ -112,5 +117,122 @@ describe('AttachSession', () => {
     new AttachSession(host as unknown as AttachHost, 'p1', fakeOut(), 's', (r) => left.push(r)).start();
     expect(left).toEqual(['exited']);
     expect(host.replies).toEqual([false, true]);
+  });
+});
+
+describe('AttachSession on a real terminal', () => {
+  // The user's terminal and the agent's screen are both headless xterms; the attach view must
+  // show the agent's rows 1..rows-1 exactly, with our status line alone on the last row.
+  function rig(cols: number, rows: number) {
+    const agent = new Terminal({ cols, rows: rows - 1, allowProposedApi: true, scrollback: 1000 });
+    const serializer = new SerializeAddon();
+    agent.loadAddon(serializer);
+    const real = new Terminal({ cols, rows, allowProposedApi: true, scrollback: 1000 });
+    const listeners = new Set<(d: string) => void>();
+    const host = {
+      has: () => true,
+      write: () => {},
+      onData: (_id: string, fn: (d: string) => void) => (listeners.add(fn), () => listeners.delete(fn)),
+      onExit: () => () => {},
+      resize: (_id: string, c: number, r: number) => agent.resize(c, r),
+      serialize: () => serializer.serialize(),
+      setReplies: () => {},
+    };
+    const out = { columns: cols, rows, write: (s: string) => (real.write(s), true) };
+    const flush = (t: InstanceType<typeof Terminal>) => new Promise<void>((r) => t.write('', r));
+    const feedAgent = async (d: string) => {
+      await new Promise<void>((r) => agent.write(d, r));
+      listeners.forEach((fn) => fn(d));
+      await flush(real);
+    };
+    const line = (t: InstanceType<typeof Terminal>, y: number) => t.buffer.active.getLine(t.buffer.active.baseY + y)?.translateToString(true) ?? '';
+    const check = async () => {
+      await flush(agent);
+      await flush(real);
+      const r = out.rows;
+      for (let y = 0; y < r - 1; y++) expect(line(real, y), `row ${y + 1}`).toBe(line(agent, y));
+      expect(line(real, r - 1)).toContain('Ctrl+] 로비');
+      expect([real.buffer.active.cursorX, real.buffer.active.cursorY]).toEqual([agent.buffer.active.cursorX, agent.buffer.active.cursorY]);
+    };
+    return { agent, real, host, out, feedAgent, check, flush };
+  }
+
+  it('repaints scrollback without shifting the agent under the status row', async () => {
+    const { agent, host, out, check, flush } = rig(40, 10);
+    agent.write(Array.from({ length: 50 }, (_, i) => `line ${i}`).join('\r\n'));
+    await flush(agent);
+    new AttachSession(host as unknown as AttachHost, 'p1', out, 'app/x · claude', () => {}).start();
+    await check();
+  });
+
+  it('keeps aligned while output grows past the agent last row', async () => {
+    const { agent, host, out, feedAgent, check, flush } = rig(40, 10);
+    agent.write('hello');
+    await flush(agent);
+    new AttachSession(host as unknown as AttachHost, 'p1', out, 's', () => {}).start();
+    for (let i = 0; i < 25; i++) await feedAgent(`\r\nout ${i}`);
+    await check();
+    // An agent that resets its scroll region, or leaves the alternate screen, must not undo ours.
+    await feedAgent('\x1b[r\x1b[?1049h\x1b[?1049l');
+    for (let i = 0; i < 15; i++) await feedAgent(`\r\nmore ${i}`);
+    await check();
+  });
+
+  it('re-sets the region and repaints on resize', async () => {
+    const { agent, real, host, out, feedAgent, check, flush } = rig(40, 10);
+    agent.write(Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\r\n'));
+    await flush(agent);
+    const s = new AttachSession(host as unknown as AttachHost, 'p1', out, 's', () => {});
+    s.start();
+    await flush(real);
+    real.resize(40, 14);
+    out.rows = 14;
+    s.resized();
+    await check();
+    for (let i = 0; i < 20; i++) await feedAgent(`\r\nafter ${i}`);
+    await check();
+    real.resize(40, 8);
+    out.rows = 8;
+    s.resized();
+    for (let i = 0; i < 5; i++) await feedAgent(`\r\nsmall ${i}`);
+    await check();
+  });
+});
+
+describe('dropsRegion', () => {
+  it('spots output that leaves the terminal without our region, and respects narrower ones', () => {
+    expect(dropsRegion('plain text', 9)).toBe(false);
+    expect(dropsRegion('\x1b[r', 9)).toBe(true);
+    expect(dropsRegion('\x1b[1;0r', 9)).toBe(true);
+    expect(dropsRegion('\x1b[1;10r', 9)).toBe(true);
+    expect(dropsRegion('\x1b[1;9r', 9)).toBe(false);
+    expect(dropsRegion('\x1b[r\x1b[3;5r', 9)).toBe(false);
+    expect(dropsRegion('\x1b[?1049h', 9)).toBe(true);
+    expect(dropsRegion('\x1bc', 9)).toBe(true);
+    expect(dropsRegion('\x1b[!p', 9)).toBe(true);
+    expect(dropsRegion('\x1b[?6r', 9)).toBe(false); // XTRESTORE, not margins
+  });
+
+  it('re-sets the region when the reset is split across chunks', () => {
+    const host = fakeHost();
+    const out = fakeOut(100, 30);
+    new AttachSession(host as unknown as AttachHost, 'p1', out, 's', () => {}).start();
+    out.text = '';
+    host.emit('abc\x1b[');
+    expect(out.text).not.toContain('\x1b[1;29r');
+    host.emit('r');
+    expect(out.text).toContain('\x1b7\x1b[1;29r\x1b8');
+  });
+
+  it('pushes the window title on attach and pops it on leave', () => {
+    const host = fakeHost();
+    const out = fakeOut();
+    const s = new AttachSession(host as unknown as AttachHost, 'p1', out, 's', () => {});
+    s.start();
+    expect(out.text.startsWith(PUSH_TITLE)).toBe(true);
+    s.input('\x1d');
+    expect(out.text.endsWith(POP_TITLE)).toBe(true);
+    expect(RESET_MODES).toContain('\x1b[>4m');
+    expect(RESET_MODES).toContain('\x1b[4l');
   });
 });
