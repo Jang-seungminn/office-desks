@@ -47,6 +47,15 @@ describe('PanelInput', () => {
     expect(flushed).toEqual(['\x1b']);
   });
 
+  it('drops a paste end marker whose paste was already flushed', async () => {
+    const { p, flushed } = make(20);
+    p.feed('\x1b[200~slow');
+    await wait(40);
+    expect(flushed).toEqual(['\x1b[200~slow']);
+    expect(p.feed(' rest\x1b[201~ok')).toEqual({ send: ' restok', leave: false });
+    expect(p.feed('\x1b[200~a\x1b[201~')).toEqual({ send: '\x1b[200~a\x1b[201~', leave: false });
+  });
+
   it('drops held bytes on reset, and their timer with them', async () => {
     const { p, flushed } = make(20);
     p.feed('\x1b[200~gone');

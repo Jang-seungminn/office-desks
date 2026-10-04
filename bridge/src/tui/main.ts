@@ -178,7 +178,13 @@ export async function runTui(): Promise<void> {
       // PtyHost hands out its headless xterm Terminal, which has `modes`.
       terminal: (pty) => backend.pty.terminal(pty) as ReturnType<TuiDeps['terminal']>,
       resizeAgents: (c, r) => {
-        for (const id of backend.pty.ids()) backend.pty.resize(id, c, r);
+        for (const id of backend.pty.ids()) {
+          try {
+            backend.pty.resize(id, c, r);
+          } catch {
+            // a dying PTY: its exit event follows; never let a resize take the TUI down
+          }
+        }
       },
       host: backend.pty,
       url: `http://127.0.0.1:${port}`,

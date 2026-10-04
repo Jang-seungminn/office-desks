@@ -70,7 +70,7 @@ export class App {
   private session: AttachSession | null = null;
   private pending = '';
   private pendingTimer: NodeJS.Timeout | null = null;
-  /** A bracketed paste in list/form focus (since when): typed into a form, never taken as keys. */
+  /** A bracketed paste in list/form focus (last pasted input at): typed into a form, never taken as keys. */
   private pasteSince: number | null = null;
   private shownPty: string | null = null;
   private offShown: (() => void) | null = null;
@@ -187,9 +187,10 @@ export class App {
     }
     if (this.pasteSince === null) return false;
     if (Date.now() - this.pasteSince > PASTE_WAIT_MS) {
-      this.pasteSince = null; // the end marker got lost
+      this.pasteSince = null; // no pasted input for a while: the end marker got lost
       return false;
     }
+    this.pasteSince = Date.now(); // a slow paste (over SSH, say) stays a paste while it keeps coming
     if (this.mode === 'form' && k.name === 'char') {
       this.form?.key(k);
       this.render();
@@ -395,6 +396,7 @@ export class App {
    * copy is the one that output produced, not a half-parsed one that nothing would redraw.
    */
   private outputSeen(pty: string): void {
+    if (this.closed || this.mode === 'zoom') return; // zoom passes output through; we draw nothing
     const term = this.deps.terminal(pty);
     if (!term) return this.renderer.schedule();
     term.write('', () => {

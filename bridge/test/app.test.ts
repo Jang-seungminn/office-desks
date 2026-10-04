@@ -1,5 +1,5 @@
 import { Terminal } from '@xterm/headless';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BackendError } from '../src/backend/types.js';
 import type { OfficeSnapshot } from '../src/model.js';
 import { App, type TuiDeps } from '../src/tui/app.js';
@@ -322,6 +322,33 @@ describe('App: sidebar and live panel', () => {
     await app.handle('\x1b[200~/repo/x\r\x1b[201~');
     await app.handle('\r');
     expect(calls).toEqual([['addRepo', '/repo/x']]);
+  });
+
+  it('sends a lone ESC to the agent in panel focus after the escape wait', async () => {
+    const { app, writes } = await setup();
+    await app.handle('\r');
+    await app.handle('\x1b');
+    expect(writes).toEqual([]);
+    await wait(120);
+    expect(writes).toEqual([['p1', '\x1b']]);
+  });
+
+  it('keeps ignoring a slow paste in list focus as long as its chunks keep coming', async () => {
+    const { app, calls, text, selectedLine } = await setup();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const t0 = Date.now();
+      await app.handle('\x1b[200~xx');
+      vi.setSystemTime(t0 + 900);
+      await app.handle('xx');
+      vi.setSystemTime(t0 + 1800);
+      await app.handle('jdy\x1b[201~');
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(calls).toEqual([]);
+    expect(await selectedLine()).toMatch(/▸ a\b/);
+    expect(await text()).not.toContain('(y/N)');
   });
 
   it('never renders after close, even with agent output pending', async () => {

@@ -75,6 +75,17 @@ describe('PtyHost', () => {
     expect(host.size('t1')).toEqual({ cols: 120, rows: 40 });
     expect(host.terminal('nope')).toBeNull();
   }, 15_000);
+
+  it('ignores a resize the PTY refuses (exited, exit event not yet fired)', async () => {
+    host = new PtyHost();
+    host.spawn('t2', { file: process.execPath, args: ['-e', ECHO], cwd: process.cwd(), env: { ...process.env } as Record<string, string> });
+    await until(() => host!.screenLines('t2').some((l) => l.includes('ready')));
+    const session = (host as unknown as { sessions: Map<string, { proc: { resize(c: number, r: number): void } }> }).sessions.get('t2')!;
+    session.proc.resize = () => {
+      throw new Error('EBADF: ioctl(2) failed');
+    };
+    expect(() => host!.resize('t2', 80, 20)).not.toThrow();
+  }, 15_000);
 });
 
 describe('resolveSpawn', () => {

@@ -145,8 +145,12 @@ export class PtyHost {
     const s = this.sessions.get(id);
     if (!s || cols < 2 || rows < 2) return;
     if (s.term.cols === cols && s.term.rows === rows) return;
-    s.proc.resize(cols, rows);
-    s.term.resize(cols, rows);
+    try {
+      s.proc.resize(cols, rows);
+      s.term.resize(cols, rows);
+    } catch {
+      // The process exited and its exit event is still on the way (EBADF, ConPTY): nothing to size.
+    }
   }
 
   /** The agent's headless xterm, for read-only use (drawing the panel). */

@@ -25,12 +25,12 @@ export class PanelInput {
     const data = this.held + chunk;
     this.reset();
     const cuts = ESCAPE_FORMS.map((f) => data.indexOf(f)).filter((i) => i >= 0);
-    if (cuts.length) return { send: data.slice(0, Math.min(...cuts)), leave: true };
+    if (cuts.length) return { send: dropOrphanEnds(data.slice(0, Math.min(...cuts))), leave: true };
     const start = data.lastIndexOf(PASTE_START);
     if (start >= 0 && data.indexOf(PASTE_END, start) < 0) return this.hold(data, start, this.pasteWaitMs);
     const cut = INCOMPLETE_ESCAPE.exec(data);
     if (cut) return this.hold(data, cut.index, this.escWaitMs);
-    return { send: data, leave: false };
+    return { send: dropOrphanEnds(data), leave: false };
   }
 
   /** Drop whatever is held (panel focus ended). */
@@ -47,6 +47,29 @@ export class PanelInput {
       this.reset();
       if (held) this.onTimeout(held);
     }, ms);
-    return { send: data.slice(0, from), leave: false };
+    return { send: dropOrphanEnds(data.slice(0, from)), leave: false };
   }
+}
+
+/**
+ * Drop a paste end marker with no paste open before it. That happens when the safety flush already
+ * sent a paste whose end was late (encodePanelInput closed it): the rest of that paste then reaches
+ * the agent as plain typing, which beats waiting forever, and the late marker must not follow raw.
+ */
+function dropOrphanEnds(data: string): string {
+  let out = '';
+  let open = false;
+  let i = 0;
+  while (i < data.length) {
+    if (data.startsWith(PASTE_START, i)) {
+      open = true;
+      out += PASTE_START;
+      i += PASTE_START.length;
+    } else if (data.startsWith(PASTE_END, i)) {
+      if (open) out += PASTE_END;
+      open = false;
+      i += PASTE_END.length;
+    } else out += data[i++];
+  }
+  return out;
 }
