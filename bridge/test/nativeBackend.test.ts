@@ -17,6 +17,12 @@ class FakePty implements PtyLike {
   data = new Map<string, Set<(d: string) => void>>();
   sizes = new Map<string, { cols: number; rows: number }>();
   replies = new Map<string, boolean>();
+  terminal(): null {
+    return null;
+  }
+  ids(): string[] {
+    return [...this.screens.keys()];
+  }
   onData(id: string, fn: (d: string) => void): () => void {
     const set = this.data.get(id) ?? new Set();
     set.add(fn);

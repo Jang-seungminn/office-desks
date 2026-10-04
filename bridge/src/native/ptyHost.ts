@@ -5,6 +5,7 @@ import serializeAddon from '@xterm/addon-serialize';
 import xtermHeadless from '@xterm/headless';
 import * as pty from 'node-pty';
 import { BackendError } from '../backend/types.js';
+import type { HeadlessLike } from '../tui/panel.js';
 import { resolveWindowsCommand, unsafeForCmdShim } from '../orcaCli.js';
 
 const { Terminal } = xtermHeadless;
@@ -143,8 +144,19 @@ export class PtyHost {
   resize(id: string, cols: number, rows: number): void {
     const s = this.sessions.get(id);
     if (!s || cols < 2 || rows < 2) return;
+    if (s.term.cols === cols && s.term.rows === rows) return;
     s.proc.resize(cols, rows);
     s.term.resize(cols, rows);
+  }
+
+  /** The agent's headless xterm, for read-only use (drawing the panel). */
+  terminal(id: string): HeadlessLike | null {
+    return this.sessions.get(id)?.term ?? null;
+  }
+
+  /** Live PTY ids. */
+  ids(): string[] {
+    return [...this.sessions.keys()];
   }
 
   size(id: string): { cols: number; rows: number } | null {

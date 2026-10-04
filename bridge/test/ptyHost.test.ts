@@ -62,6 +62,19 @@ describe('PtyHost', () => {
     expect(() => host!.setReplies('a2', true)).not.toThrow();
     expect(() => host!.resize('nope', 10, 10)).not.toThrow();
   }, 15_000);
+
+  it('exposes the headless terminal and live ids, and ignores same-size resizes', async () => {
+    host = new PtyHost();
+    host.spawn('t1', { file: process.execPath, args: ['-e', ECHO], cwd: process.cwd(), env: { ...process.env } as Record<string, string> });
+    await until(() => host!.screenLines('t1').some((l) => l.includes('ready')));
+    expect(host.ids()).toEqual(['t1']);
+    const t = host.terminal('t1')!;
+    expect(t.cols).toBe(120);
+    expect(t.buffer.active.getLine(0)!.getCell(0)!.getChars()).toBe('r');
+    host.resize('t1', 120, 40); // same size: no-op (no throw, no reflow)
+    expect(host.size('t1')).toEqual({ cols: 120, rows: 40 });
+    expect(host.terminal('nope')).toBeNull();
+  }, 15_000);
 });
 
 describe('resolveSpawn', () => {
