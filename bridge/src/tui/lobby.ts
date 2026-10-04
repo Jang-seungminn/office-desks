@@ -25,7 +25,7 @@ export interface LobbyView {
 
 const MIN_COLS = 60;
 const MIN_LINES = 10;
-const HELP = '↑↓ 이동 · Enter 붙기 · a 에이전트 추가 · n 새 작업 · p 프로젝트 추가 · q 종료';
+const HELP = 'q 종료 · ↑↓ 이동 · Enter 붙기 · a 에이전트 추가 · n 새 작업 · p 프로젝트 추가';
 const GLYPH: Record<string, [string, string]> = {
   typing: ['✎', '33'],
   reading: ['◎', '36'],

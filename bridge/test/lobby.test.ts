@@ -53,4 +53,14 @@ describe('renderLobby', () => {
     expect(text.some((l) => l.includes('row 25') && l.startsWith(' ▸ '))).toBe(true);
     expect(text.at(-2)).toContain('프로젝트를 추가했어요');
   });
+
+  it('keeps "q 종료" visible at the minimum width and cleans control characters from names', () => {
+    const text = renderLobby(view, 60, 10).map((l) => l.replace(/\x1b\[[0-9;]*m/g, ''));
+    expect(text).toHaveLength(10);
+    expect(text.at(-1)).toContain('q 종료');
+    const dirty = { ...view, rows: [{ ...view.rows[0], desk: 'evil\x1b[2Jdesk', activity: 'a\x1b]0;x\x07b' }], selected: 0 };
+    const out = renderLobby(dirty, 80, 12);
+    expect(out.join('')).not.toContain('\x1b[2J');
+    expect(out.join('')).not.toContain('\x1b]0');
+  });
 });

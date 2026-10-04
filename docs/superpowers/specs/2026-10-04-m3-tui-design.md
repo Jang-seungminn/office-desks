@@ -80,7 +80,7 @@ bin/office-desks.mjs ──► bridge/dist/server.js   (HTTP/WS, poller, backend
  api
    rate-limit      (에이전트 없음)
  ──────────────────────────────────────────────────────────────────────────────
- ↑↓ 이동 · Enter 붙기 · a 에이전트 추가 · n 새 작업 · p 프로젝트 추가 · q 종료
+ q 종료 · ↑↓ 이동 · Enter 붙기 · a 에이전트 추가 · n 새 작업 · p 프로젝트 추가
 ```
 
 - Rows are agents. A worktree without agents gets one row so you can add to it.
@@ -108,7 +108,7 @@ bin/office-desks.mjs ──► bridge/dist/server.js   (HTTP/WS, poller, backend
 
 - **Restoring the terminal.** Leave the alt screen, show the cursor and turn raw mode off on every exit path: quit, SIGINT/SIGTERM, uncaught exceptions. This runs before `backend.dispose()`.
 - **Startup failure.** If startup fails before the TUI is up (for example, the port is in use), print the error normally and exit 1.
-- **Narrow terminals.** Below 60×12, the lobby shows a single "창을 키워 주세요" line.
+- **Narrow terminals.** Below 60×10, the lobby shows a single "창을 키워 주세요" line.
 - **Windows.** Raw stdin and VT output are on by default in Windows Terminal and conhost on Windows 10 and later. Ctrl+] arrives as `0x1d` and must be verified in the Windows smoke test.
 
 ## Testing
