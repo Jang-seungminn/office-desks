@@ -17,7 +17,7 @@ const rows: LobbyRow[] = [
 async function view(patch: Partial<View> = {}): Promise<View> {
   const agent = new Terminal({ cols: 20, rows: 5, allowProposedApi: true });
   await write(agent, 'hello agent\r\nsecond');
-  return { rows, selected: 0, focus: 'panel', url: 'http://x:1', agent, scroll: 0, help: ' q 종료', helpCursor: null, ...patch };
+  return { rows, selected: 0, focus: 'panel', url: 'http://x:1', agent, scroll: 0, agentCursorHidden: false, help: ' q 종료', helpCursor: null, ...patch };
 }
 
 describe('compose', () => {
@@ -33,6 +33,12 @@ describe('compose', () => {
     for (let y = 1; y <= 10; y++) expect(frame.get(y, L.sep.col).ch).toBe('│');
     expect(cursor).toEqual({ row: L.panel.row + 1, col: L.panel.col + 6 });
     expect(text(frame, 11)).toBe(' q 종료'.padEnd(80 - 2, ' ')); // 한글 is 4 cols for 2 chars
+  });
+
+  it('panel focus with the agent cursor hidden: still placed (IME), but marked hidden', async () => {
+    const L = layout(80, 12)!;
+    const { cursor } = compose(await view({ agentCursorHidden: true }), 80, 12);
+    expect(cursor).toEqual({ row: L.panel.row + 1, col: L.panel.col + 6, hidden: true });
   });
 
   it('list focus: no cursor, list head bold', async () => {

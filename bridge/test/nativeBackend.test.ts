@@ -38,6 +38,9 @@ class FakePty implements PtyLike {
   setReplies(id: string, on: boolean): void {
     this.replies.set(id, on);
   }
+  cursorHidden(): boolean {
+    return false;
+  }
   size(id: string): { cols: number; rows: number } | null {
     return this.screens.has(id) ? (this.sizes.get(id) ?? { cols: 120, rows: 40 }) : null;
   }

@@ -5,8 +5,9 @@
 const PASTE_START = '\x1b[200~';
 const PASTE_END = '\x1b[201~';
 
+/** Arrows and Home/End: `ESC [ x` normally, `ESC O x` in application cursor mode. */
 function arrows(s: string, app: boolean): string {
-  return app ? s.replace(/\x1b\[([ABCD])/g, '\x1bO$1') : s.replace(/\x1bO([ABCD])/g, '\x1b[$1');
+  return app ? s.replace(/\x1b\[([ABCDHF])/g, '\x1bO$1') : s.replace(/\x1bO([ABCDHF])/g, '\x1b[$1');
 }
 
 export function encodePanelInput(chunk: string, modes: { bracketedPasteMode: boolean; applicationCursorKeysMode: boolean }): string {

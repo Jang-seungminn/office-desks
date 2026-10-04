@@ -27,7 +27,8 @@ export class Renderer {
     if (!v) return;
     const { frame, cursor } = compose(v, this.out.columns, this.out.rows);
     const paint = diff(this.last, frame);
-    const place = cursor ? moveTo(cursor.row + 1, cursor.col + 1) + SHOW_CURSOR : HIDE_CURSOR;
+    // A cursor the agent hid is still moved there (an IME composes at it), just not shown.
+    const place = cursor ? moveTo(cursor.row + 1, cursor.col + 1) + (cursor.hidden ? HIDE_CURSOR : SHOW_CURSOR) : HIDE_CURSOR;
     this.last = frame;
     if (!paint && place === this.lastCursor) return;
     this.lastCursor = place;

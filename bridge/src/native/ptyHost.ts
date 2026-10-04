@@ -31,6 +31,27 @@ export function agentTerminal(cols: number, rows: number): HeadlessTerminal {
 }
 
 /**
+ * Whether the program hid its cursor (DECTCEM, `CSI ? 25 l` / `h`; reset by RIS and DECSTR).
+ * xterm keeps this private, so we watch the sequences through the public parser hooks; every
+ * handler returns false so xterm still handles them (and its other modes stay right).
+ */
+export function watchCursor(term: Pick<HeadlessTerminal, 'parser'>): { hidden: boolean } {
+  const state = { hidden: false };
+  const has25 = (params: (number | number[])[]) => params.some((p) => p === 25);
+  term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
+    if (has25(params)) state.hidden = true;
+    return false;
+  });
+  term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
+    if (has25(params)) state.hidden = false;
+    return false;
+  });
+  term.parser.registerCsiHandler({ intermediates: '!', final: 'p' }, () => ((state.hidden = false), false));
+  term.parser.registerEscHandler({ final: 'c' }, () => ((state.hidden = false), false));
+  return state;
+}
+
+/**
  * node-pty's prebuilt spawn-helper can arrive without its execute bit (npm 11 skips install
  * scripts), and then every spawn fails with "posix_spawnp failed". Fix it before first use.
  */
@@ -91,6 +112,7 @@ interface Session {
   serializer: InstanceType<typeof SerializeAddon>;
   listeners: Set<(d: string) => void>;
   replies: boolean;
+  cursor: { hidden: boolean };
 }
 
 /** Agent processes in pseudo-terminals, each mirrored into a headless xterm we can read like a screen. */
@@ -110,7 +132,7 @@ export class PtyHost {
     const proc = pty.spawn(file, args, { name: 'xterm-256color', cols, rows, cwd: opts.cwd, env: opts.env });
     const serializer = new SerializeAddon();
     term.loadAddon(serializer);
-    const session: Session = { proc, term, serializer, listeners: new Set(), replies: true };
+    const session: Session = { proc, term, serializer, listeners: new Set(), replies: true, cursor: watchCursor(term) };
     proc.onData((d) => {
       term.write(d);
       for (const fn of session.listeners) fn(d);
@@ -170,6 +192,11 @@ export class PtyHost {
   /** The agent's headless xterm, for read-only use (drawing the panel). */
   terminal(id: string): HeadlessLike | null {
     return this.sessions.get(id)?.term ?? null;
+  }
+
+  /** Whether the agent hid its cursor (it then draws its own, or none). */
+  cursorHidden(id: string): boolean {
+    return this.sessions.get(id)?.cursor.hidden ?? false;
   }
 
   /** Live PTY ids. */

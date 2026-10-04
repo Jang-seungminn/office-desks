@@ -29,6 +29,8 @@ export interface TuiDeps {
   terminalOf(agentId: string): string | null;
   /** The agent's headless terminal; `write('', cb)` is used only as a barrier (cb once parsed). */
   terminal(ptyId: string): (HeadlessLike & { modes: AgentModes; write(data: string, cb?: () => void): void }) | null;
+  /** Whether the agent hid its cursor (DECTCEM). */
+  cursorHidden(ptyId: string): boolean;
   resizeAgents(cols: number, rows: number): void;
   host: AttachHost;
   url: string;
@@ -78,6 +80,8 @@ export class App {
   private shownPty: string | null = null;
   private offShown: (() => void) | null = null;
   private scroll = 0;
+  /** The shown agent's baseY when last looked at: new lines while scrolled back move `scroll` along. */
+  private seenBase = 0;
   private readonly renderer: Renderer;
   private readonly panelInput: PanelInput;
   private readonly onData = (d: string) => this.enqueue(() => this.handle(String(d)));
@@ -297,6 +301,7 @@ export class App {
     const L = layout(this.out.columns, this.out.rows);
     const term = this.shownTerminal();
     if (!L || !term) return;
+    this.seenBase = term.buffer.active.baseY;
     this.scroll = Math.max(0, Math.min(maxScroll(term), this.scroll + dir * (L.panel.rows - 1)));
   }
 
@@ -402,6 +407,7 @@ export class App {
     this.offShown = null;
     this.shownPty = pty;
     this.scroll = 0;
+    this.seenBase = pty ? (this.deps.terminal(pty)?.buffer.active.baseY ?? 0) : 0;
     if (pty) this.offShown = this.deps.host.onData(pty, () => this.outputSeen(pty));
     return true;
   }
@@ -416,8 +422,17 @@ export class App {
     const term = this.deps.terminal(pty);
     if (!term) return this.renderer.schedule();
     term.write('', () => {
-      if (pty === this.shownPty) this.renderer.schedule();
+      if (pty !== this.shownPty) return;
+      this.anchorScroll(term);
+      this.renderer.schedule();
     });
+  }
+
+  /** Scrolled back while the agent prints: keep the same history lines in view. */
+  private anchorScroll(term: HeadlessLike): void {
+    const base = term.buffer.active.baseY;
+    if (this.scroll > 0) this.scroll = Math.max(0, Math.min(maxScroll(term), this.scroll + base - this.seenBase));
+    this.seenBase = base;
   }
 
   /** The shown agent's headless terminal, fetched fresh: it is disposed when the agent exits. */
@@ -467,6 +482,7 @@ export class App {
       focus: this.mode === 'panel' ? 'panel' : 'list',
       url: this.deps.url,
       agent: this.shownTerminal(),
+      agentCursorHidden: this.shownPty ? this.deps.cursorHidden(this.shownPty) : false,
       scroll: this.scroll,
       ...this.help(),
     };

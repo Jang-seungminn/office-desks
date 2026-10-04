@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ensureSpawnHelper, PtyHost, resolveSpawn } from '../src/native/ptyHost.js';
+import { agentTerminal, ensureSpawnHelper, PtyHost, resolveSpawn, watchCursor } from '../src/native/ptyHost.js';
 
 const ECHO = "process.stdin.setEncoding('utf8');process.stdout.write('ready\\r\\n');process.stdin.on('data',d=>process.stdout.write('got:'+d.trim()+'\\r\\n'))";
 
@@ -142,6 +142,42 @@ describe('PtyHost reply muting', () => {
       const end = Date.now() + 5000;
       while (!host.screenLines('m1').join('\n').includes('in:') && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
       expect(host.screenLines('m1').join('\n')).toContain('in:');
+    } finally {
+      await host.dispose();
+    }
+  }, 15_000);
+});
+
+describe('agent cursor visibility (DECTCEM)', () => {
+  const put = (t: ReturnType<typeof agentTerminal>, s: string) => new Promise<void>((r) => t.write(s, r));
+
+  it('follows ?25l / ?25h (also among other modes), resets, and leaves the modes to xterm', async () => {
+    const t = agentTerminal(20, 4);
+    const cursor = watchCursor(t);
+    expect(cursor.hidden).toBe(false);
+    await put(t, '\x1b[?25l');
+    expect(cursor.hidden).toBe(true);
+    await put(t, '\x1b[?2004;25h');
+    expect(cursor.hidden).toBe(false);
+    expect(t.modes.bracketedPasteMode).toBe(true);
+    await put(t, '\x1b[?1;25l');
+    expect(cursor.hidden).toBe(true);
+    expect(t.modes.applicationCursorKeysMode).toBe(false);
+    await put(t, '\x1bc');
+    expect(cursor.hidden).toBe(false);
+    await put(t, '\x1b[?25l\x1b[!p');
+    expect(cursor.hidden).toBe(false);
+  });
+
+  it('is exposed per PTY by PtyHost', async () => {
+    const host = new PtyHost();
+    try {
+      host.spawn('c1', { file: process.execPath, args: ['-e', ECHO], cwd: process.cwd(), env: { ...process.env } as Record<string, string> });
+      await until(() => host.screenLines('c1').some((l) => l.includes('ready')));
+      expect(host.cursorHidden('c1')).toBe(false);
+      host.feed('c1', '\x1b[?25l');
+      await until(() => host.cursorHidden('c1'));
+      expect(host.cursorHidden('nope')).toBe(false);
     } finally {
       await host.dispose();
     }

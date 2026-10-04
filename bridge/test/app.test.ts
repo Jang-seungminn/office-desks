@@ -2,6 +2,7 @@ import { Terminal } from '@xterm/headless';
 import { describe, expect, it, vi } from 'vitest';
 import { BackendError } from '../src/backend/types.js';
 import type { OfficeSnapshot } from '../src/model.js';
+import { watchCursor } from '../src/native/ptyHost.js';
 import { App, type TuiDeps } from '../src/tui/app.js';
 
 // The App against real headless terminals: one per agent (its screen) and one for the user's
@@ -29,6 +30,7 @@ async function setup(desks: unknown[] = TWO, agentText: Record<string, string> =
   const writes: [string, string][] = [];
   const resizes: [number, number][] = [];
   const terms = new Map<string, Terminal>();
+  const cursors = new Map<string, { hidden: boolean }>();
   const data = new Map<string, Set<(d: string) => void>>();
   const exitFns = new Set<(id: string, code: number) => void>();
   const ptyOf: Record<string, string> = {};
@@ -36,6 +38,7 @@ async function setup(desks: unknown[] = TWO, agentText: Record<string, string> =
     for (const a of d.agents) {
       ptyOf[a.id] = a.terminalHandle;
       const t = new Terminal({ cols: 40, rows: 10, scrollback: 200, allowProposedApi: true });
+      cursors.set(a.terminalHandle, watchCursor(t));
       await put(t, agentText[a.terminalHandle] ?? '');
       terms.set(a.terminalHandle, t);
     }
@@ -67,6 +70,7 @@ async function setup(desks: unknown[] = TWO, agentText: Record<string, string> =
     removeWorktree: async (id) => void calls.push(['removeWorktree', id]),
     terminalOf: (id) => (ptyOf[id] && alive(ptyOf[id]) ? ptyOf[id] : null),
     terminal: (pty) => terms.get(pty) ?? null,
+    cursorHidden: (pty) => cursors.get(pty)?.hidden ?? false,
     resizeAgents: (c, r) => {
       resizes.push([c, r]);
       for (const t of terms.values()) t.resize(c, r);
@@ -164,6 +168,18 @@ describe('App: sidebar and live panel', () => {
     expect(writes).toEqual([['p1', 'ab']]);
   });
 
+  it('places but hides the real cursor in panel focus while the agent hides its own', async () => {
+    const { app, out, emit } = await setup();
+    await app.handle('\r');
+    expect(out.text.endsWith('\x1b[?25h')).toBe(true);
+    await emit('p1', '\x1b[?25l');
+    app.flush();
+    expect(out.text).toMatch(/\x1b\[\d+;\d+H\x1b\[\?25l$/);
+    await emit('p1', '\x1b[?25h');
+    app.flush();
+    expect(out.text).toMatch(/\x1b\[\d+;\d+H\x1b\[\?25h$/);
+  });
+
   it('focuses the panel with → and Ctrl+] too, and forwards the rest of that chunk', async () => {
     const a = await setup();
     await a.app.handle('\x1b[Cxy');
@@ -237,6 +253,20 @@ describe('App: sidebar and live panel', () => {
     const live = await text();
     expect(live).not.toContain('↑ 기록 보는 중');
     expect(live).toContain('L39');
+  });
+
+  it('keeps the viewed history lines in place while the agent keeps printing', async () => {
+    const lines = Array.from({ length: 40 }, (_, i) => `L${i}`).join('\r\n');
+    const { app, emit, screen } = await setup(TWO, { p1: lines, p2: '' });
+    await app.handle('\x1b[5~');
+    const before = (await screen()).slice(2, 23);
+    expect(before.some((l) => /│L0\s*$/.test(l))).toBe(true);
+    await emit('p1', '\r\nN1\r\nN2\r\nN3\r\nN4\r\nN5');
+    app.flush();
+    expect((await screen()).slice(2, 23)).toEqual(before);
+    await app.handle('\x1b[6~'); // back down a page from the anchored spot
+    await app.handle('\x1b[6~');
+    expect((await screen()).join('\n')).toContain('N5');
   });
 
   it('zooms with z through AttachSession and repaints in full on Ctrl+]', async () => {

@@ -23,7 +23,7 @@ import {
   type OfficeBackend,
 } from './types.js';
 
-export type PtyLike = Pick<PtyHost, 'spawn' | 'has' | 'write' | 'screenLines' | 'onExit' | 'kill' | 'dispose' | 'onData' | 'resize' | 'serialize' | 'setReplies' | 'size' | 'terminal' | 'ids'>;
+export type PtyLike = Pick<PtyHost, 'spawn' | 'has' | 'write' | 'screenLines' | 'onExit' | 'kill' | 'dispose' | 'onData' | 'resize' | 'serialize' | 'setReplies' | 'size' | 'terminal' | 'cursorHidden' | 'ids'>;
 
 export interface NativeDeps {
   pty: PtyLike;

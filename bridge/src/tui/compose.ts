@@ -16,6 +16,8 @@ export interface View {
   url: string;
   /** The selected agent's terminal, if alive. */
   agent: HeadlessLike | null;
+  /** The agent hid its cursor: the real one still goes to its position (IME), hidden. */
+  agentCursorHidden: boolean;
   /** Panel scroll-back (0 = live). */
   scroll: number;
   /** Help/notice/form line for the bottom row. */
@@ -33,7 +35,13 @@ function centered(f: Frame, r: Rect, text: string, st: Style): void {
   putText(f, r.row + Math.floor((r.rows - 1) / 2), col, text, st, w);
 }
 
-export function compose(v: View, cols: number, rows: number): { frame: Frame; cursor: { row: number; col: number } | null } {
+export interface Cursor {
+  row: number;
+  col: number;
+  hidden?: boolean;
+}
+
+export function compose(v: View, cols: number, rows: number): { frame: Frame; cursor: Cursor | null } {
   const frame = new Frame(cols, rows);
   const L = layout(cols, rows);
   if (!L) {
@@ -64,10 +72,10 @@ export function compose(v: View, cols: number, rows: number): { frame: Frame; cu
   }
   putText(frame, L.panelHead.row, L.panelHead.col, ` ${headText}`, head(!listFocus), L.panelHead.cols);
 
-  let cursor: { row: number; col: number } | null = null;
+  let cursor: Cursor | null = null;
   if (sel?.agentId && v.agent) {
     const c = drawPanel(frame, L.panel, v.agent, v.scroll);
-    if (!listFocus && v.scroll === 0) cursor = c;
+    if (!listFocus && v.scroll === 0 && c) cursor = v.agentCursorHidden ? { ...c, hidden: true } : c;
   } else {
     fillRect(frame, L.panel);
     const hint = !v.rows.length ? 'p로 프로젝트를 추가하세요' : sel?.agentId ? '종료됨' : '에이전트가 없어요 — a로 띄우기';

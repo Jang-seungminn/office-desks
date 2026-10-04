@@ -177,6 +177,7 @@ export async function runTui(): Promise<void> {
       terminalOf: (id) => backend.terminalOf(id),
       // PtyHost hands out its headless xterm Terminal, which has `modes`.
       terminal: (pty) => backend.pty.terminal(pty) as ReturnType<TuiDeps['terminal']>,
+      cursorHidden: (pty) => backend.pty.cursorHidden(pty),
       resizeAgents: (c, r) => {
         for (const id of backend.pty.ids()) {
           try {
