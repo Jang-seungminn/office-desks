@@ -1,4 +1,6 @@
-import type { OfficeAgent, OfficeDesk, OfficeSnapshot, UsageSnapshot } from '../model.js';
+import type { BackendCapabilities, OfficeAgent, OfficeDesk, OfficeSnapshot, UsageSnapshot } from '../model.js';
+
+export type { BackendCapabilities };
 
 // What the bridge needs from whatever runs the agents (Orca today, our own PTY host later).
 // server.ts and the poller only ever talk to this interface.
@@ -19,19 +21,12 @@ export class BackendBusyError extends BackendError {
   }
 }
 
-export interface BackendCapabilities {
-  /** Plan usage limits (5-hour / weekly). */
-  usage: boolean;
-  /** Full-text search over conversations. */
-  search: boolean;
-  /** Edit a worktree's board status and comment. */
-  board: boolean;
-  /** Create worktrees and start agents. */
-  hire: boolean;
-  /** git change counts and diffs for desks. */
-  changes: boolean;
-  /** The bridge reads transcripts for model/effort/stats; false when the backend fills them itself. */
-  transcripts: boolean;
+/** User-facing text that depends on the backend. */
+export interface BackendMessages {
+  /** Shown when an agent's conversation can't be found. */
+  noSession: string;
+  /** Shown when hiring is not available. */
+  hireDisabled: string;
 }
 
 /** A validated request to start work (see hire.ts). */
@@ -62,6 +57,8 @@ export type KeyInput = { bytes: string } | { enter: true };
 export interface OfficeBackend {
   readonly name: string;
   readonly capabilities: BackendCapabilities;
+  /** User-facing text that depends on the backend. */
+  readonly messages: BackendMessages;
   /** Desks and agents as the backend knows them, before git/transcript enrichment. */
   snapshot(): Promise<OfficeSnapshot>;
   /** The rendered screen, one string per row. */
@@ -84,4 +81,10 @@ export interface OfficeBackend {
   cachedSession(agentId: string): string | null;
   searchConversations(query: string): Promise<ConversationHit[]>;
   usage(): Promise<UsageSnapshot | null>;
+  /** Register a local git repo as a project, for capabilities.repos. */
+  addRepo(repoPath: string): Promise<void>;
+  /** An agent hook event from a backend-spawned agent; returns false if unknown or unauthorized. */
+  hook(agentId: string, token: string, payload: unknown): boolean;
+  /** Stop everything the backend started; called once on shutdown. */
+  dispose(): Promise<void>;
 }

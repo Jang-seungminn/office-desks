@@ -7,6 +7,7 @@ import {
   BackendBusyError,
   BackendError,
   type BackendCapabilities,
+  type BackendMessages,
   type ConversationHit,
   type HireResult,
   type HireSpec,
@@ -39,10 +40,22 @@ interface OrcaSearchHit {
   resumeCommand?: string;
 }
 
+const NOT_WRITABLE = '이 에이전트 터미널에 입력할 수 없어요 (터미널이 끊겼거나 Orca 화면에 붙어 있지 않음). Orca에서 터미널을 다시 연 뒤 보내 주세요';
+
+/** Orca refuses input to a terminal whose process is gone or detached; say so in words. */
+function notWritable(err: unknown): unknown {
+  const e = err as OrcaCliError;
+  return e?.code === 'terminal_not_writable' || /terminal_not_writable/.test(e?.message ?? '') ? new BackendError(NOT_WRITABLE, 'terminal_not_writable') : err;
+}
+
 /** Everything the office needs, through the Orca CLI. Every argv is built here. */
 export class OrcaBackend implements OfficeBackend {
   readonly name: string = 'orca';
-  readonly capabilities: BackendCapabilities = { usage: true, search: true, board: true, hire: true, changes: true, transcripts: true };
+  readonly capabilities: BackendCapabilities = { usage: true, search: true, board: true, hire: true, changes: true, transcripts: true, focus: true, repos: false };
+  readonly messages: BackendMessages = {
+    noSession: 'Orca 세션 검색에서 이 에이전트의 대화 기록을 찾지 못했습니다. (Orca Settings → Agent Session History가 켜져 있어야 합니다)',
+    hireDisabled: '이 백엔드에서는 새 작업을 만들 수 없어요',
+  };
   private terminals: { rows: OrcaTerminalRow[]; at: number } | null = null;
   /**
    * Orca refuses a prompt while the agent can't take one (mid-transition, dialog, …) and hands
@@ -113,13 +126,27 @@ export class OrcaBackend implements OfficeBackend {
         for (const [id, p] of this.blocked) if (this.now() - p.at > BLOCKED_TTL_MS) this.blocked.delete(id);
         throw new BackendBusyError(requestId);
       }
-      throw err;
+      throw notWritable(err);
     }
   }
 
+  addRepo(_repoPath: string): Promise<void> {
+    return Promise.reject(new BackendError('Orca에서는 Orca 앱에서 프로젝트를 추가해 주세요', 'unsupported'));
+  }
+
+  hook(_agentId: string, _token: string, _payload: unknown): boolean {
+    return false;
+  }
+
+  async dispose(): Promise<void> {}
+
   async sendKeys(handle: string, input: KeyInput): Promise<void> {
     // `--text=value` so text starting with `--` can never be parsed as another flag.
-    await this.orca(['terminal', 'send', '--terminal', handle, ...('enter' in input ? ['--enter'] : [`--text=${input.bytes}`])]);
+    try {
+      await this.orca(['terminal', 'send', '--terminal', handle, ...('enter' in input ? ['--enter'] : [`--text=${input.bytes}`])]);
+    } catch (err) {
+      throw notWritable(err);
+    }
   }
 
   async focus(handle: string): Promise<void> {

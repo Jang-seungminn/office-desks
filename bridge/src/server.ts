@@ -114,7 +114,7 @@ async function conversation(agentId: string | null, after: number, sub: string |
   if (!found) return empty('이 에이전트는 더 이상 사무실에 없습니다.');
   // The file path only ever comes from Orca's session index, never from the client.
   const filePath = await backend.findSession(found.desk, found.agent).catch(() => null);
-  if (!filePath) return empty('Orca 세션 검색에서 이 에이전트의 대화 기록을 찾지 못했습니다. (Orca Settings → Agent Session History가 켜져 있어야 합니다)');
+  if (!filePath) return empty(backend.messages.noSession);
   const main = await readTranscript(filePath);
   const subagents = subagentInfos(main.calls, await subagentIds(filePath));
   let t = main;
@@ -401,7 +401,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
 
   if (pathname === '/api/hire') {
     const body = await readJson<HireRequest>(req);
-    if (!backend.capabilities.hire) return json(res, 400, { error: '데모 모드에서는 만들 수 없어요' });
+    if (!backend.capabilities.hire) return json(res, 400, { error: backend.messages.hireDisabled });
     const spec = validateHire(body, poller.current.desks);
     if ('error' in spec) return json(res, 400, { error: spec.error });
     const result = await backend.hire(spec);
@@ -479,7 +479,7 @@ const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`);
     if (url.pathname.startsWith('/api/')) {
       handleApi(req, res, url).catch((err: Error) => {
-        const status = err instanceof SyntaxError || err instanceof UploadError ? 400 : 502;
+        const status = err instanceof SyntaxError || err instanceof UploadError ? 400 : (err as BackendError).code === 'terminal_not_writable' ? 409 : 502;
         if (!res.headersSent) json(res, status, { error: err.message, code: (err as BackendError).code });
       });
       return;
@@ -507,6 +507,7 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 wss.on('connection', (ws) => {
   poller.setIdle(false);
   ws.on('close', () => poller.setIdle(wss.clients.size === 0));
+  send(ws, { type: 'backend', backend: { name: backend.name, capabilities: backend.capabilities } });
   send(ws, { type: 'snapshot', snapshot: poller.current });
   if (usage) send(ws, { type: 'usage', usage });
   send(ws, { type: 'org', org });
@@ -545,5 +546,5 @@ poller.setIdle(true); // until a browser connects
 poller.start();
 void cleanOldUploads();
 server.listen(PORT, HOST, () => {
-  console.log(`[office-desks] bridge on http://${HOST}:${PORT} (${DEMO ? 'DEMO data' : `${backend.name} backend, orca cli: ${resolveOrcaCommand()}`})`);
+  console.log(`[office-desks] bridge on http://${HOST}:${PORT} (${DEMO ? 'DEMO data' : backend.name === 'orca' ? `orca backend, orca cli: ${resolveOrcaCommand()}` : `${backend.name} backend`})`);
 });

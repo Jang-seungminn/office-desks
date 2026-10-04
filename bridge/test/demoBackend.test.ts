@@ -4,7 +4,8 @@ import { createBackend } from '../src/backend/index.js';
 
 describe('DemoBackend', () => {
   it('only offers what the demo can fake', () => {
-    expect(new DemoBackend().capabilities).toEqual({ usage: true, search: false, board: false, hire: false, changes: false, transcripts: false });
+    expect(new DemoBackend().capabilities).toEqual({ usage: true, search: false, board: false, hire: false, changes: false, transcripts: false, focus: false, repos: false });
+    expect(new DemoBackend().messages.hireDisabled).toBe('데모 모드에서는 만들 수 없어요');
   });
 
   it('fills model, effort, stats and change counts itself', async () => {
