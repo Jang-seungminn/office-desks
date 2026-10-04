@@ -28,7 +28,7 @@ Usage: npx office-desks [--port <n>] [--backend orca|native|demo] [--demo] [--no
                     default: orca if Orca is running, otherwise native
   --demo            same as --backend demo
   --no-tui          server only (web), no terminal app
-In a terminal, office-desks opens its terminal app (agents list + live panel; Enter types into the agent, Ctrl+] returns).
+In a terminal, office-desks opens its terminal app (agents list + live panel; 1–4 split, mouse: click/wheel/drag-to-copy; Enter types into the agent, Ctrl+] returns).
 
 Then open http://127.0.0.1:<port>.`);
   process.exit(0);
