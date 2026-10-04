@@ -72,17 +72,21 @@ export class HireDialog {
       </form>`;
     this.el.hidden = false;
     const form = this.el.querySelector('form')!;
-    this.el.querySelector('[data-add-repo]')?.addEventListener('click', () => void this.addRepo(form));
+    this.el.querySelector('[data-add-repo]')?.addEventListener('click', () => void this.addRepo(form, opts));
+    // Enter in the path field adds the project; it must never submit the hire form.
+    form.querySelector<HTMLInputElement>('input[name=repoPath]')?.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      e.preventDefault();
+      void this.addRepo(form, opts);
+    });
     (form.querySelector<HTMLInputElement>('input[name=name]') ?? form.querySelector('textarea') ?? form.querySelector('input'))?.focus();
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      // No submit button without projects: Enter in the path field adds the project instead.
-      if (noRepos) void this.addRepo(form);
-      else void this.submit(form, target?.id);
+      if (!noRepos) void this.submit(form, target?.id);
     });
   }
 
-  private async addRepo(form: HTMLFormElement): Promise<void> {
+  private async addRepo(form: HTMLFormElement, opts: { repoId?: string; deskId?: string }): Promise<void> {
     const input = form.querySelector<HTMLInputElement>('input[name=repoPath]')!;
     const msg = form.querySelector<HTMLElement>('.msg')!;
     const repoPath = input.value.trim();
@@ -92,8 +96,11 @@ export class HireDialog {
       await postJson('/api/repos', { path: repoPath });
       msg.textContent = '✅ 추가했어요. 잠시 후 목록에 나타납니다';
       input.value = '';
-      // The office poll picks the new repo up; reopen so the select lists it.
-      setTimeout(() => this.open(), 1600);
+      // The office poll picks the new repo up; reopen so the select lists it, unless the user
+      // closed (or reopened) the dialog meanwhile.
+      setTimeout(() => {
+        if (form.isConnected) this.open(opts);
+      }, 1600);
     } catch (err) {
       msg.textContent = `⚠️ ${(err as Error).message}`;
     }
