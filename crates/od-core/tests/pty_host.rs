@@ -36,7 +36,7 @@ fn echo_program() {
             say(&mut out, "bye\r\n");
             std::process::exit(3);
         }
-        #[cfg(unix)]
+        // Raw input: every read printed escaped as `in:"..."`.
         "raw" => {
             raw::enable();
             say(&mut out, "ready\r\n");
@@ -76,10 +76,25 @@ fn echo_program() {
     std::process::exit(0);
 }
 
-#[cfg(unix)]
 mod raw {
     use std::io::{Read, Write};
 
+    /// Windows: no line input, echo or processing; VT sequences arrive as bytes.
+    #[cfg(windows)]
+    pub fn enable() {
+        use windows_sys::Win32::System::Console::{
+            GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_INPUT, STD_INPUT_HANDLE,
+        };
+        // SAFETY: console mode calls on our own stdin handle.
+        unsafe {
+            SetConsoleMode(
+                GetStdHandle(STD_INPUT_HANDLE),
+                ENABLE_VIRTUAL_TERMINAL_INPUT,
+            );
+        }
+    }
+
+    #[cfg(unix)]
     pub fn enable() {
         // SAFETY: termios calls on our own stdin.
         unsafe {
@@ -243,9 +258,8 @@ async fn streams_output_to_subscribers_until_unsubscribed_resizes_and_serializes
     assert_eq!(host.ids(), ["a2"]);
     assert_eq!(host.modes("a2"), Some(TermModes::default()));
     assert_eq!(host.modes("nope"), None);
-    host.set_replies("a2", false);
-    host.set_replies("a2", true);
-    host.set_replies("nope", true);
+    let mute = host.mute_replies("a2").unwrap();
+    drop(mute);
     host.dispose().await;
 }
 
@@ -258,15 +272,19 @@ async fn serialize_replays_the_live_screen_into_a_fresh_parser() {
         host.write("s1", format!("{w}\r")).unwrap();
     }
     until("got:three", || shows(&host, "s1", "got:three")).await;
-    let snap = host.serialize("s1");
-    let mut fresh = vt100::Parser::new(40, 120, 1000);
-    fresh.process(snap.as_bytes());
-    let replayed: Vec<String> = (0..40)
-        .map(|r| od_core::native::pty_host::row_text(fresh.screen(), r, true))
-        .collect();
-    assert_eq!(replayed, host.screen_lines("s1"));
-    let cursor = host.with_screen("s1", 0, |s| s.cursor_position()).unwrap();
-    assert_eq!(fresh.screen().cursor_position(), cursor);
+    // Retried: output landing between the snapshot and the reads (a ConPTY repaint) is a race
+    // of the test, not a replay mismatch.
+    until("replay matches the screen", || {
+        let snap = host.serialize("s1");
+        let mut fresh = vt100::Parser::new(40, 120, 1000);
+        fresh.process(snap.as_bytes());
+        let replayed: Vec<String> = (0..40)
+            .map(|r| od_core::native::pty_host::row_text(fresh.screen(), r, true))
+            .collect();
+        let cursor = host.with_screen("s1", 0, |s| s.cursor_position());
+        replayed == host.screen_lines("s1") && cursor == Some(fresh.screen().cursor_position())
+    })
+    .await;
     host.dispose().await;
 }
 
@@ -308,7 +326,8 @@ async fn exposes_cursor_visibility_scrollback_and_screen_cells() {
         .unwrap();
     assert_eq!(ch, "r");
 
-    assert!(!host.cursor_hidden("c1"));
+    // ConPTY hides the cursor while it repaints: wait for it to show again.
+    until("cursor shown", || !host.cursor_hidden("c1")).await;
     host.feed("c1", "\x1b[?25l");
     assert!(host.cursor_hidden("c1"));
     host.feed("c1", "\x1b[?2004h\x1b[?1h");
@@ -380,6 +399,7 @@ async fn dispose_force_kills_a_child_that_ignores_the_hangup() {
 }
 
 /// The echo program asks for the cursor position (raw mode, no newline) and prints our answer.
+/// Unix only: under ConPTY, conhost answers a program's own DSR itself, so it never reaches us.
 #[cfg(unix)]
 #[tokio::test]
 async fn answers_the_cursor_position_query_of_the_program() {
@@ -393,21 +413,45 @@ async fn answers_the_cursor_position_query_of_the_program() {
     host.dispose().await;
 }
 
-/// Replies go to the program only while they are on (a real terminal answers otherwise).
-#[cfg(unix)]
+/// A status query fed to the screen is answered on the program's input. Raw input on both
+/// platforms (termios on unix, console VT input mode on Windows), so it needs no newline.
+/// Windows caveat: the reply passes through conhost's input parser; if a ConPTY build swallows
+/// it, this is the test to cfg-gate.
 #[tokio::test]
-async fn forwards_query_replies_only_while_replies_are_on() {
+async fn answers_a_status_query_on_the_program_input() {
+    let host = PtyHost::new();
+    host.spawn("r1", echo("raw")).unwrap();
+    until("ready", || shows(&host, "r1", "ready")).await;
+    host.feed("r1", "\x1b[5n");
+    until("DSR reply", || {
+        host.screen_lines("r1")
+            .join("\n")
+            .contains("in:\"\\u{1b}[0n\"")
+    })
+    .await;
+    host.dispose().await;
+}
+
+/// Replies go to the program only while no terminal has them muted.
+#[tokio::test]
+async fn forwards_query_replies_only_while_unmuted() {
     let host = PtyHost::new();
     host.spawn("m1", echo("raw")).unwrap();
     until("ready", || shows(&host, "m1", "ready")).await;
-    host.set_replies("m1", false);
+    let first = host.mute_replies("m1").unwrap();
+    let second = host.mute_replies("m1").unwrap();
+    assert!(host.mute_replies("nope").is_none());
     host.feed("m1", "\x1b[c");
     // Input is one FIFO queue: once "z" arrived, a reply sent before it would have too.
     host.write("m1", "z").unwrap();
     until("z", || shows(&host, "m1", "in:\"z\"")).await;
+    drop(first); // one terminal detached; the other still answers for itself
+    host.feed("m1", "\x1b[c");
+    host.write("m1", "y").unwrap();
+    until("y", || shows(&host, "m1", "in:\"y\"")).await;
     assert!(!host.screen_lines("m1").join("\n").contains("?1;2c"));
 
-    host.set_replies("m1", true);
+    drop(second);
     host.feed("m1", "\x1b[c");
     until("DA reply", || {
         host.screen_lines("m1")

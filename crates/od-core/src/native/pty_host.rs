@@ -16,7 +16,7 @@ use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread;
 use std::time::Duration;
@@ -24,7 +24,7 @@ use std::time::Duration;
 use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
 
 use crate::backend::BackendError;
-use crate::native::env::{resolve_windows_command, EnvMap, ResolvedCommand};
+use crate::native::env::{resolve_windows_command, win32_is_absolute, EnvMap, ResolvedCommand};
 
 /// Default PTY width.
 pub const COLS: u16 = 120;
@@ -71,6 +71,25 @@ fn quoted_on_windows(arg: &str) -> bool {
             .any(|c| matches!(c, ' ' | '\t' | '\n' | '\x0b' | '"'))
 }
 
+/// The cmd.exe to run shims with: `%ComSpec%` when it is an absolute path, else
+/// `%SystemRoot%\System32\cmd.exe`, else plain `cmd.exe` (a PATH search, the last resort: a
+/// `cmd.exe` in the agent's cwd or PATH must not win). Keys are matched case-insensitively.
+pub fn windows_cmd_exe(env: &EnvMap) -> String {
+    let get = |k: &str| {
+        env.iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(k))
+            .map(|(_, v)| v.as_str())
+            .filter(|v| win32_is_absolute(v))
+    };
+    if let Some(c) = get("ComSpec") {
+        return c.to_string();
+    }
+    if let Some(root) = get("SystemRoot") {
+        return format!("{}\\System32\\cmd.exe", root.trim_end_matches(['\\', '/']));
+    }
+    "cmd.exe".to_string()
+}
+
 /// The argv to spawn (program first). Port of `resolveSpawn`.
 ///
 /// Off Windows: `[file, ...args]`. On Windows a `.cmd`/`.bat` shim must run through cmd.exe,
@@ -88,6 +107,7 @@ pub fn resolve_spawn(
     args: &[String],
     windows: bool,
     resolve_win: &dyn Fn(&str) -> ResolvedCommand,
+    cmd_exe: &str,
 ) -> Result<Vec<String>, BackendError> {
     if !windows {
         return Ok(std::iter::once(file.to_string())
@@ -109,7 +129,7 @@ pub fn resolve_spawn(
             "unsafe_for_cmd",
         ));
     }
-    let mut argv: Vec<String> = ["cmd.exe", "/d", "/s", "/c"]
+    let mut argv: Vec<String> = [cmd_exe, "/d", "/s", "/c"]
         .iter()
         .map(|s| s.to_string())
         .collect();
@@ -234,15 +254,52 @@ impl std::fmt::Debug for Subscription {
 // ---------------------------------------------------------------------------------------------
 // The headless screen
 
-/// What vt100 leaves to us: answering queries, and DECSTR (which it ignores).
+/// Modes xterm keeps that vt100 does not track; replayed by `serialize`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ExtraModes {
+    /// `?1004`: focus in/out reports.
+    focus: bool,
+    /// `?7` DECAWM (on by default). vt100 always wraps; this only travels to attached terminals.
+    autowrap: bool,
+    /// `4` IRM. vt100 does not insert; this only travels to attached terminals.
+    insert: bool,
+}
+
+impl Default for ExtraModes {
+    fn default() -> Self {
+        Self {
+            focus: false,
+            autowrap: true,
+            insert: false,
+        }
+    }
+}
+
+/// A switch vt100 can't make from a callback (its setters are private): done by feeding it a
+/// sequence it does handle, right after the one that asked for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Inject {
+    /// DECSTR: cursor visible again (and IRM off, DECAWM on in `ExtraModes`).
+    ShowCursor,
+    /// `?1047h`/`?1047l`: the alternate screen, as vt100's `?47`.
+    AltOn,
+    AltOff,
+}
+
+/// What vt100 leaves to us: answering queries, DECSTR, `?1047` and a few modes.
 #[derive(Default)]
 struct Hooks {
     replies: Vec<u8>,
-    decstr: bool,
+    inject: Vec<Inject>,
+    modes: ExtraModes,
 }
 
 fn first_param(params: &[&[u16]]) -> u16 {
     params.first().and_then(|p| p.first()).copied().unwrap_or(0)
+}
+
+fn has_param(params: &[&[u16]], v: u16) -> bool {
+    params.iter().any(|p| p.first() == Some(&v))
 }
 
 impl vt100::Callbacks for Hooks {
@@ -269,7 +326,28 @@ impl vt100::Callbacks for Hooks {
                 5 => self.replies.extend_from_slice(b"\x1b[0n"),
                 _ => {}
             },
-            (Some(b'!'), 'p') => self.decstr = true,
+            (None, 'h' | 'l') if has_param(params, 4) => self.modes.insert = c == 'h',
+            (Some(b'!'), 'p') => {
+                self.modes.insert = false;
+                self.modes.autowrap = true;
+                self.inject.push(Inject::ShowCursor);
+            }
+            // vt100 calls this once per param it doesn't handle, with all params: set, don't toggle.
+            (Some(b'?'), 'h' | 'l') => {
+                let on = c == 'h';
+                if has_param(params, 1004) {
+                    self.modes.focus = on;
+                }
+                if has_param(params, 7) {
+                    self.modes.autowrap = on;
+                }
+                if has_param(params, 1047) {
+                    let want = if on { Inject::AltOn } else { Inject::AltOff };
+                    if self.inject.last() != Some(&want) {
+                        self.inject.push(want);
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -330,36 +408,53 @@ pub fn row_text(screen: &vt100::Screen, row: u16, trim: bool) -> String {
 /// The parser plus our hooks. Every accessor leaves the scrollback view at 0.
 struct Term {
     parser: vt100::Parser<Hooks>,
+    /// The last byte processed, to spot RIS (`ESC c`) split across reads.
+    last: u8,
+}
+
+/// Bytes after which the parser may have dispatched something we act on: CSI finals `p`
+/// (DECSTR), `h`/`l` (`?1047`) and `c` (RIS). The chunk is cut right after each one, so an
+/// injected sequence lands exactly where the parser is back in its ground state, whichever read
+/// the sequence was split over.
+fn is_cut(b: u8) -> bool {
+    matches!(b, b'p' | b'h' | b'l' | b'c')
 }
 
 impl Term {
     fn new(rows: u16, cols: u16) -> Self {
         Self {
             parser: vt100::Parser::new_with_callbacks(rows, cols, SCROLLBACK, Hooks::default()),
+            last: 0,
         }
     }
 
     /// Parse output; returns the replies to the queries it contained, in order.
     fn process(&mut self, data: &[u8]) -> Vec<u8> {
-        // DECSTR resets the cursor to visible; vt100 ignores it and its mode setters are private,
-        // so we feed `CSI ? 25 h` right after each one (cut at every `!p`, so a later `?25l` in
-        // the same chunk still wins).
         let mut rest = data;
-        while let Some(i) = rest.windows(2).position(|w| w == b"!p") {
-            let (head, tail) = rest.split_at(i + 2);
+        while !rest.is_empty() {
+            let end = rest
+                .iter()
+                .position(|&b| is_cut(b))
+                .map_or(rest.len(), |i| i + 1);
+            let (head, tail) = rest.split_at(end);
             self.parser.process(head);
-            self.after_decstr();
+            let ris = head.ends_with(b"c")
+                && (head.len() >= 2 && head[head.len() - 2] == 0x1b
+                    || head.len() == 1 && self.last == 0x1b);
+            self.last = head[head.len() - 1];
+            if ris {
+                self.parser.callbacks_mut().modes = ExtraModes::default();
+            }
+            for inject in std::mem::take(&mut self.parser.callbacks_mut().inject) {
+                self.parser.process(match inject {
+                    Inject::ShowCursor => b"\x1b[?25h",
+                    Inject::AltOn => b"\x1b[?47h",
+                    Inject::AltOff => b"\x1b[?47l",
+                });
+            }
             rest = tail;
         }
-        self.parser.process(rest);
-        self.after_decstr();
         std::mem::take(&mut self.parser.callbacks_mut().replies)
-    }
-
-    fn after_decstr(&mut self) {
-        if std::mem::take(&mut self.parser.callbacks_mut().decstr) {
-            self.parser.process(b"\x1b[?25h");
-        }
     }
 
     fn screen(&mut self) -> &vt100::Screen {
@@ -379,11 +474,7 @@ impl Term {
     }
 
     fn scrollback_len(&mut self) -> usize {
-        let screen = self.parser.screen_mut();
-        screen.set_scrollback(usize::MAX);
-        let n = screen.scrollback();
-        screen.set_scrollback(0);
-        n
+        scrollback_len(self.parser.screen_mut())
     }
 
     /// History (oldest first) followed by the screen, each line as in `screen_lines`.
@@ -407,34 +498,68 @@ impl Term {
     }
 
     /// Escape sequences that repaint a fresh terminal of the same size: history (pushed into its
-    /// scrollback), then the screen, cursor and input modes. On the alternate screen only that
-    /// screen is replayed (vt100 does not expose the normal one while it is hidden).
+    /// scrollback), then the screen, cursor and input modes, then the modes vt100 doesn't track.
+    /// On the alternate screen the normal screen (with its history) goes first, then
+    /// `?1049h` and the alternate screen, so the terminal shows the right thing after `?1049l`.
     fn serialize(&mut self) -> String {
-        let n = self.scrollback_len();
         let screen = self.parser.screen_mut();
-        let (rows, cols) = screen.size();
+        screen.set_scrollback(0);
         let mut out = Vec::new();
         if screen.alternate_screen() {
+            let (rows, cols) = screen.size();
+            let mut normal = vt100::Parser::new(rows, cols, SCROLLBACK);
+            *normal.screen_mut() = screen.clone();
+            normal.process(b"\x1b[?47l"); // back to the normal grid, untouched since we left it
+            out.extend(serialize_screen(normal.screen_mut()));
             out.extend_from_slice(b"\x1b[?1049h");
-        } else if n > 0 {
-            // History rows are printed from the top, one per line, then blank lines scroll the
-            // last of them off the screen; the screen itself is repainted after that.
-            out.extend_from_slice(b"\x1b[m\x1b[H\x1b[2J");
-            for j in 0..n {
-                screen.set_scrollback(n - j);
-                if let Some(row) = screen.rows_formatted(0, cols).next() {
-                    out.extend_from_slice(&row);
-                }
-                out.extend_from_slice(b"\x1b[m\r\n");
-            }
-            for _ in 1..rows {
-                out.extend_from_slice(b"\r\n");
-            }
-            screen.set_scrollback(0);
+            out.extend(screen.state_formatted());
+        } else {
+            out.extend(serialize_screen(screen));
         }
-        out.extend_from_slice(&screen.state_formatted());
+        let m = self.parser.callbacks().modes;
+        if m.focus {
+            out.extend_from_slice(b"\x1b[?1004h");
+        }
+        if !m.autowrap {
+            out.extend_from_slice(b"\x1b[?7l");
+        }
+        if m.insert {
+            out.extend_from_slice(b"\x1b[4h");
+        }
         String::from_utf8_lossy(&out).into_owned()
     }
+}
+
+fn scrollback_len(screen: &mut vt100::Screen) -> usize {
+    screen.set_scrollback(usize::MAX);
+    let n = screen.scrollback();
+    screen.set_scrollback(0);
+    n
+}
+
+/// The active grid of `screen`: history, then `state_formatted`.
+fn serialize_screen(screen: &mut vt100::Screen) -> Vec<u8> {
+    let n = scrollback_len(screen);
+    let (rows, cols) = screen.size();
+    let mut out = Vec::new();
+    if n > 0 {
+        // History rows are printed from the top, one per line, then blank lines scroll the
+        // last of them off the screen; the screen itself is repainted after that.
+        out.extend_from_slice(b"\x1b[m\x1b[H\x1b[2J");
+        for j in 0..n {
+            screen.set_scrollback(n - j);
+            if let Some(row) = screen.rows_formatted(0, cols).next() {
+                out.extend_from_slice(&row);
+            }
+            out.extend_from_slice(b"\x1b[m\r\n");
+        }
+        for _ in 1..rows {
+            out.extend_from_slice(b"\r\n");
+        }
+        screen.set_scrollback(0);
+    }
+    out.extend(screen.state_formatted());
+    out
 }
 
 /// How many leading bytes of `buf` end on a UTF-8 character boundary (an incomplete trailing
@@ -471,7 +596,8 @@ struct Session {
     seq: u64,
     term: Mutex<Term>,
     subs: Shared<DataFn>,
-    replies: AtomicBool,
+    /// Live `ReplyMute` guards; replies go out only while there are none.
+    mutes: AtomicUsize,
     input: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     proc: Mutex<Proc>,
@@ -486,10 +612,20 @@ impl Session {
 
     /// Output (or `feed`): parse, answer queries, then hand the bytes to subscribers outside
     /// the locks (the subscriber list is taken under the screen lock, so `attach` is atomic).
+    ///
+    /// A panic inside the parser must not kill the reader (the agent would freeze with a full
+    /// PTY buffer): the screen is replaced by a blank one of the same size and reading goes on.
     fn output(&self, chunk: &[u8], broadcast: bool) {
         let (replies, subs) = {
             let mut term = lock(&self.term);
-            let replies = term.process(chunk);
+            let replies = match catch_unwind(AssertUnwindSafe(|| term.process(chunk))) {
+                Ok(r) => r,
+                Err(_) => {
+                    let TermSize { cols, rows } = term.size();
+                    *term = Term::new(rows, cols);
+                    Vec::new()
+                }
+            };
             let subs = if broadcast {
                 listeners(&self.subs)
             } else {
@@ -497,7 +633,7 @@ impl Session {
             };
             (replies, subs)
         };
-        if !replies.is_empty() && self.replies.load(Ordering::SeqCst) {
+        if !replies.is_empty() && self.mutes.load(Ordering::SeqCst) == 0 {
             self.send(replies);
         }
         for f in subs {
@@ -549,6 +685,27 @@ fn wait_exited_unreaped(pid: u32) {
         if r == 0 || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
             return;
         }
+    }
+}
+
+/// Keeps the headless terminal from answering queries while it lives (see
+/// [`PtyHost::mute_replies`]).
+#[must_use = "dropping the ReplyMute turns replies back on"]
+pub struct ReplyMute {
+    session: Weak<Session>,
+}
+
+impl Drop for ReplyMute {
+    fn drop(&mut self) {
+        if let Some(s) = self.session.upgrade() {
+            s.mutes.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+}
+
+impl std::fmt::Debug for ReplyMute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ReplyMute")
     }
 }
 
@@ -627,9 +784,13 @@ impl PtyHost {
         }
         let cols = opts.cols.unwrap_or(COLS);
         let rows = opts.rows.unwrap_or(ROWS);
-        let argv = resolve_spawn(&opts.file, &opts.args, cfg!(windows), &|f| {
-            resolve_windows_command(f, &opts.env, &|p| Path::new(p).exists())
-        })?;
+        let argv = resolve_spawn(
+            &opts.file,
+            &opts.args,
+            cfg!(windows),
+            &|f| resolve_windows_command(f, &opts.env, &|p| Path::new(p).exists()),
+            &windows_cmd_exe(&opts.env),
+        )?;
         let pair = native_pty_system()
             .openpty(PtySize {
                 rows,
@@ -667,7 +828,7 @@ impl PtyHost {
             seq: self.inner.seq.fetch_add(1, Ordering::SeqCst),
             term: Mutex::new(Term::new(rows, cols)),
             subs: registry(),
-            replies: AtomicBool::new(true),
+            mutes: AtomicUsize::new(0),
             input: Mutex::new(Some(input_tx)),
             master: Mutex::new(Some(master)),
             proc: Mutex::new(Proc {
@@ -696,30 +857,47 @@ impl PtyHost {
         self.inner.publish_count();
 
         // Writer and reader start before we return: ConPTY asks for the cursor position at
-        // startup (PSEUDOCONSOLE_INHERIT_CURSOR) and waits for our answer.
-        let started = thread::Builder::new()
-            .name(format!("pty-write-{id}"))
-            .spawn(move || writer_loop(writer, input_rx))
-            .and_then(|_| {
-                let (done_tx, done_rx) = mpsc::channel::<()>();
-                let s = session.clone();
-                thread::Builder::new()
-                    .name(format!("pty-read-{id}"))
-                    .spawn(move || reader_loop(reader, s, done_tx))?;
-                let s = session.clone();
-                let weak = Arc::downgrade(&self.inner);
-                let id = id.to_string();
-                thread::Builder::new()
-                    .name(format!("pty-wait-{id}"))
-                    .spawn(move || waiter(child, s, weak, id, done_rx))
-            });
+        // startup (PSEUDOCONSOLE_INHERIT_CURSOR) and waits for our answer. The waiter starts
+        // first and gets the child only once everything runs, so on any failure here we still
+        // own the child and reap it ourselves.
+        let (child_tx, child_rx) = mpsc::channel::<Box<dyn Child + Send + Sync>>();
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let started = {
+            let s = session.clone();
+            let weak = Arc::downgrade(&self.inner);
+            let wid = id.to_string();
+            thread::Builder::new()
+                .name(format!("pty-wait-{id}"))
+                .spawn(move || {
+                    if let Ok(child) = child_rx.recv() {
+                        waiter(child, s, weak, wid, done_rx);
+                    }
+                })
+        }
+        .and_then(|_| {
+            thread::Builder::new()
+                .name(format!("pty-write-{id}"))
+                .spawn(move || writer_loop(writer, input_rx))
+        })
+        .and_then(|_| {
+            let s = session.clone();
+            thread::Builder::new()
+                .name(format!("pty-read-{id}"))
+                .spawn(move || reader_loop(reader, s, done_tx))
+        });
         if let Err(e) = started {
-            // Without a waiter nothing would reap it: take it down by hand.
-            session.signal(true);
-            session.close();
             lock(&self.inner.sessions).remove(id);
             self.inner.publish_count();
-            return Err(spawn_error(e));
+            session.close();
+            lock(&session.proc).exited = true;
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(spawn_error(e)); // dropping child_tx ends the waiter, if it started
+        }
+        if let Err(mpsc::SendError(mut child)) = child_tx.send(child) {
+            // The waiter is gone (it can't be before recv, but never leave a child unreaped).
+            let _ = child.kill();
+            let _ = child.wait();
         }
         Ok(())
     }
@@ -762,7 +940,10 @@ impl PtyHost {
     }
 
     /// Read the screen as it looks scrolled back `scroll` lines (0 = live; clamped), for drawing
-    /// and selection. Runs under the screen lock: keep `f` short.
+    /// and selection. Runs under the screen lock: keep `f` short, and never call back into the
+    /// host from it (the lock is not re-entrant; `f` would deadlock its own thread). Everything
+    /// needed is on `&Screen`: `size()`, `cell(row, col)`, `row_wrapped(row)`,
+    /// `cursor_position()`, `hide_cursor()`, `alternate_screen()`, and [`row_text`].
     pub fn with_screen<R>(
         &self,
         id: &str,
@@ -775,6 +956,7 @@ impl PtyHost {
     }
 
     /// Live output of one agent; `None` for an unknown id.
+    #[must_use = "dropping the Subscription unsubscribes"]
     pub fn on_data(
         &self,
         id: &str,
@@ -787,6 +969,7 @@ impl PtyHost {
     /// `serialize` and `on_data` in one step, so no output falls between the snapshot and the
     /// stream or appears in both. `f` may run (on the reader thread) before this returns: queue
     /// what it gets and send the snapshot first.
+    #[must_use = "dropping the Subscription unsubscribes"]
     pub fn attach(
         &self,
         id: &str,
@@ -869,11 +1052,15 @@ impl PtyHost {
     }
 
     /// While a real terminal is attached it answers the agent's terminal queries itself;
-    /// the headless copy must stay quiet or the agent gets every answer twice.
-    pub fn set_replies(&self, id: &str, on: bool) {
-        if let Some(s) = self.get(id) {
-            s.replies.store(on, Ordering::SeqCst);
-        }
+    /// the headless copy must stay quiet or the agent gets every answer twice. Replies stay off
+    /// until every guard is dropped (two attached terminals each hold one). `None` for an
+    /// unknown id.
+    pub fn mute_replies(&self, id: &str) -> Option<ReplyMute> {
+        let s = self.get(id)?;
+        s.mutes.fetch_add(1, Ordering::SeqCst);
+        Some(ReplyMute {
+            session: Arc::downgrade(&s),
+        })
     }
 
     /// Feed bytes to the headless screen as if the process printed them (not passed to
@@ -885,7 +1072,9 @@ impl PtyHost {
         }
     }
 
-    /// Called with `(id, exit_code)` after a PTY's process exited and it was removed.
+    /// Called with `(id, exit_code)` on the waiter thread after a PTY's process exited and it
+    /// was removed. A process killed by a signal (unix) reports 1, as portable-pty maps it;
+    /// node-pty reported 0 plus the signal. Agents are only told apart by exit, not by code.
     pub fn on_exit(&self, f: impl Fn(&str, u32) + Send + Sync + 'static) -> Subscription {
         subscribe(&self.inner.exits, Arc::new(f) as Arc<ExitFn>)
     }
@@ -994,7 +1183,10 @@ fn waiter(
         p.pid = None;
     }
     // Let the reader take in the last output before we report the exit.
-    let _ = drained.recv_timeout(DRAIN);
+    let drain_timed_out = matches!(
+        drained.recv_timeout(DRAIN),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    );
     let Some(inner) = host.upgrade() else {
         session.close();
         return;
@@ -1009,6 +1201,14 @@ fn waiter(
         }
     };
     session.close();
+    // Unix: no EOF after the child exited means something else (a surviving grandchild) holds
+    // the PTY slave. The reader thread and its master fd stay until that process exits or
+    // closes it; free the screen, its history and the subscribers now so only those remain.
+    // (On Windows the timeout is normal: the reader ends once `close` shut the ConPTY.)
+    if cfg!(unix) && drain_timed_out {
+        *lock(&session.term) = Term::new(1, 1);
+        lock(&session.subs).items.clear();
+    }
     if removed {
         for f in listeners(&inner.exits) {
             let _ = catch_unwind(AssertUnwindSafe(|| f(&id, code)));
@@ -1170,9 +1370,7 @@ mod tests {
         assert!(fresh.screen().bracketed_paste());
         assert!(fresh.screen().application_cursor());
         // and so does the history
-        let mut replay = Term {
-            parser: vt100::Parser::new_with_callbacks(5, 20, SCROLLBACK, Hooks::default()),
-        };
+        let mut replay = term(5, 20);
         replay.process(s.as_bytes());
         assert_eq!(replay.scroll_lines(), t.scroll_lines());
     }
@@ -1186,6 +1384,142 @@ mod tests {
         fresh.process(s.as_bytes());
         assert!(fresh.screen().alternate_screen());
         assert_eq!(snapshot(&mut fresh), snapshot(&mut t.parser));
+    }
+
+    #[test]
+    fn decstr_split_across_reads_does_not_corrupt_what_follows() {
+        let mut t = term(3, 20);
+        t.process(b"\x1b[?25l");
+        t.process(b"\x1b[!");
+        t.process(b"p\x1b[3");
+        t.process(b"1mRED");
+        assert!(!t.parser.screen().hide_cursor());
+        assert_eq!(t.screen_lines()[0], "RED");
+        let cell = t.parser.screen().cell(0, 0).unwrap();
+        assert_eq!(cell.fgcolor(), vt100::Color::Idx(1));
+        // and a split RIS resets the tracked modes
+        t.process(b"\x1b[?1004h\x1b[?7l\x1b[4h");
+        assert_ne!(t.parser.callbacks().modes, ExtraModes::default());
+        t.process(b"\x1b");
+        t.process(b"c");
+        assert_eq!(t.parser.callbacks().modes, ExtraModes::default());
+    }
+
+    #[test]
+    fn tracks_modes_vt100_ignores_and_replays_them() {
+        let mut t = term(3, 20);
+        t.process(b"\x1b[?1004;7l\x1b[?1004h\x1b[4h");
+        let m = t.parser.callbacks().modes;
+        assert_eq!(
+            m,
+            ExtraModes {
+                focus: true,
+                autowrap: false,
+                insert: true
+            }
+        );
+        let s = t.serialize();
+        assert!(s.ends_with("\x1b[?1004h\x1b[?7l\x1b[4h"), "{s:?}");
+        let mut replay = term(3, 20);
+        replay.process(s.as_bytes());
+        assert_eq!(replay.parser.callbacks().modes, m);
+        // DECSTR: insert off, autowrap on; focus stays
+        t.process(b"\x1b[!p");
+        assert_eq!(
+            t.parser.callbacks().modes,
+            ExtraModes {
+                focus: true,
+                autowrap: true,
+                insert: false
+            }
+        );
+        t.process(b"\x1b[?1004l");
+        assert_eq!(t.parser.callbacks().modes, ExtraModes::default());
+        assert!(!t.serialize().contains("\x1b[?1004h"));
+    }
+
+    #[test]
+    fn serialize_on_the_alternate_screen_keeps_the_normal_screen_underneath() {
+        let mut t = term(4, 12);
+        for i in 0..6 {
+            t.process(format!("hist{i}\r\n").as_bytes());
+        }
+        t.process(b"prompt$ \x1b[?1049h\x1b[2;2H\x1b[31mfull\x1b[m screen");
+        let s = t.serialize();
+        let mut fresh = term(4, 12);
+        fresh.process(s.as_bytes());
+        assert!(fresh.parser.screen().alternate_screen());
+        assert_eq!(snapshot(&mut fresh.parser), snapshot(&mut t.parser));
+        assert_eq!(
+            fresh.parser.screen().contents_formatted(),
+            t.parser.screen().contents_formatted()
+        );
+        // leaving the alternate screen shows the same normal screen and history on both
+        t.process(b"\x1b[?1049l");
+        fresh.process(b"\x1b[?1049l");
+        assert!(!fresh.parser.screen().alternate_screen());
+        assert_eq!(snapshot(&mut fresh.parser), snapshot(&mut t.parser));
+        assert_eq!(fresh.scroll_lines(), t.scroll_lines());
+        assert!(t.screen_lines().iter().any(|l| l == "prompt$ "));
+    }
+
+    #[test]
+    fn handles_the_1047_alternate_screen_vt100_ignores() {
+        let mut t = term(3, 10);
+        t.process(b"normal");
+        t.process(b"\x1b[?1047h");
+        assert!(t.parser.screen().alternate_screen());
+        t.process(b"alt");
+        assert_eq!(t.screen_lines()[0], "alt");
+        t.process(b"\x1b[?10");
+        t.process(b"47l");
+        assert!(!t.parser.screen().alternate_screen());
+        assert_eq!(t.screen_lines()[0], "normal");
+    }
+
+    #[test]
+    fn windows_cmd_exe_prefers_an_absolute_comspec() {
+        let env = |pairs: &[(&str, &str)]| -> EnvMap {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        assert_eq!(
+            windows_cmd_exe(&env(&[
+                ("ComSpec", "C:\\WINDOWS\\system32\\cmd.exe"),
+                ("SystemRoot", "C:\\Other")
+            ])),
+            "C:\\WINDOWS\\system32\\cmd.exe"
+        );
+        assert_eq!(
+            windows_cmd_exe(&env(&[("COMSPEC", "D:\\x\\cmd.exe")])),
+            "D:\\x\\cmd.exe"
+        );
+        assert_eq!(
+            windows_cmd_exe(&env(&[
+                ("ComSpec", "cmd.exe"),
+                ("SystemRoot", "C:\\WINDOWS\\")
+            ])),
+            "C:\\WINDOWS\\System32\\cmd.exe"
+        );
+        assert_eq!(
+            windows_cmd_exe(&env(&[("SYSTEMROOT", "C:\\Windows")])),
+            "C:\\Windows\\System32\\cmd.exe"
+        );
+        assert_eq!(windows_cmd_exe(&env(&[("ComSpec", "")])), "cmd.exe");
+        let r = resolve_spawn(
+            "claude",
+            &sv(&["x"]),
+            true,
+            &shim("C:\\npm\\claude.cmd"),
+            &windows_cmd_exe(&env(&[("ComSpec", "C:\\Program Files\\cmd.exe")])),
+        )
+        .unwrap();
+        assert_eq!(
+            windows_command_line(&r),
+            "\"C:\\Program Files\\cmd.exe\" /d /s /c C:\\npm\\claude.cmd x"
+        );
     }
 
     // --- utf-8 chunking ---
@@ -1219,7 +1553,7 @@ mod tests {
 
     #[test]
     fn non_windows_spawns_as_is() {
-        let r = resolve_spawn("claude", &sv(&["x"]), false, &shim("unused")).unwrap();
+        let r = resolve_spawn("claude", &sv(&["x"]), false, &shim("unused"), "cmd.exe").unwrap();
         assert_eq!(r, sv(&["claude", "x"]));
     }
 
@@ -1229,7 +1563,7 @@ mod tests {
             file: "C:\\c\\claude.exe".into(),
             via_cmd: false,
         };
-        let r = resolve_spawn("claude", &sv(&["x"]), true, &exe).unwrap();
+        let r = resolve_spawn("claude", &sv(&["x"]), true, &exe, "cmd.exe").unwrap();
         assert_eq!(r, sv(&["C:\\c\\claude.exe", "x"]));
         assert_eq!(windows_command_line(&r), "C:\\c\\claude.exe x");
     }
@@ -1241,6 +1575,7 @@ mod tests {
             &sv(&["--session-id", "u"]),
             true,
             &shim("C:\\npm\\claude.cmd"),
+            "cmd.exe",
         )
         .unwrap();
         assert_eq!(
@@ -1266,6 +1601,7 @@ mod tests {
             &sv(&["--x", ""]),
             true,
             &shim("C:\\npm\\claude.cmd"),
+            "cmd.exe",
         )
         .unwrap();
         assert_eq!(
@@ -1279,8 +1615,14 @@ mod tests {
         for bad in [
             "a&b", "50%", "a|b", "<x", "x>", "^", "hi!", "q\"", "a\rb", "a\nb", "`",
         ] {
-            let e = resolve_spawn("claude", &sv(&[bad]), true, &shim("C:\\npm\\claude.cmd"))
-                .unwrap_err();
+            let e = resolve_spawn(
+                "claude",
+                &sv(&[bad]),
+                true,
+                &shim("C:\\npm\\claude.cmd"),
+                "cmd.exe",
+            )
+            .unwrap_err();
             assert_eq!(e.code, "unsafe_for_cmd", "{bad:?}");
             assert_eq!(
                 e.message,
@@ -1288,14 +1630,21 @@ mod tests {
             );
         }
         // the shim path itself is checked too
-        let e = resolve_spawn("claude", &[], true, &shim("C:\\100%\\claude.cmd")).unwrap_err();
+        let e = resolve_spawn(
+            "claude",
+            &[],
+            true,
+            &shim("C:\\100%\\claude.cmd"),
+            "cmd.exe",
+        )
+        .unwrap_err();
         assert_eq!(e.code, "unsafe_for_cmd");
         // .exe targets are not cmd's business
         let exe = |_: &str| ResolvedCommand {
             file: "C:\\c\\claude.exe".into(),
             via_cmd: false,
         };
-        assert!(resolve_spawn("claude", &sv(&["a&b"]), true, &exe).is_ok());
+        assert!(resolve_spawn("claude", &sv(&["a&b"]), true, &exe, "cmd.exe").is_ok());
     }
 
     #[test]
@@ -1311,6 +1660,7 @@ mod tests {
             &args,
             true,
             &shim("C:\\Users\\First Last\\npm\\claude.cmd"),
+            "cmd.exe",
         )
         .unwrap();
         // The text after /c must not start with a quote, or /s would strip it: `call` leads.
@@ -1325,6 +1675,7 @@ mod tests {
             &sv(&["C:\\a b\\"]),
             true,
             &shim("C:\\npm\\claude.cmd"),
+            "cmd.exe",
         )
         .unwrap();
         assert_eq!(

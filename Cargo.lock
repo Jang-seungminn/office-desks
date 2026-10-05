@@ -298,6 +298,7 @@ dependencies = [
  "unicode-normalization",
  "ureq",
  "vt100",
+ "windows-sys",
 ]
 
 [[package]]
