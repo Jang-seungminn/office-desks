@@ -13,13 +13,10 @@ fn js_round(x: f64) -> i64 {
 
 /// `^([a-z]+)(Weekly|Monthly)$`, e.g. `opusWeekly` gives `Opus 주간`.
 fn model_label(key: &str) -> Option<String> {
-    let (name, suffix) = if let Some(n) = key.strip_suffix("Weekly") {
-        (n, "주간")
-    } else if let Some(n) = key.strip_suffix("Monthly") {
-        (n, "월간")
-    } else {
-        return None;
-    };
+    let (name, suffix) = key
+        .strip_suffix("Weekly")
+        .map(|n| (n, "주간"))
+        .or_else(|| key.strip_suffix("Monthly").map(|n| (n, "월간")))?;
     if name.is_empty() || !name.bytes().all(|b| b.is_ascii_lowercase()) {
         return None;
     }
