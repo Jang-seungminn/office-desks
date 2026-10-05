@@ -112,6 +112,7 @@ Backend and errors:
 - Registry load is stricter: malformed repo entries are dropped and non-string desk fields ignored (TS keeps garbage verbatim). Unknown fields survive a round trip (flattened).
 - Registry and award saves use `<file>.<pid>[.<n>].tmp` (TS `.tmp`) with a Windows rename retry. Reason: concurrent processes.
 - `os.homedir` is approximated by absolute HOME or USERPROFILE, else the OS home, else the temp dir.
+- `os.tmpdir` is `home::os_tmpdir` (Node's order: `TMPDIR`, `TMP`, `TEMP`, `/tmp` on unix; `TEMP`, `TMP`, `<SystemRoot>\temp` on Windows; trailing separator stripped), and the upload folder uses it as TS does. With `TMPDIR` set and non-empty (the normal case) the folder is the same as with `std::env::temp_dir()`. With `TMPDIR` unset on macOS it is now `/tmp/office-desks-<uid>/uploads` (Node's), where std would give the per-user `/var/folders/.../T/`. The Windows last resort (nothing set) is `std::env::temp_dir()`.
 - Unix `find_command` checks any exec mode bit, not `access(X_OK)`. Reason: no libc call for it.
 - Windows path helpers (isAbsolute, extname, join) are hand-rolled so they are testable on macOS.
 - Node path helpers live in `src/nodepath.rs` (R3); `lock` and `epoch_ms` in `src/util.rs`.
