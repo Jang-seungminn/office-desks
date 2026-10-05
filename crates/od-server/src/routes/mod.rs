@@ -10,6 +10,7 @@
 //! its stubs with a call into its own module and adds that module's `mod` line here.
 
 mod manage;
+mod media;
 mod read;
 
 use std::sync::Arc;
@@ -68,13 +69,13 @@ pub(crate) async fn dispatch(st: Arc<AppState>, req: Request, url: RequestUrl) -
         return read::org(&st);
     }
     if get && p == "/api/conversation/image" {
-        return not_found(); // Task 7
+        return done(media::conversation_image(&st, &url).await);
     }
     if get && p == "/api/local-image" {
-        return not_found(); // Task 7
+        return done(media::local_image(&st, &url).await);
     }
-    if get && p.starts_with("/api/uploads/") {
-        return not_found(); // Task 7
+    if let Some(rest) = p.strip_prefix("/api/uploads/").filter(|_| get) {
+        return done(media::upload(&st, rest).await);
     }
     if get && (p == "/api/changes" || p == "/api/diff") {
         return done(read::changes(&st, &url, p == "/api/diff").await);

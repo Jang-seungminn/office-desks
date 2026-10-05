@@ -1337,3 +1337,184 @@ async fn empty_file_path_and_empty_handle_are_falsy() {
     );
     assert!(fake.calls_of("read_screen").is_empty());
 }
+
+// ---- media routes ----
+
+const PNG: [u8; 12] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4];
+
+fn pct(s: &str) -> String {
+    s.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
+fn b64(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn image_block(media_type: &str, bytes: &[u8]) -> serde_json::Value {
+    serde_json::json!({"type":"image","source":{"type":"base64","media_type":media_type,"data":b64(bytes)}})
+}
+
+fn user_line(content: serde_json::Value) -> String {
+    serde_json::json!({"type":"user","timestamp":"2026-10-04T09:00:00.000Z",
+        "message":{"role":"user","content":content}})
+    .to_string()
+        + "\n"
+}
+
+fn assert_binary_headers(r: &support::Resp, content_type: &str) {
+    assert_eq!(r.status, 200);
+    assert_eq!(r.header("content-type"), Some(content_type));
+    assert_eq!(r.header("cache-control"), Some("private, max-age=86400"));
+    assert_eq!(r.header("x-content-type-options"), Some("nosniff"));
+    assert_security_headers(r);
+}
+
+#[tokio::test]
+async fn conversation_image_index_and_types() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    let file = s.dir.path().join("s.jsonl");
+    let other = [0xff, 0xd8, 0xff, 9];
+    let content = serde_json::json!([
+        image_block("image/png", &PNG),
+        image_block("image/jpeg", &other),
+        image_block("image/svg+xml", b"<svg/>"),
+    ]);
+    std::fs::write(&file, user_line(content)).unwrap();
+    fake.set_session(Some(file.display().to_string()));
+    let get = |q: &'static str| {
+        let c = &s.client;
+        async move {
+            c.get(&format!("/api/conversation/image?agentId=a1{q}"))
+                .await
+        }
+    };
+    let r = get("&i=-0").await;
+    assert_binary_headers(&r, "image/png");
+    assert_eq!(r.body, PNG);
+    assert_eq!(get("").await.body, PNG); // Number(null) is 0
+    assert_eq!(get("&i=").await.body, PNG);
+    let r = get("&i=1e0").await;
+    assert_binary_headers(&r, "image/jpeg");
+    assert_eq!(r.body, other);
+    for q in ["&i=0.5", "&i=-1", "&i=3", "&i=NaN", "&i=Infinity", "&i=2"] {
+        let r = get(q).await;
+        assert_eq!(r.status, 404, "{q}");
+        assert_eq!(r.json()["error"], "no such image", "{q}");
+    }
+    let r = s.client.get("/api/conversation/image?i=0").await;
+    assert_eq!(r.status, 404);
+    fake.set_session(None);
+    assert_eq!(get("&i=0").await.status, 404);
+    fake.set_session(Some(String::new()));
+    assert_eq!(get("&i=0").await.status, 404);
+    // An unreadable transcript is the catch-all.
+    fake.set_session(Some(
+        s.dir.path().join("missing.jsonl").display().to_string(),
+    ));
+    assert_eq!(get("&i=0").await.status, 502);
+}
+
+#[tokio::test]
+async fn local_image_rules() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    let png = s.dir.path().join("shot.png");
+    std::fs::write(&png, PNG).unwrap();
+    let txt = s.dir.path().join("note.txt");
+    std::fs::write(&txt, "hello").unwrap();
+    let (p, t) = (png.display().to_string(), txt.display().to_string());
+    let file = s.dir.path().join("s.jsonl");
+    let line = serde_json::json!({"type":"assistant","timestamp":"2026-10-04T09:00:00.000Z",
+        "message":{"role":"assistant","content":[{"type":"text",
+        "text": format!("![shot]({p}) ![n]({t}) ![m]({}/missing.png)", s.dir.path().display())}]}})
+    .to_string();
+    std::fs::write(&file, line + "\n").unwrap();
+    fake.set_session(Some(file.display().to_string()));
+    let get = |q: String| {
+        let c = &s.client;
+        async move { c.get(&format!("/api/local-image{q}")).await }
+    };
+    let r = get(format!("?agentId=a1&path={}", pct(&p))).await;
+    assert_binary_headers(&r, "image/png");
+    assert_eq!(r.body, PNG);
+    // A linked file that is not an image.
+    let r = get(format!("?agentId=a1&path={}", pct(&t))).await;
+    assert_eq!(r.status, 404);
+    assert_eq!(r.json()["error"], "no such image");
+    let m = format!("{}/missing.png", s.dir.path().display());
+    let r = get(format!("?agentId=a1&path={}", pct(&m))).await;
+    assert_eq!(r.json()["error"], "no such image");
+    // Not linked.
+    let other = s.dir.path().join("other.png");
+    std::fs::write(&other, PNG).unwrap();
+    let r = get(format!(
+        "?agentId=a1&path={}",
+        pct(&other.display().to_string())
+    ))
+    .await;
+    assert_eq!(r.status, 404);
+    assert_eq!(r.json()["error"], "image not referenced by this agent");
+    // Relative, empty, missing and unknown agent.
+    for q in [
+        "?agentId=a1&path=shot.png".to_string(),
+        "?agentId=a1&path=".to_string(),
+        "?agentId=a1".to_string(),
+        format!("?agentId=zz&path={}", pct(&p)),
+        format!("?path={}", pct(&p)),
+    ] {
+        let r = get(q.clone()).await;
+        assert_eq!(r.status, 404, "{q}");
+        assert_eq!(r.json()["error"], "no such image", "{q}");
+    }
+    // No session file.
+    fake.set_session(None);
+    let r = get(format!("?agentId=a1&path={}", pct(&p))).await;
+    assert_eq!(r.json()["error"], "image not referenced by this agent");
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn local_image_drive_relative_path_is_not_absolute() {
+    let (_fake, s) = with_agent(no_capabilities()).await;
+    let r = s
+        .client
+        .get("/api/local-image?agentId=a1&path=C%3Ax.png")
+        .await;
+    assert_eq!(r.status, 404);
+    assert_eq!(r.json()["error"], "no such image");
+}
+
+#[tokio::test]
+async fn uploads_serve_only_plain_names() {
+    let fake = Arc::new(FakeBackend::default());
+    let s = start_cfg(&fake, |_| {}).await;
+    let dir = s.dir.path().join("uploads");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("ab-1_x.png"), PNG).unwrap();
+    std::fs::write(dir.join("a b.png"), PNG).unwrap();
+    std::fs::write(dir.join("t.png"), b"not an image").unwrap();
+    let r = s.client.get("/api/uploads/ab-1_x.png").await;
+    assert_binary_headers(&r, "image/png");
+    assert_eq!(r.body, PNG);
+    for name in [
+        "a%20b.png",
+        "nope.png",
+        "t.png",
+        "ab-1_x.svg",
+        "..%2Fab-1_x.png",
+        "sub/ab-1_x.png",
+        "",
+    ] {
+        let r = s.client.get(&format!("/api/uploads/{name}")).await;
+        assert_eq!(r.status, 404, "{name}");
+        assert_eq!(r.json()["error"], "no such upload", "{name}");
+    }
+}

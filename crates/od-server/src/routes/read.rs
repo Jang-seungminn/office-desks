@@ -183,7 +183,10 @@ pub(crate) async fn session_file(
     st.backend.find_session(desk, agent).await.ok().flatten()
 }
 
-async fn read_file(file: PathBuf, sidechain: bool) -> Result<TranscriptResult, ApiError> {
+pub(crate) async fn read_file(
+    file: PathBuf,
+    sidechain: bool,
+) -> Result<TranscriptResult, ApiError> {
     Ok(
         tokio::task::spawn_blocking(move || read_transcript(&file, ReadOptions { sidechain }))
             .await??,
