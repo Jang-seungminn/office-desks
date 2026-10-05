@@ -260,7 +260,12 @@ impl OrcaBackend {
         }
         let r = self.runner.run(&args_of(&["terminal", "list"])).await?;
         let rows: Vec<OrcaTerminalRow> = rows(&r, "terminals");
-        *lock(&self.terminals) = Some((self.now(), rows.clone()));
+        let at = self.now();
+        let mut cache = lock(&self.terminals);
+        // Overlapping snapshots: never let an older list replace a newer one.
+        if cache.as_ref().is_none_or(|(prev, _)| *prev <= at) {
+            *cache = Some((at, rows.clone()));
+        }
         Ok(rows)
     }
 
@@ -1306,15 +1311,44 @@ mod tests {
 
     #[test]
     fn no_plain_errors() {
-        let needle = concat!("BackendError", "::plain");
-        for (name, text) in [
-            ("backend.rs", include_str!("backend.rs")),
-            ("cli.rs", include_str!("cli.rs")),
-            ("sessions.rs", include_str!("sessions.rs")),
-            ("usage.rs", include_str!("usage.rs")),
-            ("verify.rs", include_str!("verify.rs")),
+        // Built with concat! so this test never matches its own source.
+        let needles = [
+            concat!("BackendError", "::plain"),
+            concat!("code", ": None"),
+        ];
+        let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src"));
+        let mut scanned = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for entry in std::fs::read_dir(&d).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                if !name.ends_with(".rs") || name == "fake.rs" {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                for needle in needles {
+                    assert!(
+                        !text.contains(needle),
+                        "{} builds an uncoded error ({needle})",
+                        path.display()
+                    );
+                }
+                scanned.push(name);
+            }
+        }
+        for must in [
+            "backend.rs",
+            "cli.rs",
+            "sessions.rs",
+            "usage.rs",
+            "verify.rs",
         ] {
-            assert!(!text.contains(needle), "{name} builds an uncoded error");
+            assert!(scanned.iter().any(|n| n == must), "{must} not scanned");
         }
     }
 }
