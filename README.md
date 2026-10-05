@@ -172,7 +172,7 @@ npx tauri build --bundles nsis   # Windows: target/release/bundle/nsis/*.exe
 - 앱 화면의 IPC는 창 `main`과 앱 서버 주소(`http://127.0.0.1:<포트>/*`)에만 열려 있어요. 사무실 창에는 IPC가 없고, 서버가 `frame-ancestors 'none'`으로 iframe 삽입을 막아요. 자세한 내용은 `crates/od-server/PARITY.md`에 있어요.
 - 아직 없는 것: 숨은 탭의 WebGL 컨텍스트 해제, 재연결 백오프(끊기면 바로 다시 시도하고, 연속 3번 실패하면 멈춰요), Windows에서 강제 종료 시 에이전트 정리(Job Object), 중복 실행 방지.
 - **Linux는 지원하지 않아요.** `od-app`이 webkit2gtk를 필요로 해서, Linux에서는 `cargo test --workspace --exclude od-app`을 쓰세요.
-- **서명하지 않은 빌드**예요. CI 산출물(`gongbang-macOS`, `gongbang-Windows`)로만 배포해요. macOS Gatekeeper는 우클릭 → 열기, Windows SmartScreen은 추가 정보 → 실행 순서로 허용하세요. 받은 `.app`이 실행되지 않으면 `chmod +x Gongbang.app/Contents/MacOS/gongbang`을 해 보세요 (CI 산출물 zip은 실행 권한을 잃을 수 있어요).
+- **서명하지 않은 빌드**예요. CI 산출물(`gongbang-macOS`, `gongbang-Windows`)로만 배포해요. macOS Gatekeeper는 우클릭 → 열기, Windows SmartScreen은 추가 정보 → 실행 순서로 허용하세요. macOS 산출물은 `Gongbang-macOS.zip`이에요. 받아서 압축을 풀고, 우클릭 → 열기로 실행하세요 (서명 없음).
 
 ## 터미널 앱 (TUI)
 
