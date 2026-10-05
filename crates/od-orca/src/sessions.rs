@@ -138,10 +138,17 @@ struct RemoveOnDrop {
 
 impl Drop for RemoveOnDrop {
     fn drop(&mut self) {
-        let mut inflight = lock(&self.resolver.inflight);
-        if inflight.get(&self.id).is_some_and(|(g, _)| *g == self.gen) {
-            inflight.remove(&self.id);
-        }
+        let removed = {
+            let mut inflight = lock(&self.resolver.inflight);
+            if inflight.get(&self.id).is_some_and(|(g, _)| *g == self.gen) {
+                inflight.remove(&self.id)
+            } else {
+                None
+            }
+        };
+        // Dropped after the lock is released: the last `Shared` clone owns another guard
+        // (`cleanup` in `resolve`), whose drop takes the same lock.
+        drop(removed);
     }
 }
 
@@ -178,46 +185,67 @@ impl SessionResolver {
         desk: &OfficeDesk,
         agent: &OfficeAgent,
     ) -> Result<Option<String>, BackendError> {
+        let running = lock(&self.inflight).get(&agent.id).map(|(_, r)| r.clone());
+        if let Some(running) = running {
+            return running.await;
+        }
+        // Spawn outside the in-flight lock: if the runtime drops the task synchronously (as
+        // during shutdown), its guard re-locks the map. The task waits for `go`, sent only
+        // after its entry is in the map, so the guard can never run before the entry exists.
+        let gen = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+        let query = Query {
+            desk_path: desk.path.clone(),
+            id: agent.id.clone(),
+            agent_type: agent.agent_type.clone(),
+            prompt: agent.prompt.clone(),
+            terminal_title: agent.terminal_title.clone(),
+            last_message: agent.last_message.clone(),
+        };
+        let (go, ready) = tokio::sync::oneshot::channel::<()>();
+        let me = Arc::clone(self);
+        let guard = RemoveOnDrop {
+            resolver: Arc::clone(self),
+            id: agent.id.clone(),
+            gen,
+        };
+        let handle = tokio::spawn(async move {
+            let _guard = guard;
+            if ready.await.is_err() {
+                // Another caller's search won the race; this one never ran.
+                return Ok(None);
+            }
+            match tokio::time::timeout(RESOLVE_TIMEOUT, me.resolve_now(query)).await {
+                Ok(r) => r,
+                Err(_) => Err(BackendError::with_code(
+                    "session search timed out",
+                    "timeout",
+                )),
+            }
+        });
+        let cleanup = RemoveOnDrop {
+            resolver: Arc::clone(self),
+            id: agent.id.clone(),
+            gen,
+        };
+        let shared = async move {
+            let r = handle
+                .await
+                .unwrap_or_else(|e| Err(BackendError::new(format!("session search failed: {e}"))));
+            // Normally the task's guard has already removed the entry; this covers a task the
+            // runtime cancelled before it ever ran.
+            drop(cleanup);
+            r
+        }
+        .boxed()
+        .shared();
         let shared = {
             let mut inflight = lock(&self.inflight);
             if let Some((_, running)) = inflight.get(&agent.id) {
+                // Lost the race: drop `go`, so our task ends without searching.
                 running.clone()
             } else {
-                let gen = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
-                let query = Query {
-                    desk_path: desk.path.clone(),
-                    id: agent.id.clone(),
-                    agent_type: agent.agent_type.clone(),
-                    prompt: agent.prompt.clone(),
-                    terminal_title: agent.terminal_title.clone(),
-                    last_message: agent.last_message.clone(),
-                };
-                let me = Arc::clone(self);
-                let guard = RemoveOnDrop {
-                    resolver: Arc::clone(self),
-                    id: agent.id.clone(),
-                    gen,
-                };
-                let handle = tokio::spawn(async move {
-                    let _guard = guard;
-                    match tokio::time::timeout(RESOLVE_TIMEOUT, me.resolve_now(query)).await {
-                        Ok(r) => r,
-                        Err(_) => Err(BackendError::with_code(
-                            "session search timed out",
-                            "timeout",
-                        )),
-                    }
-                });
-                let shared = async move {
-                    handle.await.unwrap_or_else(|e| {
-                        Err(BackendError::new(format!("session search failed: {e}")))
-                    })
-                }
-                .boxed()
-                .shared();
-                // Inserted under the same lock the task's guard takes, so the guard can never
-                // run before the entry exists.
                 inflight.insert(agent.id.clone(), (gen, shared.clone()));
+                let _ = go.send(());
                 shared
             }
         };
@@ -713,6 +741,29 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             std::future::pending().await
         }
+    }
+
+    #[tokio::test]
+    async fn a_panicking_search_fails_and_frees_the_agent() {
+        let runner = FakeRunner::new(|_| {
+            Ok(
+                json!({ "hits": [{ "cwd": "/Users/me/proj", "source": { "filePath": "/x/a.jsonl" } }] }),
+            )
+        });
+        let verify: SessionVerifier = Arc::new(|_, _| async { panic!("verifier boom") }.boxed());
+        let r = SessionResolver::new(runner.clone(), Some(verify), clock(), false);
+        let d = desk();
+        let a = agent(PROMPT, None, None);
+        let err = r.resolve(&d, &a).await.unwrap_err();
+        assert!(
+            err.message.starts_with("session search failed"),
+            "{}",
+            err.message
+        );
+        assert_eq!(err.code.as_deref(), Some("backend_error"));
+        assert_eq!(r.inflight_len(), 0);
+        let _ = r.resolve(&d, &a).await;
+        assert_eq!(runner.calls().len(), 2);
     }
 
     #[tokio::test(start_paused = true)]
