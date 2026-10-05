@@ -70,6 +70,7 @@ Sockets and upgrades:
 - **Resize limits.** `/term` ignores a resize outside cols 1..=1000 and rows 1..=500, and `PtyHost::resize` ignores sizes over 1000 x 500 (see od-core PARITY). Reason: vt100 allocates every cell.
 
 Server behaviour:
+- **MIME table.** `.mjs` (text/javascript), `.woff2` (font/woff2) and `.wasm` (application/wasm) are typed; Node served them as octet-stream. Reason: the app UI needs them.
 - **No 503 for a rebuilding dist.** TS answers 503 `web UI is being rebuilt` while `web/dist` is missing or being replaced. The Rust binary embeds the files (rust-embed), so there is no such state. Without a built `web/dist`, `/` answers a plain text hint.
 - **`POST /hook` waits for the refresh.** The handler awaits the poller refresh for at most 500 ms before it answers 204. TS is fire-and-forget. Reason: on the Rust blocking pool the next `GET /api/snapshot` would otherwise often read the state from before the hook (found by the `hook-snapshot` contract step).
 - **`Poller::refresh` is stricter.** A caller waits for a poll that started after the call; TS callers may share a poll that is already in flight and so read older data. Reason: avoids a stale join.

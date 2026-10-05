@@ -2665,3 +2665,48 @@ async fn no_app_assets_keeps_the_old_fallback() {
     assert_eq!(r.text(), "WEB");
     assert_security_headers(&r);
 }
+
+#[tokio::test]
+async fn app_mount_edge_cases() {
+    let s = start_cfg(&Arc::new(FakeBackend::default()), web_and_app).await;
+    // The URL parser resolves `..` (also as `%2e%2e`) before dispatch, as WHATWG URL does in
+    // Node: the path leaves `/app/` and is the web UI's, never an app file.
+    for p in ["/app/%2e%2e/x", "/app/../x"] {
+        let r = s.client.get(p).await;
+        assert_eq!(r.text(), "WEB", "{p}");
+        assert_security_headers(&r);
+    }
+    for p in ["/app/..%5Cx", "/app/%2e%2e%5Cx"] {
+        let r = s.client.get(p).await;
+        assert_eq!(r.text(), "APP", "{p}");
+        assert!(r
+            .header("content-security-policy")
+            .unwrap()
+            .contains("'unsafe-inline'"));
+    }
+    for p in ["/application", "/appx"] {
+        let r = s.client.get(p).await;
+        assert_eq!(r.text(), "WEB", "{p}");
+        assert_security_headers(&r);
+    }
+    let token = s.handle.term_token.clone();
+    for p in ["/app/", "/app/x"] {
+        assert!(!s.client.get(p).await.text().contains(&token), "{p}");
+    }
+}
+
+#[tokio::test]
+async fn app_without_index_is_404_over_the_wire() {
+    let s = start_cfg(&Arc::new(FakeBackend::default()), |c| {
+        web_and_app(c);
+        c.app_assets = Some(Arc::new(MemAssets(HashMap::new())));
+    })
+    .await;
+    let r = s.client.get("/app/").await;
+    assert_eq!(r.status, 404);
+    assert_eq!(r.text(), r#"{"error":"app UI not built"}"#);
+    assert!(r
+        .header("content-security-policy")
+        .unwrap()
+        .contains("'unsafe-inline'"));
+}

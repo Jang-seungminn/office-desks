@@ -48,11 +48,13 @@ fn mime(key: &str) -> &'static str {
     };
     match ext {
         ".html" => "text/html; charset=utf-8",
-        ".js" => "text/javascript; charset=utf-8",
+        ".js" | ".mjs" => "text/javascript; charset=utf-8",
         ".css" => "text/css; charset=utf-8",
         ".png" => "image/png",
         ".json" => "application/json",
         ".svg" => "image/svg+xml",
+        ".woff2" => "font/woff2",
+        ".wasm" => "application/wasm",
         _ => "application/octet-stream",
     }
 }
@@ -187,10 +189,10 @@ mod tests {
             (200, "text/javascript; charset=utf-8", "JS")
         );
         let (_, ct, b) = get(&a, "/a.woff2").await;
-        assert_eq!(
-            (ct.as_str(), b.as_str()),
-            ("application/octet-stream", "FONT")
-        );
+        assert_eq!((ct.as_str(), b.as_str()), ("font/woff2", "FONT"));
+        assert_eq!(mime("x/m.mjs"), "text/javascript; charset=utf-8");
+        assert_eq!(mime("x.wasm"), "application/wasm");
+        assert_eq!(mime("x.bin"), "application/octet-stream");
     }
 
     #[tokio::test]
