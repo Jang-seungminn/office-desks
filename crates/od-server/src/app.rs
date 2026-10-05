@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::Router;
 use serde_json::json;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -25,7 +25,7 @@ use crate::hub::Hub;
 use crate::poller::Poller;
 use crate::reqs::{json, RequestUrl};
 use crate::security::{apply_headers, is_allowed_request};
-use crate::{routes, term, ws, ServerConfig, DEV_WEB_PORT};
+use crate::{routes, term, ws, ServerConfig};
 
 pub(crate) struct AppState {
     pub port: u16,
@@ -176,7 +176,7 @@ async fn dispatch(State(st): State<Arc<AppState>>, req: Request) -> Response {
     if url.pathname.starts_with(term::PREFIX) {
         return term::upgrade_required();
     }
-    serve_static(&st)
+    crate::assets::serve_static(&*st.assets, &url.pathname)
 }
 
 /// Node emits `'upgrade'` (instead of calling the request handler) exactly when `Connection`
@@ -225,22 +225,6 @@ async fn upgrade(st: Arc<AppState>, req: Request) -> Response {
     res.headers_mut()
         .insert(header::CONNECTION, HeaderValue::from_static("close"));
     res
-}
-
-/// Until Task 10: the no-dist text when there is no web UI, else 404.
-fn serve_static(st: &AppState) -> Response {
-    if st.assets.get("index.html").is_none() {
-        let text = format!(
-            "Office Desks bridge is running. Build the web UI with \"npm run build\", or use \"npm run dev\" and open http://localhost:{DEV_WEB_PORT}"
-        );
-        let mut res = (StatusCode::OK, text).into_response();
-        res.headers_mut().insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("text/plain; charset=utf-8"),
-        );
-        return res;
-    }
-    StatusCode::NOT_FOUND.into_response()
 }
 
 #[cfg(test)]

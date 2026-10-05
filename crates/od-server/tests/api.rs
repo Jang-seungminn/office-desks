@@ -82,20 +82,39 @@ async fn root_without_dist_is_the_no_dist_text() {
 }
 
 #[tokio::test]
-async fn static_with_dist_is_404_until_task_10() {
+async fn static_files_are_served_over_the_wire() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = scratch_config(dir.path());
-    cfg.assets = Arc::new(MemAssets(HashMap::from([(
-        "index.html".to_string(),
-        b"<!doctype html>".to_vec(),
-    )])));
+    cfg.assets = Arc::new(MemAssets(HashMap::from([
+        ("index.html".to_string(), b"<!doctype html>".to_vec()),
+        ("assets/app.js".to_string(), b"let a".to_vec()),
+    ])));
     let s = start_with(
         Arc::new(support::fake_backend::FakeBackend::default()),
         cfg,
         dir,
     )
     .await;
-    assert_eq!(s.client.get("/").await.status, 404);
+    let r = s.client.get("/").await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.header("content-type"), Some("text/html; charset=utf-8"));
+    assert_eq!(r.text(), "<!doctype html>");
+    assert_security_headers(&r);
+    let r = s.client.get("/assets/app.js").await;
+    assert_eq!(
+        r.header("content-type"),
+        Some("text/javascript; charset=utf-8")
+    );
+    assert_eq!(r.text(), "let a");
+    // Unknown paths fall back to the index; any method gets the same answer.
+    assert_eq!(s.client.get("/some/route").await.text(), "<!doctype html>");
+    let r = s.client.request("PUT", "/x", &[], None).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.text(), "<!doctype html>");
+    let r = s.client.get("/%E0%A4%A").await;
+    assert_eq!(r.status, 400);
+    assert_eq!(r.header("content-type"), Some("application/json"));
+    assert_eq!(r.text(), "{\"error\":\"bad path\"}");
 }
 
 #[tokio::test]
