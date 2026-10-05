@@ -316,6 +316,13 @@ fn s(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
 
+/// `find_session` for the first agent on the main desk (the call that may scan).
+async fn find(b: &NativeBackend<FakePty>) -> Option<String> {
+    let snap = b.snapshot().await.unwrap();
+    let desk = &snap.desks[1];
+    b.find_session(desk, &desk.agents[0]).await.unwrap()
+}
+
 /// Let detached tasks (the Enter after a hook-delivered paste) run, like `setTimeout(0)`.
 async fn settle() {
     for _ in 0..10 {
@@ -425,13 +432,13 @@ async fn stops_an_agent_by_killing_its_terminal() {
 async fn reports_an_unknown_agent_as_not_found() {
     let ctx = setup(Opts::default());
     let err = ctx.backend.stop_agent("nope:main").await.unwrap_err();
-    assert_eq!(err.code, "not_found");
+    assert_eq!(err.code.as_deref(), Some("not_found"));
 }
 
 #[tokio::test]
 async fn refuses_the_main_checkout_and_unknown_desks_going_by_gits_own_listing() {
     let ctx = setup(Opts::default());
-    let code = |r: Result<(), BackendError>| r.unwrap_err().code;
+    let code = |r: Result<(), BackendError>| r.unwrap_err().code.unwrap_or_default();
     assert_eq!(
         code(ctx.backend.remove_worktree(MAIN).await),
         "main_checkout"
@@ -464,7 +471,7 @@ async fn knows_the_main_checkout_from_git_even_when_the_registered_path_is_spell
         .remove_worktree("abcdef123456::/real/app")
         .await
         .unwrap_err();
-    assert_eq!(err.code, "main_checkout");
+    assert_eq!(err.code.as_deref(), Some("main_checkout"));
     assert!(!ctx.git_called("remove"));
 }
 
@@ -473,7 +480,7 @@ async fn refuses_a_worktree_with_a_running_agent() {
     let ctx = setup(Opts::default());
     ctx.hire_on(FEAT, "claude", None).await;
     let err = ctx.backend.remove_worktree(FEAT).await.unwrap_err();
-    assert_eq!(err.code, "has_agents");
+    assert_eq!(err.code.as_deref(), Some("has_agents"));
     assert!(!ctx.git_called("remove"));
 }
 
@@ -646,7 +653,7 @@ async fn refuses_an_agent_command_that_is_not_installed_before_creating_anything
         })
         .await
         .unwrap_err();
-    assert_eq!(err.code, "agent_not_found");
+    assert_eq!(err.code.as_deref(), Some("agent_not_found"));
     let err = ctx
         .backend
         .hire(HireSpec::Worktree {
@@ -658,7 +665,7 @@ async fn refuses_an_agent_command_that_is_not_installed_before_creating_anything
         })
         .await
         .unwrap_err();
-    assert_eq!(err.code, "agent_not_found");
+    assert_eq!(err.code.as_deref(), Some("agent_not_found"));
     assert!(err.message.contains("codex"));
     assert_eq!(
         err.message,
@@ -985,6 +992,7 @@ async fn finds_the_transcript_by_session_id_rate_limited_or_from_the_hook_path_w
     );
     assert_eq!(ctx.backend.cached_session(&agent_id), None);
     ctx.tick(5001);
+    assert_eq!(find(&ctx.backend).await, None);
     assert_eq!(ctx.backend.cached_session(&agent_id), None);
     std::fs::create_dir_all(hook_file.parent().unwrap()).unwrap();
     std::fs::write(&hook_file, "{}\n").unwrap();
@@ -1027,6 +1035,8 @@ async fn follows_a_new_session_id_from_session_start_but_still_rejects_foreign_b
         &t,
         &json!({ "hook_event_name": "SessionStart", "session_id": id2 }),
     );
+    assert_eq!(ctx.backend.cached_session(&agent_id), None); // only find_session scans
+    assert_eq!(find(&ctx.backend).await, Some(s(&file2)));
     assert_eq!(ctx.backend.cached_session(&agent_id), Some(s(&file2)));
 
     // A path matching neither id is rejected.
@@ -1037,28 +1047,45 @@ async fn follows_a_new_session_id_from_session_start_but_still_rejects_foreign_b
         &json!({ "hook_event_name": "SessionStart", "session_id": id3, "transcript_path": s(&dir.join("other.jsonl")) }),
     );
     assert_eq!(ctx.backend.cached_session(&agent_id), None); // adopted id3, nothing on disk, bogus path ignored
+    assert_eq!(find(&ctx.backend).await, None);
 }
 
-#[cfg(unix)]
 #[tokio::test]
-async fn rejects_a_hook_path_that_leaves_the_projects_root_through_a_symlink() {
+async fn rejects_a_hook_path_that_climbs_out_of_the_projects_root() {
     let ctx = setup(Opts::default());
     ctx.hire_on(MAIN, "claude", None).await;
     let sid = ctx.pty.spawned()[0].1.args[1].clone();
     let agent_id = format!("{}:main", ctx.pty.id(0));
     let root = ctx.home.join("claude-projects");
-    std::fs::create_dir_all(&root).unwrap();
-    assert_eq!(ctx.backend.cached_session(&agent_id), None); // scans once; the next scan waits 5 s
-    let outside = tmp("od-outside-");
-    std::fs::write(outside.path().join(format!("{sid}.jsonl")), "{}\n").unwrap();
-    std::os::unix::fs::symlink(outside.path(), root.join("evil")).unwrap();
-    let via_link = root.join("evil").join(format!("{sid}.jsonl"));
+    std::fs::create_dir_all(root.join("-p-app")).unwrap();
+    // The file exists, but `..` takes the path out of the projects folder.
+    let outside = ctx.home.join(format!("{sid}.jsonl"));
+    std::fs::write(&outside, "{}\n").unwrap();
+    let climbing = root
+        .join("-p-app")
+        .join("..")
+        .join("..")
+        .join(format!("{sid}.jsonl"));
+    assert!(ctx.backend.hook(
+        &agent_id,
+        &ctx.pty.token(0),
+        &json!({ "hook_event_name": "SessionStart", "transcript_path": s(&climbing) }),
+    ));
+    assert_eq!(ctx.backend.cached_session(&agent_id), None);
+    // `..` that stays inside is fine.
+    let inside = root.join("-p-app").join(format!("{sid}.jsonl"));
+    std::fs::write(&inside, "{}\n").unwrap();
+    let detour = root
+        .join("-p-app")
+        .join("..")
+        .join("-p-app")
+        .join(format!("{sid}.jsonl"));
     ctx.backend.hook(
         &agent_id,
         &ctx.pty.token(0),
-        &json!({ "hook_event_name": "SessionStart", "transcript_path": s(&via_link) }),
+        &json!({ "hook_event_name": "SessionStart", "transcript_path": s(&detour) }),
     );
-    assert_eq!(ctx.backend.cached_session(&agent_id), None);
+    assert_eq!(ctx.backend.cached_session(&agent_id), Some(s(&detour)));
 }
 
 #[tokio::test]
@@ -1100,6 +1127,7 @@ async fn honors_claude_config_dir_for_the_transcript_root() {
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join(format!("{sid}.jsonl"));
     std::fs::write(&file, "{}\n").unwrap();
+    assert_eq!(find(&backend).await, Some(s(&file)));
     assert_eq!(backend.cached_session(&agent_id), Some(s(&file)));
 }
 
@@ -1134,7 +1162,7 @@ async fn registers_a_repo_from_any_folder_inside_it() {
     let paths: Vec<String> = ctx.registry.repos().into_iter().map(|r| r.path).collect();
     assert!(paths.contains(&normalize_path("/q/other")));
     let err = ctx.backend.add_repo("relative/path").await.unwrap_err();
-    assert_eq!(err.code, "not_absolute");
+    assert_eq!(err.code.as_deref(), Some("not_absolute"));
     assert_eq!(err.message, "절대 경로를 입력해 주세요");
 }
 
@@ -1283,7 +1311,7 @@ async fn hires_into_and_removes_a_real_git_worktree() {
     let wt_path = PathBuf::from(&wt.path);
     let main_id = snap.desks.iter().find(|d| d.is_main).unwrap().id.clone();
 
-    let code = |r: Result<(), BackendError>| r.unwrap_err().code;
+    let code = |r: Result<(), BackendError>| r.unwrap_err().code.unwrap_or_default();
     assert_eq!(code(backend.remove_worktree(&wt_id).await), "has_agents");
     pty.kill(&pty.id(0));
     std::fs::write(wt_path.join("scratch.txt"), "x").unwrap();
@@ -1297,4 +1325,30 @@ async fn hires_into_and_removes_a_real_git_worktree() {
     );
     let snap = backend.snapshot().await.unwrap();
     assert_eq!(snap.desks.len(), 1);
+}
+
+#[tokio::test]
+async fn a_failed_worktree_add_is_a_plain_error_and_spawns_nothing() {
+    let ctx = setup(with_git(|_, args| {
+        if args.get(1) == Some(&"add") {
+            return Err(git_err("fatal: a branch named 'fix-login' already exists"));
+        }
+        Ok(PORCELAIN.into())
+    }));
+    let err = ctx
+        .backend
+        .hire(HireSpec::Worktree {
+            repo_id: REPO_ID.into(),
+            name: "fix-login".into(),
+            agent: "codex".into(),
+            base_branch: None,
+            prompt: None,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err,
+        BackendError::plain("fatal: a branch named 'fix-login' already exists")
+    );
+    assert!(ctx.pty.spawned().is_empty());
 }

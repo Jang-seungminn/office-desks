@@ -360,7 +360,7 @@ mod tests {
             .tempdir()
             .unwrap();
         let e = resolve_repo(s(t.path()), &SystemGit).unwrap_err();
-        assert_eq!(e.code, "not_a_repo");
+        assert_eq!(e.code.as_deref(), Some("not_a_repo"));
         assert!(e.message.starts_with("git 저장소가 아니에요: "));
     }
 

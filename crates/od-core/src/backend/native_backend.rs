@@ -216,8 +216,9 @@ fn basename(p: &str) -> &str {
         .unwrap_or("")
 }
 
+/// Node's fs calls throw a plain `Error`.
 fn io_error(e: std::io::Error) -> BackendError {
-    BackendError::new(e.to_string())
+    BackendError::plain(e.to_string())
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -261,32 +262,26 @@ fn plausible_session_id(s: &str) -> bool {
     (8..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
 }
 
-/// The path with symlinks resolved as far as it exists; the missing rest is appended as is
-/// (after a lexical normalize, so it holds no `..`). None for a path that can't be resolved.
-fn real_path(p: &Path) -> Option<PathBuf> {
+/// `path.resolve`: absolute against the working directory, then a lexical normalize. No
+/// filesystem access beyond reading the working directory for a relative path.
+fn resolve_lexical(p: &Path) -> Option<PathBuf> {
     let abs = if p.is_absolute() {
         p.to_path_buf()
     } else {
         std::env::current_dir().ok()?.join(p)
     };
-    let norm = PathBuf::from(normalize_path(&abs.to_string_lossy()));
-    let mut base = norm.as_path();
-    let mut tail = Vec::new();
-    loop {
-        if let Ok(real) = dunce::canonicalize(base) {
-            let mut out = real;
-            for c in tail.iter().rev() {
-                out.push(c);
-            }
-            return Some(out);
-        }
-        tail.push(base.file_name()?.to_os_string());
-        base = base.parent()?;
-    }
+    let norm = normalize_path(&abs.to_string_lossy());
+    // Windows paths compare without case, like `path.win32.relative`.
+    Some(PathBuf::from(if cfg!(windows) {
+        norm.to_lowercase()
+    } else {
+        norm
+    }))
 }
 
 /// Only `<our session id>.jsonl` under Claude's projects folder; anything else falls back to the
-/// scan. Both sides are resolved through symlinks, so a link inside the root can't point out.
+/// scan. Lexical like the TS (`path.relative` from the root must not climb out), so it is cheap
+/// enough to run under the state lock: `..` can't escape, a symlink inside the root can.
 fn own_transcript(session_id: Option<&str>, p: &str, root: &Path) -> bool {
     let Some(sid) = session_id else {
         return false;
@@ -294,7 +289,7 @@ fn own_transcript(session_id: Option<&str>, p: &str, root: &Path) -> bool {
     if basename(p) != format!("{sid}.jsonl") {
         return false;
     }
-    let (Some(file), Some(root)) = (real_path(Path::new(p)), real_path(root)) else {
+    let (Some(file), Some(root)) = (resolve_lexical(Path::new(p)), resolve_lexical(root)) else {
         return false;
     };
     file != root && file.starts_with(&root)
@@ -302,6 +297,10 @@ fn own_transcript(session_id: Option<&str>, p: &str, root: &Path) -> bool {
 
 /// The native backend. Generic over the PTY host so tests can run it on a fake; the server uses
 /// `NativeBackend` (= `NativeBackend<PtyHost>`).
+///
+/// Needs a tokio runtime with the time driver enabled (`enable_time`/`enable_all`): git, file IO
+/// and spawns run on `spawn_blocking`, the default sleep is `tokio::time::sleep`, and
+/// `PtyHost::dispose` waits with tokio timers. Only `hook` also works outside a runtime.
 pub struct NativeBackend<P: PtyLike = PtyHost> {
     pty: Arc<P>,
     registry: Arc<Registry>,
@@ -486,7 +485,9 @@ impl<P: PtyLike> NativeBackend<P> {
         base.join("projects")
     }
 
-    fn spawn_agent(
+    /// Writes the settings file and spawns the PTY on the blocking pool (spawning a process and
+    /// the file IO can stall).
+    async fn spawn_agent(
         &self,
         desk_id: String,
         cwd: PathBuf,
@@ -496,22 +497,20 @@ impl<P: PtyLike> NativeBackend<P> {
         let id = random_uuid()?;
         let token = hex(&random_bytes::<16>()?);
         let mut args = Vec::new();
-        let mut settings_file = None;
+        let mut settings = None;
         let mut session_id = None;
         if agent_type == "claude" {
             let sid = random_uuid()?;
             let file = self.home.join("agents").join(format!("{id}.json"));
-            std::fs::create_dir_all(self.home.join("agents")).map_err(io_error)?;
             let json = serde_json::to_string(&hook_settings(&self.relay))
                 .map_err(|e| BackendError::new(e.to_string()))?;
-            std::fs::write(&file, json).map_err(io_error)?;
             args = vec![
                 "--session-id".to_string(),
                 sid.clone(),
                 "--settings".to_string(),
                 file.to_string_lossy().into_owned(),
             ];
-            settings_file = Some(file);
+            settings = Some((file, json));
             session_id = Some(sid);
         }
         let extra = EnvMap::from([(
@@ -520,12 +519,12 @@ impl<P: PtyLike> NativeBackend<P> {
         )]);
         let env = agent_env(&self.env, &extra);
         let now = self.now();
-        lock(&self.state).agents.push(Agent {
+        let agent = Agent {
             id: id.clone(),
             desk_id,
             agent_type: agent_type.to_string(),
             token,
-            settings_file: settings_file.clone(),
+            settings_file: settings.as_ref().map(|(f, _)| f.clone()),
             session_id,
             hook: initial_hook_state(now),
             // Without hooks there is no reliable "ready" signal, so only Claude gets a queued
@@ -539,7 +538,7 @@ impl<P: PtyLike> NativeBackend<P> {
             looked_at: 0,
             spawned_at: now,
             hooked: false,
-        });
+        };
         let opts = PtyOptions {
             file: agent_type.to_string(),
             args,
@@ -548,14 +547,26 @@ impl<P: PtyLike> NativeBackend<P> {
             cols: None,
             rows: None,
         };
-        if let Err(e) = self.pty.spawn(&id, opts) {
-            lock(&self.state).agents.retain(|a| a.id != id);
-            if let Some(f) = settings_file {
-                let _ = std::fs::remove_file(f);
+        let (pty, state) = (self.pty.clone(), self.state.clone());
+        blocking(move || {
+            if let Some((file, json)) = &settings {
+                if let Some(dir) = file.parent() {
+                    std::fs::create_dir_all(dir).map_err(io_error)?;
+                }
+                std::fs::write(file, json).map_err(io_error)?;
             }
-            return Err(e);
-        }
-        Ok(())
+            // Registered before the spawn, so an instant exit finds (and removes) it.
+            lock(&state).agents.push(agent);
+            if let Err(e) = pty.spawn(&id, opts) {
+                lock(&state).agents.retain(|a| a.id != id);
+                if let Some((file, _)) = settings {
+                    let _ = std::fs::remove_file(file);
+                }
+                return Err(e);
+            }
+            Ok(())
+        })
+        .await
     }
 }
 
@@ -708,12 +719,13 @@ impl<P: PtyLike> OfficeBackend for NativeBackend<P> {
         }
         let (desk_id, cwd) = match spec {
             HireSpec::Agent { desk_id, .. } => {
-                let cwd = match desk_id.find("::") {
-                    Some(i) => desk_id[i + 2..].to_string(),
-                    // `slice(indexOf('::') + 2)` with -1: everything but the first character.
-                    None => desk_id.chars().skip(1).collect(),
+                // `validate_hire` only passes ids of known desks, which always have `::`.
+                debug_assert!(desk_id.contains("::"), "desk id without '::': {desk_id}");
+                let Some(i) = desk_id.find("::") else {
+                    return Err(BackendError::with_code(NOT_FOUND_WORKTREE, "not_found"));
                 };
-                (desk_id, PathBuf::from(cwd))
+                let cwd = PathBuf::from(&desk_id[i + 2..]);
+                (desk_id, cwd)
             }
             HireSpec::Worktree {
                 repo_id,
@@ -728,24 +740,28 @@ impl<P: PtyLike> OfficeBackend for NativeBackend<P> {
                     ));
                 };
                 let dest = worktree_dest(&self.home, &repo.name, &name);
-                if let Some(parent) = dest.parent() {
-                    std::fs::create_dir_all(parent).map_err(io_error)?;
-                }
-                let (repo_path, dest_s) = (repo.path.clone(), dest.to_string_lossy().into_owned());
+                let (repo_path, at) = (repo.path.clone(), dest.clone());
                 self.with_git(move |g| {
+                    if let Some(parent) = at.parent() {
+                        std::fs::create_dir_all(parent).map_err(io_error)?;
+                    }
+                    let dest_s = at.to_string_lossy();
                     add_worktree(&repo_path, &dest_s, &name, base_branch.as_deref(), g)
+                        .map_err(|e| BackendError::plain(e.message))
                 })
-                .await
-                .map_err(|e| BackendError::new(e.message))?;
+                .await?;
                 lock(&self.state).worktrees.remove(&repo.path);
                 // git lists the resolved path (symlinked home, macOS /var → /private/var); the
                 // desk id must match.
-                let real = dunce::canonicalize(&dest).map_err(io_error)?;
+                let real = blocking(move || dunce::canonicalize(&dest))
+                    .await
+                    .map_err(io_error)?;
                 let desk_id = format!("{}::{}", repo.id, slash(&real.to_string_lossy()));
                 (desk_id, real)
             }
         };
-        self.spawn_agent(desk_id, cwd, &agent, prompt.clone())?;
+        self.spawn_agent(desk_id, cwd, &agent, prompt.clone())
+            .await?;
         let sent_elsewhere = prompt.is_some_and(|p| !p.is_empty()) && agent != "claude";
         Ok(HireResult {
             warning: sent_elsewhere.then(|| PROMPT_NOT_SENT.to_string()),
@@ -765,52 +781,65 @@ impl<P: PtyLike> OfficeBackend for NativeBackend<P> {
             .map_err(io_error)
     }
 
+    /// The hook names the file; until then look for `<session-id>.jsonl` under the projects
+    /// folder (on the blocking pool, at most every 5 s per agent).
     async fn find_session(
         &self,
         _desk: &OfficeDesk,
         agent: &OfficeAgent,
     ) -> Result<Option<String>, BackendError> {
-        Ok(self.cached_session(&agent.id))
-    }
-
-    /// The hook names the file; until then look for `<session-id>.jsonl` (cheap, rate-limited).
-    fn cached_session(&self, agent_id: &str) -> Option<String> {
-        let id = strip_main(agent_id);
+        let id = strip_main(&agent.id).to_string();
         let now = self.now();
         let sid = {
             let mut s = lock(&self.state);
-            let a = s.agent_mut(id)?;
-            let sid = a.session_id.clone()?;
-            // The hook named the file: never scan, just wait for it to appear on disk.
-            if let Some(t) = a.transcript.clone() {
+            let Some(a) = s.agent_mut(&id) else {
+                return Ok(None);
+            };
+            let Some(sid) = a.session_id.clone() else {
+                return Ok(None);
+            };
+            if a.transcript.is_some() {
                 drop(s);
-                return Path::new(&t).exists().then_some(t);
+                // The hook named the file: never scan, just wait for it to appear on disk.
+                return Ok(self.cached_session(&id));
             }
             if a.looked_at != 0 && now - a.looked_at < SESSION_RESCAN_MS {
-                return None;
+                return Ok(None);
             }
             a.looked_at = now;
             sid
         };
         let root = self.projects_root();
-        // TODO(R2): spawn_blocking. This scan is sync by the trait (TS `cachedSession` is sync)
-        // and runs per agent per poll at most every 5 s; ~/.claude/projects can be large.
-        // No projects folder yet: nothing to find.
-        let dirs = std::fs::read_dir(&root).ok()?;
-        for dir in dirs.flatten() {
-            let file = root.join(dir.file_name()).join(format!("{sid}.jsonl"));
-            if file.exists() {
-                let found = file.to_string_lossy().into_owned();
-                let mut s = lock(&self.state);
-                if let Some(a) = s.agent_mut(id) {
-                    if a.session_id.as_deref() == Some(sid.as_str()) {
-                        a.transcript = Some(found.clone());
-                    }
+        let want = sid.clone();
+        let found = blocking(move || {
+            // No projects folder yet: nothing to find.
+            let dirs = std::fs::read_dir(&root).ok()?;
+            dirs.flatten()
+                .map(|dir| root.join(dir.file_name()).join(format!("{want}.jsonl")))
+                .find(|file| file.exists())
+                .map(|file| file.to_string_lossy().into_owned())
+        })
+        .await;
+        if let Some(file) = &found {
+            let mut s = lock(&self.state);
+            if let Some(a) = s.agent_mut(&id) {
+                if a.session_id.as_deref() == Some(sid.as_str()) {
+                    a.transcript = Some(file.clone());
                 }
-                return Some(found);
             }
         }
-        None
+        Ok(found)
+    }
+
+    /// The transcript `find_session` or a hook settled on, once it exists on disk. Never scans.
+    fn cached_session(&self, agent_id: &str) -> Option<String> {
+        let transcript = {
+            let s = lock(&self.state);
+            let a = s.agents.iter().find(|a| a.id == strip_main(agent_id))?;
+            a.session_id.as_ref()?;
+            a.transcript.clone()?
+        };
+        Path::new(&transcript).exists().then_some(transcript)
     }
 
     async fn search_conversations(

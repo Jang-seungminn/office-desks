@@ -800,8 +800,9 @@ impl Default for PtyHost {
     }
 }
 
+/// node-pty throws a plain `Error` when it can't create the PTY or process.
 fn spawn_error(e: impl std::fmt::Display) -> BackendError {
-    BackendError::new(e.to_string())
+    BackendError::plain(e.to_string())
 }
 
 impl PtyHost {
@@ -1750,7 +1751,7 @@ mod tests {
                 "cmd.exe",
             )
             .unwrap_err();
-            assert_eq!(e.code, "unsafe_for_cmd", "{bad:?}");
+            assert_eq!(e.code.as_deref(), Some("unsafe_for_cmd"), "{bad:?}");
             assert_eq!(
                 e.message,
                 "claude.cmd로는 이 인자를 안전하게 넘길 수 없어요"
@@ -1765,7 +1766,7 @@ mod tests {
             "cmd.exe",
         )
         .unwrap_err();
-        assert_eq!(e.code, "unsafe_for_cmd");
+        assert_eq!(e.code.as_deref(), Some("unsafe_for_cmd"));
         // .exe targets are not cmd's business
         let exe = |_: &str| ResolvedCommand {
             file: "C:\\c\\claude.exe".into(),

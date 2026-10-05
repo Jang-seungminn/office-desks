@@ -4,12 +4,26 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::model::BackendCapabilities;
 
-/// Error with a stable machine-readable code, as thrown by backends in the TS core.
+/// The TS `BackendBusyError` message.
+pub const BUSY_MESSAGE: &str = "agent can not take a prompt right now";
+
+/// An error from a backend. Mirrors the three kinds the TS core throws, which `server.ts` answers
+/// differently (R2's server must map them the same way):
+///
+/// - **busy** ([`BackendError::busy`], TS `BackendBusyError`): code `agent_busy` plus the
+///   `request_id` the prompt can be retried with → HTTP 409 with `code` and `requestId`.
+/// - **plain** ([`BackendError::plain`], a TS plain `Error`: git, IO, spawn failures): no code →
+///   HTTP 502 with no `code` key (`/api/hire` answers any error with 400 and the message).
+/// - **coded** ([`BackendError::new`] / [`BackendError::with_code`], TS `BackendError`) → HTTP 400
+///   with `error` and `code`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{message}")]
 pub struct BackendError {
-    pub code: String,
+    /// None for a plain error.
+    pub code: Option<String>,
     pub message: String,
+    /// Set for `agent_busy`: the id to retry the refused prompt with.
+    pub request_id: Option<String>,
 }
 
 impl BackendError {
@@ -20,9 +34,56 @@ impl BackendError {
 
     pub fn with_code(message: impl Into<String>, code: impl Into<String>) -> Self {
         Self {
-            code: code.into(),
+            code: Some(code.into()),
             message: message.into(),
+            request_id: None,
         }
+    }
+
+    /// A TS plain `Error` (not a `BackendError`): no code.
+    pub fn plain(message: impl Into<String>) -> Self {
+        Self {
+            code: None,
+            message: message.into(),
+            request_id: None,
+        }
+    }
+
+    /// TS `BackendBusyError`: the agent can't take a prompt now; retry with `request_id`.
+    pub fn busy(request_id: impl Into<String>) -> Self {
+        Self {
+            code: Some("agent_busy".into()),
+            message: BUSY_MESSAGE.into(),
+            request_id: Some(request_id.into()),
+        }
+    }
+
+    pub fn is_busy(&self) -> bool {
+        self.code.as_deref() == Some("agent_busy")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn busy_carries_the_request_id() {
+        let e = BackendError::busy("r1");
+        assert!(e.is_busy());
+        assert_eq!(e.request_id.as_deref(), Some("r1"));
+        assert_eq!(e.code.as_deref(), Some("agent_busy"));
+        assert_eq!(e.message, "agent can not take a prompt right now");
+    }
+
+    #[test]
+    fn plain_has_no_code() {
+        let e = BackendError::plain("boom");
+        assert_eq!(e.code, None);
+        assert_eq!(e.request_id, None);
+        assert!(!e.is_busy());
+        assert_eq!(e.to_string(), "boom");
+        assert!(!BackendError::new("x").is_busy());
     }
 }
 

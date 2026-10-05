@@ -444,10 +444,10 @@ fn hire_rejects_unknown_repos_worktrees_agents_and_unsafe_names() {
 #[test]
 fn backend_error_has_code_and_message() {
     let e = BackendError::new("boom");
-    assert_eq!(e.code, "backend_error");
+    assert_eq!(e.code.as_deref(), Some("backend_error"));
     assert_eq!(e.to_string(), "boom");
     let e = BackendError::with_code("agent can not take a prompt right now", "agent_busy");
-    assert_eq!(e.code, "agent_busy");
+    assert_eq!(e.code.as_deref(), Some("agent_busy"));
     assert_eq!(e.message, "agent can not take a prompt right now");
 }
 

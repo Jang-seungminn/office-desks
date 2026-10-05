@@ -189,7 +189,7 @@ async fn runs_a_program_renders_its_screen_takes_input_and_reports_exit() {
     until("exit", || exited(&exits, "a1").is_some()).await;
     assert!(!host.has("a1"));
     let e = host.write("a1", "x").unwrap_err();
-    assert_eq!(e.code, "terminal_not_writable");
+    assert_eq!(e.code.as_deref(), Some("terminal_not_writable"));
     assert_eq!(e.message, GONE);
     assert!(host.screen_lines("a1").is_empty());
     assert!(host.ids().is_empty());
@@ -207,8 +207,8 @@ async fn reports_the_exit_code_and_refuses_writes_after_a_natural_exit() {
     until("exit", || exited(&exits, "e1").is_some()).await;
     assert_eq!(exited(&exits, "e1"), Some(3));
     assert_eq!(
-        host.write("e1", "x").unwrap_err().code,
-        "terminal_not_writable"
+        host.write("e1", "x").unwrap_err().code.as_deref(),
+        Some("terminal_not_writable")
     );
     assert_eq!(host.size("e1"), None);
     assert_eq!(host.serialize("e1"), "");
