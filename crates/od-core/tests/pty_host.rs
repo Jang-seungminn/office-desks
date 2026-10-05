@@ -383,13 +383,31 @@ async fn dispose_kills_and_reaps_every_child() {
     host.dispose().await; // nothing left: returns at once
 }
 
+/// SIGKILLs a child we spawned if the test panics, so a failed assertion can't leave a process
+/// that ignores SIGHUP behind. Disarmed on success: by then the child was reaped and its pid
+/// could belong to someone else.
+#[cfg(unix)]
+struct KillOnPanic(u32);
+
+#[cfg(unix)]
+impl Drop for KillOnPanic {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            // SAFETY: plain kill(2) on the pid of our own (not yet reaped) child.
+            unsafe { libc::kill(self.0 as libc::pid_t, libc::SIGKILL) };
+        }
+    }
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn dispose_force_kills_a_child_that_ignores_the_hangup() {
     let host = PtyHost::new();
     host.spawn("h1", echo("stubborn")).unwrap();
-    until("ready", || shows(&host, "h1", "ready")).await;
     let pid = host.pid("h1").unwrap();
+    // Declared after `host`, so it drops (and kills) first.
+    let _guard = KillOnPanic(pid);
+    until("ready", || shows(&host, "h1", "ready")).await;
     host.kill("h1"); // SIGHUP: ignored
     let started = Instant::now();
     host.dispose().await;
