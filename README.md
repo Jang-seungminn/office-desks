@@ -126,15 +126,15 @@ Orca가 실행 중이 아니면 Office Desks가 직접 에이전트를 띄웁니
 
 ## Rust build (preview)
 
-`crates/` holds a Rust port of the native backend and the server (`od-core`, `od-server`) and a binary, `office-desks`. It serves the same web UI and API as the Node bridge, for the native backend only: `--backend orca` and `--demo` are refused until the Orca and demo backends are ported. It is a preview; `npm start` stays the supported way to run Office Desks.
+`crates/`에는 native 백엔드와 서버를 Rust로 옮긴 `od-core`, `od-server`, 그리고 실행 파일 `office-desks`가 있습니다. Node bridge와 같은 웹 화면과 API를 제공하지만 native 백엔드만 지원해서, Orca·데모 백엔드를 옮기기 전까지 `--backend orca`와 `--demo`는 거부됩니다. 아직 미리보기이고, Office Desks를 쓰는 정식 방법은 계속 `npm start`입니다.
 
 ```bash
-npm run build -w web       # the binary embeds web/dist (optional; without it only the API runs)
+npm run build -w web       # 실행 파일에 web/dist를 넣습니다 (생략하면 API만 동작)
 cargo run -p office-desks -- --port 4400
-cargo test                 # includes the Node contract replay; runs on macOS and Windows
+cargo test                 # Node 계약 재생 테스트 포함, macOS와 Windows에서 실행
 ```
 
-Differences from the Node server are listed in `crates/od-server/PARITY.md`.
+Node 서버와 다른 점은 `crates/od-server/PARITY.md`에 정리했어요.
 
 ## 터미널 앱 (TUI)
 

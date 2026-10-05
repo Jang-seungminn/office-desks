@@ -65,6 +65,7 @@ Sockets and upgrades:
 - **No heartbeat on `/ws`.** Neither side pings; a dead client is noticed when a send fails. Same as TS, listed so nobody adds it by accident.
 - **`/term` is new.** There is no TS counterpart (see `src/term.rs` for the protocol). It is a Rust-only addition for the TUI and desktop app.
 - **`/term/*` without an upgrade.** Any method answers 400 `{"error":"websocket upgrade required"}`. TS served `index.html` for it. Reason: nothing in the web app links to such a path.
+- **`/term` limits.** A slow client is closed with 1013 after `term_buffer` queued chunks or 8 MiB queued bytes. Messages and frames from a client are capped at 1 MiB. On server shutdown every `/term` socket is closed with 1001.
 - **Resize limits.** `/term` ignores a resize outside cols 1..=1000 and rows 1..=500, and `PtyHost::resize` ignores sizes over 1000 x 500 (see od-core PARITY). Reason: vt100 allocates every cell.
 
 Server behaviour:
@@ -72,6 +73,8 @@ Server behaviour:
 - **`POST /hook` waits for the refresh.** The handler awaits the poller refresh for at most 500 ms before it answers 204. TS is fire-and-forget. Reason: on the Rust blocking pool the next `GET /api/snapshot` would otherwise often read the state from before the hook (found by the `hook-snapshot` contract step).
 - **`Poller::refresh` is stricter.** A caller waits for a poll that started after the call; TS callers may share a poll that is already in flight and so read older data. Reason: avoids a stale join.
 - **Extra poll after `set_idle(false)`.** If a poll is in flight, the loop polls once more at once (a `Notify` permit). TS only restarts a pending timer.
+- **Key sequences survive a client abort.** `/api/queue` and `/api/answer` run their key sequence in a spawned task, so a client that disconnects does not stop it partway.
+- **`/api/send` with `images` as an object or a string.** If its length is over 6, the answer is 400 (the MAX text). For an object otherwise, the upload folder is created first, then the answer is 502 `images is not iterable`. For a string, its UTF-16 length is compared first, before the string is rejected as an unsupported type.
 - **`/api/answer` driver errors** are always 409 `{error}` with no `code`, as TS (`catch (err)`), unlike the catch-all's 409 with `code` for `terminal_not_writable`.
 - **Key order.** `serde_json` has `preserve_order` on (workspace-wide) and the busy and terminal bodies are built in TS key order. The contract compares parsed JSON, so it does not check key order.
 
