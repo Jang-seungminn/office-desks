@@ -936,6 +936,7 @@ dependencies = [
  "libc",
  "libtest-mimic",
  "od-core",
+ "od-orca",
  "regex",
  "rust-embed",
  "serde",
@@ -957,7 +958,9 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "od-core",
+ "od-orca",
  "od-server",
+ "serde_json",
  "tempfile",
  "tokio",
  "ureq",

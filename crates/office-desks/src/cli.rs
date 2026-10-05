@@ -4,27 +4,13 @@ use od_core::native::env::EnvMap;
 
 pub const DEFAULT_PORT: u16 = 4317;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackendKind {
-    Orca,
-    Native,
-    Demo,
-}
-
-impl BackendKind {
-    pub fn name(self) -> &'static str {
-        match self {
-            BackendKind::Orca => "orca",
-            BackendKind::Native => "native",
-            BackendKind::Demo => "demo",
-        }
-    }
-}
+pub use od_server::BackendKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cli {
     pub port: u16,
-    pub backend: BackendKind,
+    /// None: nothing selected it; the `orca status` probe decides.
+    pub backend: Option<BackendKind>,
     pub help: bool,
 }
 
@@ -39,7 +25,7 @@ Usage: office-desks [--port <n>] [--backend orca|native|demo] [--demo] [--no-tui
   --backend <kind>  orca: on top of a running Orca app
                     native: run agents in Office Desks itself (no Orca needed)
                     demo: fake office
-                    default: native
+                    default: orca if Orca is running, otherwise native
   --demo            same as --backend demo
   --no-tui          server only (web), no terminal app
 (Rust build: the terminal app arrives later; office-desks runs the server only.)
@@ -62,7 +48,7 @@ pub fn parse(args: &[String], env: &EnvMap) -> Result<Cli, String> {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         return Ok(Cli {
             port: DEFAULT_PORT,
-            backend: BackendKind::Native,
+            backend: None,
             help: true,
         });
     }
@@ -89,15 +75,15 @@ pub fn parse(args: &[String], env: &EnvMap) -> Result<Cli, String> {
         .map(|v| v.trim())
         .filter(|v| !v.is_empty());
     let backend = if let Some(v) = value_of("--backend") {
-        v.and_then(kind).ok_or(BACKEND_ERROR)?
+        Some(v.and_then(kind).ok_or(BACKEND_ERROR)?)
     } else if let Some(v) = env_backend {
-        kind(v).ok_or(BACKEND_ERROR)?
+        Some(kind(v).ok_or(BACKEND_ERROR)?)
     } else if args.iter().any(|a| a == "--demo")
         || env.get("OFFICE_DESKS_DEMO").is_some_and(|v| !v.is_empty())
     {
-        BackendKind::Demo
+        Some(BackendKind::Demo)
     } else {
-        BackendKind::Native
+        None
     };
     Ok(Cli {
         port,
@@ -122,10 +108,7 @@ mod tests {
     #[test]
     fn defaults() {
         let c = p(&[], &[]).unwrap();
-        assert_eq!(
-            (c.port, c.backend, c.help),
-            (4317, BackendKind::Native, false)
-        );
+        assert_eq!((c.port, c.backend, c.help), (4317, None, false));
     }
 
     #[test]
@@ -153,30 +136,34 @@ mod tests {
     fn backend_kinds() {
         assert_eq!(
             p(&["--backend", "orca"], &[]).unwrap().backend,
-            BackendKind::Orca
+            Some(BackendKind::Orca)
         );
-        assert_eq!(p(&["--demo"], &[]).unwrap().backend, BackendKind::Demo);
+        assert_eq!(
+            p(&["--demo"], &[]).unwrap().backend,
+            Some(BackendKind::Demo)
+        );
         // Node order: --backend > OFFICE_DESKS_BACKEND > demo flag/env > native.
         assert_eq!(
             p(&["--demo"], &[("OFFICE_DESKS_BACKEND", "native")])
                 .unwrap()
                 .backend,
-            BackendKind::Native
+            Some(BackendKind::Native)
         );
         assert_eq!(
             p(&["--backend", "native", "--demo"], &[]).unwrap().backend,
-            BackendKind::Native
+            Some(BackendKind::Native)
         );
         assert_eq!(
             p(&[], &[("OFFICE_DESKS_BACKEND", "demo")]).unwrap().backend,
-            BackendKind::Demo
+            Some(BackendKind::Demo)
         );
         assert_eq!(
             p(&[], &[("OFFICE_DESKS_DEMO", "1")]).unwrap().backend,
-            BackendKind::Demo
+            Some(BackendKind::Demo)
         );
         assert_eq!(p(&["--backend", "x"], &[]), Err(BACKEND_ERROR.to_string()));
-        assert_eq!(p(&["--no-tui"], &[]).unwrap().backend, BackendKind::Native);
+        assert_eq!(p(&["--no-tui"], &[]).unwrap().backend, None);
+        assert_eq!(p(&[], &[("OFFICE_DESKS_DEMO", "")]).unwrap().backend, None);
     }
 
     #[test]

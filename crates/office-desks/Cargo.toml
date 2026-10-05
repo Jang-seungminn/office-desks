@@ -12,11 +12,13 @@ path = "src/main.rs"
 
 [dependencies]
 od-core = { path = "../od-core" }
+od-orca = { path = "../od-orca" }
 od-server = { path = "../od-server" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
 
 [dev-dependencies]
 tempfile = "3"
+serde_json = { workspace = true }
 ureq = { version = "2", default-features = false }
 
 [target."cfg(unix)".dev-dependencies]

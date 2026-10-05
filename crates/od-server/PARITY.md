@@ -79,8 +79,8 @@ Server behaviour:
 - **Key order.** `serde_json` has `preserve_order` on (workspace-wide) and the busy and terminal bodies are built in TS key order. The contract compares parsed JSON, so it does not check key order.
 
 Binary (`office-desks`):
-- **`--backend orca|demo`** (and `--demo`, `OFFICE_DESKS_BACKEND=orca|demo`) is refused with exit 1 until R3 ports those backends. Precedence otherwise is Node's: `--backend` over `OFFICE_DESKS_BACKEND` over `--demo`/`OFFICE_DESKS_DEMO` over native.
-- **No Orca probe.** TS runs `orca status` when nothing selects a backend; the Rust binary starts the native backend. Reason: there is no Orca backend yet (R3).
+- **Backend selection** is Node's: `--backend` over `OFFICE_DESKS_BACKEND` over `--demo`/`OFFICE_DESKS_DEMO` over the `orca status` probe (orca if reachable, else native). `create_backend` does not poll the probe when a kind is chosen.
+- **Bind before probe.** Node probes `orca status` first, then listens; the Rust binary binds first, so a busy port fails (exit 1) before any `orca` is spawned. The startup line is Node's: `[office-desks] bridge on http://127.0.0.1:<port> (<label>)`.
 - **`--port` and `OFFICE_DESKS_PORT`** accept ASCII digits only, 1 to 65535 (JS `Number()` accepts `1e3`, `0x10` and more). `--backend` or `--port` with no value is an error (Node reads `undefined`).
 - **Bind error text.** `[office-desks] cannot listen on 127.0.0.1:<port>: <io::Error Display>`, exit 1, before any backend exists. Node prints `listen EADDRINUSE: address already in use ...` from its `error` event.
 - **No port fallback.** The binary never picks another port. The Node TUI takes the next free port when 4317 is busy (see the README); the Rust binary has no TUI yet and fails with the bind error.
@@ -105,6 +105,5 @@ Binary (`office-desks`):
 
 ## Left for later
 
-- Orca and demo backend selection, and `probeOrca`: R3.
 - `stop` and `remove` HTTP routes for agents and worktrees (the desktop app needs them; `server.ts` has none): R4.
 - The terminal app (TUI) on top of this server: R5.
