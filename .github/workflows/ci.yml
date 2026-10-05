@@ -14,8 +14,9 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      # The Rust goldens must match what the TS code writes today. macOS only: on Windows the
-      # checkout has CRLF line endings. `add -N` makes a new, uncommitted golden show up too.
+      # The Rust goldens must match what the TS code writes today. macOS only: the TS golden script
+      # writes values with the runner's temp dir in them, and those differ on Windows.
+      # `add -N` makes a new, uncommitted golden show up too.
       - name: od-core goldens are fresh
         if: runner.os == 'macOS'
         shell: bash
@@ -40,3 +41,10 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      # The contract replay (fixtures recorded on macOS) must really run on Windows. If the harness
+      # silently had no trials, this list would lack `contract` and the step would fail.
+      - name: Windows contract trials are present
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cargo test -p od-server --test native -- --list | grep -x 'contract: test'

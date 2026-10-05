@@ -45,10 +45,10 @@ Legend: **done** = ported in R1. **R2/R3/R5** = deliberately left for that miles
 
 | TS module | Goes to | Why |
 |---|---|---|
-| `server.ts` | R2 | HTTP and WebSocket layer; R1 only ported its `conversation()` builder |
-| `security.ts` | R2 | request guards (origin, host) belong to the server. Only the token compare is in R1, as `security::same_token` |
-| `poller.ts` | R2 | drives the backend on a timer and broadcasts snapshots |
-| `backend/index.ts` (`createBackend`, `probeOrca`) | R2 | backend selection at server start |
+| `server.ts` | done in R2 | `crates/od-server` (see `crates/od-server/PARITY.md`) |
+| `security.ts` | done in R2 | `od-server` `security` module; the token compare stays here as `security::same_token` |
+| `poller.ts` | done in R2 | `od-server` `poller` and `enrich` modules |
+| `backend/index.ts` | `createNativeBackend` done in R2; `createBackend` and `probeOrca` R3 | `od-server` `native_backend`; the `office-desks` binary refuses `orca` and `demo` until R3 |
 | `backend/orca.ts` | R3 | Orca backend |
 | `orcaCli.ts` (`resolveOrcaCommand`, `createOrcaRunner`, `OrcaCliError`) | R3 | Orca CLI runner (`resolveWindowsCommand` and `unsafeForCmdShim` are already ported) |
 | `sessionResolver.ts` | R3 | Orca-side transcript lookup (the native backend finds sessions itself) |
@@ -98,7 +98,7 @@ PtyHost (xterm-headless to vt100, node-pty to portable-pty):
 
 Backend and errors:
 
-- `BackendError` is `{ code: Option<String>, message, request_id: Option<String> }`: it merges TS `BackendError`, `BackendBusyError` and plain `Error` into one type (see Notes for R2). Reason: one error type per Global Constraints, no information lost.
+- `BackendError` is `{ code: Option<String>, message, request_id: Option<String> }`: it merges TS `BackendError`, `BackendBusyError` and plain `Error` into one type (see R2 status). Reason: one error type per Global Constraints, no information lost.
 - Git, IO and spawn failures in `hire` are plain errors (no code), as in TS; PtyHost's duplicate-id error is coded `backend_error`.
 - `NativeBackend` is generic over `PtyLike`, a smaller trait than TS `Pick<PtyHost, ...>`; TUI-only members are reached through `pty()`. Reason: Rust generics.
 - `OfficeBackend` is an `async_trait` trait used as `Arc<dyn OfficeBackend>`. Reason: runtime backend choice in R2; costs a box per call.
@@ -156,9 +156,9 @@ Awards, uploads, commands, answers:
 
 Parked (known, accepted): localeCompare for symbols and non-Latin scripts, float timestamps truncated to ms, `win32_join` without normalize, `win32_has_ext` with a trailing separator, git error text approximation, an alias grandchild orphaned after a git timeout (same as Node), `ureq` pulls the `url`/ICU crates, a panic on `thread::spawn` in the relay, ConPTY exit about 200 ms late, signal-kill exit code 1.
 
-## Notes for R2
+## R2 status
 
-The server (axum or similar) must do the following. Each item is checked against the code and `bridge/src/server.ts`.
+Implemented in `crates/od-server` (HTTP, `/ws`, `/hook`, static files, the poller) and `crates/office-desks` (the binary). The differences from the Node server are in `crates/od-server/PARITY.md`. The notes below are what R2 had to do; they are kept because R3 and R4 build on the same rules. Each item is checked against the code and `bridge/src/server.ts`.
 
 - **Runtime.** Use a tokio runtime with the `time` feature on. `NativeBackend` and `PtyHost::dispose` use `spawn_blocking` and `tokio::time`.
 - **`spawn_blocking` for sync IO.** These APIs are sync and block on disk or processes; call them from `spawn_blocking`:
@@ -186,6 +186,10 @@ The server (axum or similar) must do the following. Each item is checked against
   | catch-all | anything else, coded or plain | 502 `{ error }`, plus `code` only when the error has one |
 
   So `UploadError::Rejected` (bad images, a bad or foreign upload folder) gives 400 and `UploadError::Io` (a raw fs error, a plain `Error` in TS) gives 502. The 400 text for a JSON parse error is V8's message, which Rust cannot reproduce byte for byte: a deliberate difference. A malformed `/hook/<id>` body gives a bare 400 with no body.
+
+  Two more route-level rules, parked from R1 and now implemented in `od-server`:
+  - `POST /api/org` answers 400 `{ error }` when `sanitize_org` fails. The route comes before the 415 content-type check in `server.ts`, so it never answers 415.
+  - An unknown `/api/*` path answers 405 `{"error":"method not allowed"}` for any method other than POST (GET included), and 404 `{"error":"not found"}` only for a POST with a JSON content-type. Another POST content-type gets 415 first.
 - **Request bodies.** TS reads every body with `JSON.parse` and checks each field by hand. R2 must parse every request body as `serde_json::Value` and port each route's checks; it must not use axum's `Json<T>` with the typed structs (`SendRequest`, `KeyRequest`, `WorktreeUpdate`, `HireRequest`, and the others), which are stricter than TS and would answer 422. The checks, from `server.ts`:
   - all POST routes: 405 for another method (before the body), 415 unless `content-type` starts with `application/json`; size cap 64 000 bytes (80 MB on `/api/send`, 2 MB on `/hook`), over the cap is `UploadError` `요청이 너무 큽니다` → 400. A JSON `null` body makes `body.x` throw a `TypeError` in TS → 502 through the catch-all.
   - `terminalHandle` (`/api/send`, `/api/keys`, `/api/queue`, `/api/focus`): missing, non-string or not in the snapshot → 404 `unknown terminal`.

@@ -124,6 +124,18 @@ Orca가 실행 중이 아니면 Office Desks가 직접 에이전트를 띄웁니
 - 사용량 바와 대화 검색은 아직 Orca 백엔드에서만 보입니다.
 - 개발 중 `npm run dev`는 bridge 코드를 고칠 때마다 서버를 재시작하므로, native 에이전트도 그때마다 종료됩니다.
 
+## Rust build (preview)
+
+`crates/` holds a Rust port of the native backend and the server (`od-core`, `od-server`) and a binary, `office-desks`. It serves the same web UI and API as the Node bridge, for the native backend only: `--backend orca` and `--demo` are refused until the Orca and demo backends are ported. It is a preview; `npm start` stays the supported way to run Office Desks.
+
+```bash
+npm run build -w web       # the binary embeds web/dist (optional; without it only the API runs)
+cargo run -p office-desks -- --port 4400
+cargo test                 # includes the Node contract replay; runs on macOS and Windows
+```
+
+Differences from the Node server are listed in `crates/od-server/PARITY.md`.
+
 ## 터미널 앱 (TUI)
 
 터미널에서 `npx office-desks`(소스에서는 `npm run tui`)를 실행하면 Office Desks 터미널 앱이 뜨고, 같은 프로세스가 웹 사무실도 띄웁니다(주소는 화면 맨 위).
