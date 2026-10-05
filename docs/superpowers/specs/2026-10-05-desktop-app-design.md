@@ -29,7 +29,8 @@ The work runs as a continuous implement → review → fix loop with subagents u
 The program (desktop app, TUI and CLI binary) is called **Gongbang (공방)**: the workshop where the agents work. office-desk keeps its name as the playful office view of it.
 - In R4, the desktop app is titled Gongbang, and its bundle id is based on `gongbang`.
 - In R6, the shipped binary becomes `gongbang`. Whether `office-desks` stays as an alias is decided in R6.
-- Internal crate names (`od-core`, `od-server`, …) do not change. The name `gongbang` was free on crates.io, npm and Homebrew on 2026-10-05.
+- Internal crate names (`od-core`, `od-server`, …) do not change.
+- **Theme direction (user, 2026-10-05):** the app's look should bring a real Korean 공방 (craft workshop) to life: wood grain, hanji (paper) textures, 한옥 lattice (창살) frames, 단청-inspired accent colors, brush-style headings. It stays fast and readable: terminals keep a clean monospace surface. Planned as a dedicated design pass after R4 v1 works (v1 ships a simple theme), designed with the user. The name `gongbang` was free on crates.io, npm and Homebrew on 2026-10-05.
 
 ## Target architecture
 
