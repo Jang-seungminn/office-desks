@@ -3,7 +3,7 @@
 //!
 //! Every PTY has three plain threads (portable-pty reads and writes block):
 //! - a **reader** feeds the output into the [`vt100`] parser and fans the raw bytes out to the
-//!   `on_data` subscribers; terminal queries the parser sees (DA1, DSR) are answered here;
+//!   `on_data` subscribers; terminal queries the parser sees (DA1, DA2, DSR, DECRQM) are answered here;
 //! - a **writer** drains a queue of input (`write` and query replies), so a child that stops
 //!   reading can never block the reader;
 //! - a **waiter** waits for the child, reaps it, removes the session and fires `on_exit`.
@@ -297,7 +297,8 @@ enum Inject {
     AltOff,
 }
 
-/// What vt100 leaves to us: answering queries, DECSTR, `?1047` and a few modes.
+/// What vt100 leaves to us: answering queries (DA1, DA2, DSR, DECRQM), DECSTR, `?1047` and a
+/// few modes.
 #[derive(Default)]
 struct Hooks {
     replies: Vec<u8>,
@@ -313,15 +314,65 @@ fn has_param(params: &[&[u16]], v: u16) -> bool {
     params.iter().any(|p| p.first() == Some(&v))
 }
 
+/// DECRQM state: 1 set, 2 reset.
+fn mode_state(on: bool) -> u8 {
+    if on {
+        1
+    } else {
+        2
+    }
+}
+
+impl Hooks {
+    /// DECRQM answer for a DEC private mode: the ones vt100 or `ExtraModes` track, else 0.
+    fn dec_mode(&self, screen: &vt100::Screen, mode: u16) -> u8 {
+        match mode {
+            1 => mode_state(screen.application_cursor()),
+            7 => mode_state(self.modes.autowrap),
+            25 => mode_state(!screen.hide_cursor()),
+            47 | 1047 | 1049 => mode_state(screen.alternate_screen()),
+            1004 => mode_state(self.modes.focus),
+            2004 => mode_state(screen.bracketed_paste()),
+            _ => 0,
+        }
+    }
+}
+
 impl vt100::Callbacks for Hooks {
     fn unhandled_csi(
         &mut self,
         screen: &mut vt100::Screen,
         i1: Option<u8>,
-        _i2: Option<u8>,
+        i2: Option<u8>,
         params: &[&[u16]],
         c: char,
     ) {
+        match (i1, i2, c) {
+            // DECRQM: `CSI ? Ps $ p` (DEC private) and `CSI Ps $ p` (ANSI), answered as
+            // xterm.js 6 does for the modes we track; everything else is "not recognized" (0).
+            (Some(b'?'), Some(b'$'), 'p') => {
+                let mode = first_param(params);
+                let reply = format!("\x1b[?{mode};{}$y", self.dec_mode(screen, mode));
+                self.replies.extend_from_slice(reply.as_bytes());
+                return;
+            }
+            (Some(b'$'), None, 'p') => {
+                let mode = first_param(params);
+                let state = match mode {
+                    4 => mode_state(self.modes.insert),
+                    _ => 0,
+                };
+                let reply = format!("\x1b[{mode};{state}$y");
+                self.replies.extend_from_slice(reply.as_bytes());
+                return;
+            }
+            // DA2: `CSI > c` / `CSI > 0 c`, xterm.js's fixed answer.
+            (Some(b'>'), None, 'c') if params.len() <= 1 && first_param(params) == 0 => {
+                self.replies.extend_from_slice(b"\x1b[>0;276;0c");
+                return;
+            }
+            _ => {}
+        }
         match (i1, c) {
             // DA1: `CSI c` / `CSI 0 c`, answered as xterm.js does (VT100 with advanced video).
             (None, 'c') if params.len() <= 1 && first_param(params) == 0 => {
@@ -1364,9 +1415,72 @@ mod tests {
     }
 
     #[test]
+    fn answers_secondary_device_attributes_like_xterm_js() {
+        let mut t = term(5, 20);
+        assert_eq!(t.process(b"\x1b[>c"), b"\x1b[>0;276;0c");
+        assert_eq!(t.process(b"\x1b[>0c"), b"\x1b[>0;276;0c");
+        assert!(t.process(b"\x1b[>1c").is_empty());
+        assert_eq!(t.process(b"\x1b[c\x1b[>c"), b"\x1b[?1;2c\x1b[>0;276;0c");
+    }
+
+    /// Expected replies probed from @xterm/headless 6 (`node -e`), defaults then all set.
+    #[test]
+    fn answers_mode_requests_for_the_modes_it_tracks() {
+        let mut t = term(5, 20);
+        let ask = |t: &mut Term, q: &str| String::from_utf8(t.process(q.as_bytes())).unwrap();
+        let defaults = [
+            ("\x1b[?2004$p", "\x1b[?2004;2$y"),
+            ("\x1b[?1$p", "\x1b[?1;2$y"),
+            ("\x1b[?25$p", "\x1b[?25;1$y"),
+            ("\x1b[?1004$p", "\x1b[?1004;2$y"),
+            ("\x1b[?7$p", "\x1b[?7;1$y"),
+            ("\x1b[4$p", "\x1b[4;2$y"),
+            ("\x1b[?1049$p", "\x1b[?1049;2$y"),
+            ("\x1b[?47$p", "\x1b[?47;2$y"),
+            ("\x1b[?1047$p", "\x1b[?1047;2$y"),
+            // not tracked: "not recognized"
+            ("\x1b[?9999$p", "\x1b[?9999;0$y"),
+            ("\x1b[?2026$p", "\x1b[?2026;0$y"),
+            ("\x1b[20$p", "\x1b[20;0$y"),
+            ("\x1b[$p", "\x1b[0;0$y"),
+            ("\x1b[?$p", "\x1b[?0;0$y"),
+            // only the first mode is answered, as in xterm.js
+            ("\x1b[?2004;1$p", "\x1b[?2004;2$y"),
+        ];
+        for (q, want) in defaults {
+            assert_eq!(ask(&mut t, q), want, "{q:?}");
+        }
+        t.process(b"\x1b[?2004h\x1b[?1h\x1b[?25l\x1b[?1004h\x1b[?7l\x1b[4h\x1b[?1049h");
+        let set = [
+            ("\x1b[?2004$p", "\x1b[?2004;1$y"),
+            ("\x1b[?1$p", "\x1b[?1;1$y"),
+            ("\x1b[?25$p", "\x1b[?25;2$y"),
+            ("\x1b[?1004$p", "\x1b[?1004;1$y"),
+            ("\x1b[?7$p", "\x1b[?7;2$y"),
+            ("\x1b[4$p", "\x1b[4;1$y"),
+            ("\x1b[?1049$p", "\x1b[?1049;1$y"),
+            ("\x1b[?47$p", "\x1b[?47;1$y"),
+            ("\x1b[?1047$p", "\x1b[?1047;1$y"),
+        ];
+        for (q, want) in set {
+            assert_eq!(ask(&mut t, q), want, "{q:?}");
+        }
+        // A switch and a query in one chunk: the query sees the switch.
+        let mut t = term(5, 20);
+        assert_eq!(ask(&mut t, "\x1b[?1047h\x1b[?1049$p"), "\x1b[?1049;1$y");
+        assert_eq!(ask(&mut t, "\x1b[?25l\x1b[!p\x1b[?25$p"), "\x1b[?25;1$y");
+        // `CSI ? Ps p` without `$` is not DECRQM.
+        assert!(t.process(b"\x1b[?2004p").is_empty());
+        // split across reads
+        assert!(t.process(b"\x1b[?20").is_empty());
+        assert!(t.process(b"04$").is_empty());
+        assert_eq!(t.process(b"p"), b"\x1b[?2004;2$y");
+    }
+
+    #[test]
     fn ignores_queries_it_does_not_implement() {
         let mut t = term(5, 20);
-        assert!(t.process(b"\x1b[>c").is_empty()); // DA2
+        assert!(t.process(b"\x1b[>1c").is_empty()); // DA2 with a parameter
         assert!(t.process(b"\x1b[?6n").is_empty()); // DECXCPR
         assert!(t.process(b"\x1b[1c").is_empty());
         assert!(t.process(b"\x1b[7n").is_empty());
