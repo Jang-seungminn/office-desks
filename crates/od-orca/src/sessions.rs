@@ -687,6 +687,15 @@ mod tests {
             }
         }
         runner.gate.notify_one();
+        // Nobody polls the shared future now: only a spawned task can finish the search.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while r.cached("tab:leaf").is_none() || r.inflight_len() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the search finished without a caller");
+        assert_eq!(r.inflight_len(), 0);
         assert_eq!(
             r.resolve(&d, &a).await.unwrap(),
             Some("/x/one.jsonl".into())
