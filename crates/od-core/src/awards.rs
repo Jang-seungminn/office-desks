@@ -190,9 +190,15 @@ impl AwardBook {
     }
 
     pub fn save(&self) -> std::io::Result<()> {
-        let body = serde_json::to_string_pretty(&self.board).map_err(std::io::Error::other)?;
-        fsio::save_atomic(&self.file, &body)
+        save_board(&self.file, &self.board)
     }
+}
+
+/// Write a board as [`AwardBook::save`] does, from a copy (so the book's lock need not be held
+/// during IO).
+pub fn save_board(file: &Path, board: &RawBoard) -> std::io::Result<()> {
+    let body = serde_json::to_string_pretty(board).map_err(std::io::Error::other)?;
+    fsio::save_atomic(file, &body)
 }
 
 #[cfg(test)]

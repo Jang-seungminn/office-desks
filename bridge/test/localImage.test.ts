@@ -1,9 +1,9 @@
-import { mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { isLinkedImage, readLocalImage } from '../src/localImage.js';
 import type { ConversationMessage } from '../src/model.js';
+import { scratch } from './scratch.js';
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
 const msg = (role: ConversationMessage['role'], text: string): ConversationMessage => ({ role, text, ts: null });
@@ -19,7 +19,7 @@ describe('isLinkedImage', () => {
 });
 
 describe('readLocalImage', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'od-img-'));
+  const dir = scratch('od-img-');
 
   it('serves real images by magic bytes', () => {
     const f = path.join(dir, 'ok.png');

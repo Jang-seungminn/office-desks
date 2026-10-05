@@ -1,9 +1,8 @@
-import { mkdtemp } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AwardBook, bestToday } from '../src/awards.js';
 import type { OfficeAgent, OfficeDesk } from '../src/model.js';
+import { scratch } from './scratch.js';
 
 const agent = (id: string, instructionsToday: number, toolCallsToday: number): OfficeAgent => ({
   id,
@@ -36,7 +35,7 @@ describe('awards', () => {
   });
 
   it('keeps the day leader and crowns it when the date changes', async () => {
-    const book = new AwardBook(path.join(await mkdtemp(path.join(os.tmpdir(), 'aw-')), 'awards.json'));
+    const book = new AwardBook(path.join(scratch('aw-'), 'awards.json'));
     await book.load();
     const day1 = new Date(2026, 9, 3, 10);
     expect(book.update([desk([agent('a', 3, 5)])], day1)).toBe(true);

@@ -1,0 +1,23 @@
+[package]
+name = "office-desks"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The office-desks binary: the Office Desks server with the native backend"
+
+[[bin]]
+name = "office-desks"
+path = "src/main.rs"
+
+[dependencies]
+od-core = { path = "../od-core" }
+od-server = { path = "../od-server" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
+
+[dev-dependencies]
+tempfile = "3"
+ureq = { version = "2", default-features = false }
+
+[target."cfg(unix)".dev-dependencies]
+libc = "0.2"

@@ -4,7 +4,7 @@ use serde_json::Value;
 
 /// JS truthiness (`Boolean(v)`): `null`, `false`, `0` and `""` are false; arrays and objects
 /// (even empty) are true. JSON has no `NaN` or `undefined`; callers map a missing value to false.
-pub(crate) fn truthy(v: &Value) -> bool {
+pub fn truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
         Value::Bool(b) => *b,

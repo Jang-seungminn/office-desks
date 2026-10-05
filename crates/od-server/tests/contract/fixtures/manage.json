@@ -1,0 +1,535 @@
+{
+  "manage-hire-bad-name": {
+    "body": {
+      "json": {
+        "error": "이름은 영문·숫자로 시작하고 영문·숫자·. _ - 만 쓸 수 있어요 (60자 이내)"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-hire-codex-missing": {
+    "body": {
+      "json": {
+        "error": "codex 명령을 찾지 못했어요. 설치되어 있고 PATH에 있는지 확인해 주세요"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-hire-feat1": {
+    "body": {
+      "json": {
+        "ok": true
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "manage-hire-unknown-agent": {
+    "body": {
+      "json": {
+        "error": "지원하지 않는 에이전트입니다"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-org-get": {
+    "body": {
+      "json": {
+        "departments": [
+          {
+            "id": "dev",
+            "name": "개발",
+            "repoIds": [],
+            "theme": "dev"
+          }
+        ]
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "manage-org-invalid": {
+    "body": {
+      "json": {
+        "error": "departments must be a list"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-org-save": {
+    "body": {
+      "json": {
+        "departments": [
+          {
+            "id": "dev",
+            "name": "개발",
+            "repoIds": [],
+            "theme": "dev"
+          }
+        ]
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "manage-repos-add": {
+    "body": {
+      "json": {
+        "ok": true
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "manage-repos-blank-path": {
+    "body": {
+      "json": {
+        "error": "저장소 경로를 입력해 주세요"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-repos-no-path": {
+    "body": {
+      "json": {
+        "error": "저장소 경로를 입력해 주세요"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-repos-not-a-repo": {
+    "body": {
+      "json": {
+        "code": "not_a_repo",
+        "error": "git 저장소가 아니에요: ${ROOT}/home"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-snapshot": {
+    "body": {
+      "json": {
+        "desks": [
+          {
+            "agents": [
+              {
+                "activity": "완료 · 다음 지시 대기",
+                "agentType": "claude",
+                "effort": null,
+                "id": "${AGENT}",
+                "lastMessage": null,
+                "model": null,
+                "prompt": null,
+                "rawState": "done",
+                "since": 0,
+                "state": "done",
+                "stats": null,
+                "subagentsRunning": 0,
+                "terminalHandle": "${HANDLE}",
+                "terminalTitle": "claude"
+              }
+            ],
+            "branch": "feat1",
+            "changes": {
+              "added": 0,
+              "deleted": 0,
+              "files": 0
+            },
+            "comment": "",
+            "id": "${WT_DESK}",
+            "isActive": false,
+            "isMain": false,
+            "lastActivityAt": null,
+            "name": "feat1",
+            "parentId": null,
+            "path": "${ROOT}/office/worktrees/repo/feat1",
+            "pr": null,
+            "preview": "",
+            "repo": "repo",
+            "repoId": "${REPO_ID}",
+            "status": "active",
+            "unread": false,
+            "workspaceStatus": null
+          },
+          {
+            "agents": [],
+            "branch": "main",
+            "changes": {
+              "added": 3,
+              "deleted": 1,
+              "files": 2
+            },
+            "comment": "",
+            "id": "${MAIN_DESK}",
+            "isActive": false,
+            "isMain": true,
+            "lastActivityAt": null,
+            "name": "repo",
+            "parentId": null,
+            "path": "${ROOT}/repo",
+            "pr": null,
+            "preview": "",
+            "repo": "repo",
+            "repoId": "${REPO_ID}",
+            "status": "inactive",
+            "unread": false,
+            "workspaceStatus": null
+          }
+        ],
+        "error": null,
+        "updatedAt": 0
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "manage-snapshot-board": {
+    "body": {
+      "json": {
+        "desks": [
+          {
+            "agents": [
+              {
+                "activity": "완료 · 다음 지시 대기",
+                "agentType": "claude",
+                "effort": null,
+                "id": "${AGENT}",
+                "lastMessage": null,
+                "model": null,
+                "prompt": null,
+                "rawState": "done",
+                "since": 0,
+                "state": "done",
+                "stats": null,
+                "subagentsRunning": 0,
+                "terminalHandle": "${HANDLE}",
+                "terminalTitle": "claude"
+              }
+            ],
+            "branch": "feat1",
+            "changes": {
+              "added": 0,
+              "deleted": 0,
+              "files": 0
+            },
+            "comment": "null",
+            "id": "${WT_DESK}",
+            "isActive": false,
+            "isMain": false,
+            "lastActivityAt": null,
+            "name": "feat1",
+            "parentId": null,
+            "path": "${ROOT}/office/worktrees/repo/feat1",
+            "pr": null,
+            "preview": "",
+            "repo": "repo",
+            "repoId": "${REPO_ID}",
+            "status": "active",
+            "unread": false,
+            "workspaceStatus": "review"
+          },
+          {
+            "agents": [],
+            "branch": "main",
+            "changes": {
+              "added": 3,
+              "deleted": 1,
+              "files": 2
+            },
+            "comment": "",
+            "id": "${MAIN_DESK}",
+            "isActive": false,
+            "isMain": true,
+            "lastActivityAt": null,
+            "name": "repo",
+            "parentId": null,
+            "path": "${ROOT}/repo",
+            "pr": null,
+            "preview": "",
+            "repo": "repo",
+            "repoId": "${REPO_ID}",
+            "status": "inactive",
+            "unread": false,
+            "workspaceStatus": null
+          }
+        ],
+        "error": null,
+        "updatedAt": 0
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "manage-wait-feat1-agent": {
+    "captured": {
+      "AGENT": "${UUID}:main",
+      "HANDLE": "pty_${UUID}",
+      "WT_DESK": "${REPO_ID}::${ROOT}/office/worktrees/repo/feat1"
+    }
+  },
+  "manage-wait-main-desk": {
+    "captured": {
+      "MAIN_DESK": "${REPO_ID}::${ROOT}/repo",
+      "REPO_ID": "${HEX12}"
+    }
+  },
+  "manage-worktree-bad-json": {
+    "body": {
+      "json": {
+        "error": "Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-worktree-bad-status": {
+    "body": {
+      "json": {
+        "error": "invalid status"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-worktree-comment-null": {
+    "body": {
+      "json": {
+        "ok": true
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "manage-worktree-long-comment": {
+    "body": {
+      "json": {
+        "error": "코멘트는 200자까지 쓸 수 있어요"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-worktree-nothing": {
+    "body": {
+      "json": {
+        "error": "nothing to change"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-worktree-null-body": {
+    "body": {
+      "json": {
+        "error": "Cannot read properties of null (reading 'deskId')"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 502
+  },
+  "manage-worktree-too-large": {
+    "body": {
+      "json": {
+        "error": "요청이 너무 큽니다"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "manage-worktree-unknown": {
+    "body": {
+      "json": {
+        "error": "unknown worktree"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 404
+  },
+  "manage-worktree-update": {
+    "body": {
+      "json": {
+        "ok": true
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "manage-ws-org": {
+    "messages": [
+      {
+        "org": {
+          "departments": [
+            {
+              "id": "dev",
+              "name": "개발",
+              "repoIds": [],
+              "theme": "dev"
+            }
+          ]
+        },
+        "type": "org"
+      }
+    ]
+  }
+}

@@ -6,3 +6,6 @@ members = ["crates/*"]
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
+
+[workspace.dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }

@@ -24,7 +24,7 @@ use super::{
 };
 use crate::git::{GitError, GitRunner, SystemGit};
 use crate::model::{ComposerState, OfficeAgent, OfficeDesk, OfficeSnapshot, UsageSnapshot};
-use crate::native::env::{agent_env, find_command, process_env, win32_is_absolute, EnvMap};
+use crate::native::env::{agent_env, find_command, node_is_absolute, process_env, EnvMap};
 use crate::native::hooks::{
     apply_hook, hook_settings, initial_hook_state, relay_command, HookState,
 };
@@ -197,15 +197,6 @@ fn slash(p: &str) -> String {
 
 fn pty_id(handle: &str) -> &str {
     handle.strip_prefix("pty_").unwrap_or(handle)
-}
-
-/// `path.isAbsolute` with Node's rules for this OS (`/x` is absolute on Windows too).
-fn node_is_absolute(p: &str) -> bool {
-    if cfg!(windows) {
-        win32_is_absolute(p)
-    } else {
-        p.starts_with('/')
-    }
 }
 
 /// `path.basename` of a string (either separator on Windows).

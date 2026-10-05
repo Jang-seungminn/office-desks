@@ -63,12 +63,21 @@ fn is_win_sep(c: char) -> bool {
 }
 
 /// `path.win32.isAbsolute`.
-pub(crate) fn win32_is_absolute(p: &str) -> bool {
+pub fn win32_is_absolute(p: &str) -> bool {
     let b: Vec<char> = p.chars().take(3).collect();
     match b.as_slice() {
         [c, ..] if is_win_sep(*c) => true,
         [d, ':', s, ..] if d.is_ascii_alphabetic() && is_win_sep(*s) => true,
         _ => false,
+    }
+}
+
+/// `path.isAbsolute` with Node's rules for this OS (`/x` is absolute on Windows too).
+pub fn node_is_absolute(p: &str) -> bool {
+    if cfg!(windows) {
+        win32_is_absolute(p)
+    } else {
+        p.starts_with('/')
     }
 }
 
