@@ -3,7 +3,7 @@ import { DemoBackend } from '../src/backend/demo.js';
 
 describe('DemoBackend', () => {
   it('only offers what the demo can fake', () => {
-    expect(new DemoBackend().capabilities).toEqual({ usage: true, search: false, board: false, hire: false, changes: false, transcripts: false, focus: false, repos: false });
+    expect(new DemoBackend().capabilities).toEqual({ usage: true, search: false, board: false, hire: false, changes: false, transcripts: false, focus: false, repos: false, stop: false, remove: false });
     expect(new DemoBackend().messages.hireDisabled).toBe('데모 모드에서는 만들 수 없어요');
   });
 
@@ -15,6 +15,12 @@ describe('DemoBackend', () => {
     const withAgents = s.desks.filter((d) => d.agents.length);
     expect(withAgents.every((d) => d.changes && d.changes.files > 0)).toBe(true);
     expect(s.desks.filter((d) => !d.agents.length).every((d) => d.changes === null)).toBe(true);
+  });
+
+  it('refuses stop and remove', async () => {
+    const b = new DemoBackend();
+    await expect(b.stopAgent('p1:leaf')).rejects.toMatchObject({ code: 'unsupported' });
+    await expect(b.removeWorktree('r::/p')).rejects.toMatchObject({ code: 'unsupported' });
   });
 
   it('serves demo usage and a demo screen', async () => {

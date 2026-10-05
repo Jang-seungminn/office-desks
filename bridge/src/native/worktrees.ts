@@ -59,3 +59,8 @@ export async function addWorktree(repoPath: string, dest: string, branch: string
 export function worktreeDest(home: string, repoName: string, name: string): string {
   return path.join(home, 'worktrees', repoName.replace(/[^A-Za-z0-9._-]/g, '_'), name);
 }
+
+/** `git worktree remove` (never --force): a dirty worktree is refused by git and left as is; the branch stays. */
+export async function removeWorktree(repoPath: string, wtPath: string, git: GitRunner = runGit): Promise<void> {
+  await git(repoPath, ['worktree', 'remove', wtPath]);
+}

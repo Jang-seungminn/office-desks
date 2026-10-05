@@ -21,18 +21,21 @@ describe('text width', () => {
 });
 
 describe('emoji and control characters', () => {
-  it('counts emoji as two columns, a base plus VS16 as two in total', () => {
-    expect(displayWidth('⚠️')).toBe(2);
+  it('counts emoji as two columns and drops VS16, so ⚠️ is a one-column ⚠', () => {
+    expect(displayWidth('⚠️')).toBe(1);
+    expect(clean('⚠️ x')).toBe('⚠ x');
     expect(displayWidth('✅🚀')).toBe(4);
     expect(displayWidth('⭐⌚🇰🇷🪄')).toBe(2 + 2 + 4 + 2);
     expect(displayWidth('✓✎')).toBe(2); // narrow dingbats stay narrow
   });
 
-  it('fits a notice with an emoji to the exact width and never splits base and VS16', () => {
+  it('fits a notice with a warning sign to the exact width, VS16 dropped', () => {
     const s = fit(' ⚠️ git 저장소가 아니에요: /nope', 20);
     expect(displayWidth(s)).toBe(20);
-    expect(displayWidth(fit('⚠️ abc', 8))).toBe(8);
-    expect(fit('a⚠️b', 3)).toBe('a… ');
+    expect(s).not.toContain('\ufe0f');
+    expect(fit('⚠️ abc', 8)).toBe('⚠ abc   ');
+    expect(fit('a⚠️b', 3)).toBe('a⚠b');
+    expect(fit('a⚠️bc', 3)).toBe('a⚠…');
   });
 
   it('drops control characters and escape sequences, turning tabs and newlines into spaces', () => {

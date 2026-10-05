@@ -18,6 +18,18 @@ describe('decodeKeys', () => {
   });
 });
 
+describe('decodeKeys: paging and paste markers', () => {
+  it('decodes PgUp/PgDn and bracketed paste markers', () => {
+    expect(decodeKeys('\x1b[5~\x1b[6~')).toEqual([{ name: 'pgup' }, { name: 'pgdn' }]);
+    expect(decodeKeys('\x1b[200~ab\x1b[201~')).toEqual([
+      { name: 'paste-start' },
+      { name: 'char', ch: 'a' },
+      { name: 'char', ch: 'b' },
+      { name: 'paste-end' },
+    ]);
+  });
+});
+
 describe('isAttachEscape', () => {
   it('recognizes Ctrl+] as a raw byte, kitty CSI-u and modifyOtherKeys', () => {
     expect(isAttachEscape('\x1d')).toBe(true);

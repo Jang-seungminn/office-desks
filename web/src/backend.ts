@@ -4,7 +4,7 @@ import type { BackendInfo } from '../../bridge/src/model';
 // (the first backend), so nothing flickers away for existing users.
 let info: BackendInfo = {
   name: 'orca',
-  capabilities: { usage: true, search: true, board: true, hire: true, changes: true, transcripts: true, focus: true, repos: false },
+  capabilities: { usage: true, search: true, board: true, hire: true, changes: true, transcripts: true, focus: true, repos: false, stop: false, remove: false },
 };
 
 export function backendInfo(): BackendInfo {

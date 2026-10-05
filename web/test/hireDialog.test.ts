@@ -33,7 +33,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('HireDialog project path', () => {
   beforeEach(() => {
-    setBackendInfo({ name: 'native', capabilities: { usage: false, search: false, board: true, hire: true, changes: true, transcripts: true, focus: false, repos: true } });
+    setBackendInfo({ name: 'native', capabilities: { usage: false, search: false, board: true, hire: true, changes: true, transcripts: true, focus: false, repos: true, stop: true, remove: true } });
   });
   afterEach(() => {
     vi.useRealTimers();

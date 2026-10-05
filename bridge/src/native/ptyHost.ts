@@ -2,18 +2,54 @@ import { accessSync, chmodSync, constants, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import serializeAddon from '@xterm/addon-serialize';
+import unicode11Addon from '@xterm/addon-unicode11';
 import xtermHeadless from '@xterm/headless';
 import * as pty from 'node-pty';
 import { BackendError } from '../backend/types.js';
+import type { HeadlessLike } from '../tui/panel.js';
 import { resolveWindowsCommand, unsafeForCmdShim } from '../orcaCli.js';
 
 const { Terminal } = xtermHeadless;
 const { SerializeAddon } = serializeAddon;
+const { Unicode11Addon } = unicode11Addon;
 type HeadlessTerminal = InstanceType<typeof Terminal>;
 
 const COLS = 120;
 const ROWS = 40;
 const GONE = '이 에이전트 터미널은 이미 종료됐어요';
+
+/**
+ * The headless screen an agent's output is parsed into. Unicode 11 widths, as real terminals and
+ * the agents themselves use: with xterm's default (Unicode 6) ✅ or 🚀 take one column, and every
+ * cell after them would land one column left of where the agent put it.
+ */
+export function agentTerminal(cols: number, rows: number): HeadlessTerminal {
+  const term = new Terminal({ cols, rows, allowProposedApi: true });
+  term.loadAddon(new Unicode11Addon());
+  term.unicode.activeVersion = '11';
+  return term;
+}
+
+/**
+ * Whether the program hid its cursor (DECTCEM, `CSI ? 25 l` / `h`; reset by RIS and DECSTR).
+ * xterm keeps this private, so we watch the sequences through the public parser hooks; every
+ * handler returns false so xterm still handles them (and its other modes stay right).
+ */
+export function watchCursor(term: Pick<HeadlessTerminal, 'parser'>): { hidden: boolean } {
+  const state = { hidden: false };
+  const has25 = (params: (number | number[])[]) => params.some((p) => p === 25);
+  term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
+    if (has25(params)) state.hidden = true;
+    return false;
+  });
+  term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
+    if (has25(params)) state.hidden = false;
+    return false;
+  });
+  term.parser.registerCsiHandler({ intermediates: '!', final: 'p' }, () => ((state.hidden = false), false));
+  term.parser.registerEscHandler({ final: 'c' }, () => ((state.hidden = false), false));
+  return state;
+}
 
 /**
  * node-pty's prebuilt spawn-helper can arrive without its execute bit (npm 11 skips install
@@ -76,6 +112,7 @@ interface Session {
   serializer: InstanceType<typeof SerializeAddon>;
   listeners: Set<(d: string) => void>;
   replies: boolean;
+  cursor: { hidden: boolean };
 }
 
 /** Agent processes in pseudo-terminals, each mirrored into a headless xterm we can read like a screen. */
@@ -91,11 +128,11 @@ export class PtyHost {
     const cols = opts.cols ?? COLS;
     const rows = opts.rows ?? ROWS;
     const { file, args } = resolveSpawn(opts.file, opts.args);
-    const term = new Terminal({ cols, rows, allowProposedApi: true });
+    const term = agentTerminal(cols, rows);
     const proc = pty.spawn(file, args, { name: 'xterm-256color', cols, rows, cwd: opts.cwd, env: opts.env });
     const serializer = new SerializeAddon();
     term.loadAddon(serializer);
-    const session: Session = { proc, term, serializer, listeners: new Set(), replies: true };
+    const session: Session = { proc, term, serializer, listeners: new Set(), replies: true, cursor: watchCursor(term) };
     proc.onData((d) => {
       term.write(d);
       for (const fn of session.listeners) fn(d);
@@ -143,8 +180,28 @@ export class PtyHost {
   resize(id: string, cols: number, rows: number): void {
     const s = this.sessions.get(id);
     if (!s || cols < 2 || rows < 2) return;
-    s.proc.resize(cols, rows);
-    s.term.resize(cols, rows);
+    if (s.term.cols === cols && s.term.rows === rows) return;
+    try {
+      s.proc.resize(cols, rows);
+      s.term.resize(cols, rows);
+    } catch {
+      // The process exited and its exit event is still on the way (EBADF, ConPTY): nothing to size.
+    }
+  }
+
+  /** The agent's headless xterm, for read-only use (drawing the panel). */
+  terminal(id: string): HeadlessLike | null {
+    return this.sessions.get(id)?.term ?? null;
+  }
+
+  /** Whether the agent hid its cursor (it then draws its own, or none). */
+  cursorHidden(id: string): boolean {
+    return this.sessions.get(id)?.cursor.hidden ?? false;
+  }
+
+  /** Live PTY ids. */
+  ids(): string[] {
+    return [...this.sessions.keys()];
   }
 
   size(id: string): { cols: number; rows: number } | null {

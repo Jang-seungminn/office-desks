@@ -4,7 +4,7 @@ import path from 'node:path';
 import { format } from 'node:util';
 import { NativeBackend } from '../backend/native.js';
 import { officeHome } from '../home.js';
-import { App } from './app.js';
+import { App, type TuiDeps } from './app.js';
 import { restoreSequence } from './screen.js';
 
 const PORT_RANGE = 20;
@@ -172,14 +172,28 @@ export async function runTui(): Promise<void> {
       refresh: () => server.poller.refresh(),
       hire: (spec) => backend.hire(spec),
       addRepo: (p) => backend.addRepo(p),
+      stopAgent: (id) => backend.stopAgent(id),
+      removeWorktree: (id) => backend.removeWorktree(id),
       terminalOf: (id) => backend.terminalOf(id),
+      // PtyHost hands out its headless xterm Terminal, which has `modes`.
+      terminal: (pty) => backend.pty.terminal(pty) as ReturnType<TuiDeps['terminal']>,
+      cursorHidden: (pty) => backend.pty.cursorHidden(pty),
+      resizeAgents: (c, r) => {
+        for (const id of backend.pty.ids()) {
+          try {
+            backend.pty.resize(id, c, r);
+          } catch {
+            // a dying PTY: its exit event follows; never let a resize take the TUI down
+          }
+        }
+      },
       host: backend.pty,
       url: `http://127.0.0.1:${port}`,
     },
     stdin,
     stdout,
   );
-  server.poller.setIdle(false); // the lobby is a live viewer
+  server.poller.setIdle(false); // the list is a live viewer
   app.start();
   await app.done;
   finish(0); // a no-op when a crash or a signal got there first

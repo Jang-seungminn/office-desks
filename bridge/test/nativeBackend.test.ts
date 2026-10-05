@@ -17,6 +17,12 @@ class FakePty implements PtyLike {
   data = new Map<string, Set<(d: string) => void>>();
   sizes = new Map<string, { cols: number; rows: number }>();
   replies = new Map<string, boolean>();
+  terminal(): null {
+    return null;
+  }
+  ids(): string[] {
+    return [...this.screens.keys()];
+  }
   onData(id: string, fn: (d: string) => void): () => void {
     const set = this.data.get(id) ?? new Set();
     set.add(fn);
@@ -31,6 +37,9 @@ class FakePty implements PtyLike {
   }
   setReplies(id: string, on: boolean): void {
     this.replies.set(id, on);
+  }
+  cursorHidden(): boolean {
+    return false;
   }
   size(id: string): { cols: number; rows: number } | null {
     return this.screens.has(id) ? (this.sizes.get(id) ?? { cols: 120, rows: 40 }) : null;
@@ -128,6 +137,82 @@ describe('NativeBackend desk names', () => {
     const { backend } = await setup(async () => FIX);
     const desks = (await backend.snapshot()).desks;
     expect(validateHire({ repoId: 'abcdef123456', name: 'fix-login', agent: 'claude' }, desks)).toEqual({ error: '같은 이름의 워크트리가 이미 있어요' });
+  });
+});
+
+describe('NativeBackend stop and remove', () => {
+  const FEAT = 'abcdef123456::/h/worktrees/app/feat';
+  const hireMain = (b: NativeBackend) => b.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null });
+
+  it('stops an agent by killing its terminal', async () => {
+    const { backend, pty } = await setup();
+    await hireMain(backend);
+    const id = pty.spawned[0].id;
+    await backend.stopAgent(`${id}:main`);
+    expect(pty.has(id)).toBe(false);
+    expect((await backend.snapshot()).desks.find((d) => d.isMain)!.agents).toEqual([]);
+  });
+
+  it('reports an unknown agent as not found', async () => {
+    const { backend } = await setup();
+    await expect(backend.stopAgent('nope:main')).rejects.toMatchObject({ code: 'not_found' });
+  });
+
+  it('refuses the main checkout and unknown desks, going by git\'s own listing', async () => {
+    const { backend, gitCalls } = await setup();
+    await expect(backend.removeWorktree('abcdef123456::/p/app')).rejects.toMatchObject({ code: 'main_checkout' });
+    await expect(backend.removeWorktree('zzz::/p/app')).rejects.toMatchObject({ code: 'not_found' });
+    await expect(backend.removeWorktree('garbage')).rejects.toMatchObject({ code: 'not_found' });
+    await expect(backend.removeWorktree('abcdef123456::/h/worktrees/app/gone')).rejects.toMatchObject({ code: 'not_found' });
+    expect(gitCalls.some((c) => c[1] === 'worktree' && c[2] === 'remove')).toBe(false);
+  });
+
+  it('knows the main checkout from git even when the registered path is spelled differently', async () => {
+    const MAIN_ELSEWHERE = 'worktree /real/app\nHEAD a\nbranch refs/heads/main\n\nworktree /h/worktrees/app/feat\nHEAD b\nbranch refs/heads/feat\n\n';
+    const { backend, gitCalls } = await setup(async () => MAIN_ELSEWHERE);
+    await expect(backend.removeWorktree('abcdef123456::/real/app')).rejects.toMatchObject({ code: 'main_checkout' });
+    expect(gitCalls.some((c) => c[1] === 'worktree' && c[2] === 'remove')).toBe(false);
+  });
+
+  it('refuses a worktree with a running agent', async () => {
+    const { backend, gitCalls } = await setup();
+    await backend.hire({ kind: 'agent', deskId: FEAT, agent: 'claude', prompt: null });
+    await expect(backend.removeWorktree(FEAT)).rejects.toMatchObject({ code: 'has_agents' });
+    expect(gitCalls.some((c) => c[1] === 'worktree' && c[2] === 'remove')).toBe(false);
+  });
+
+  it('removes an idle worktree through git, without --force', async () => {
+    const { backend, gitCalls } = await setup();
+    await backend.removeWorktree(FEAT);
+    expect(gitCalls).toContainEqual(['/p/app', 'worktree', 'remove', '/h/worktrees/app/feat']);
+  });
+
+  it('maps a git refusal to dirty', async () => {
+    const { backend } = await setup(async (_cwd, args) => {
+      if (args[1] === 'remove') throw new Error("fatal: '/h/worktrees/app/feat' contains modified or untracked files, use --force to delete it");
+      return PORCELAIN;
+    });
+    const err = await backend.removeWorktree(FEAT).catch((e: unknown) => e as Error);
+    expect(err).toMatchObject({ code: 'dirty', message: '변경사항이 있는 워크트리는 지울 수 없어요' });
+  });
+
+  it('reports any other git failure as remove_failed with git\'s first line', async () => {
+    const { backend } = await setup(async (_cwd, args) => {
+      if (args[1] === 'remove') throw new Error('fatal: cannot remove a locked working tree\nlock reason: x');
+      return PORCELAIN;
+    });
+    await expect(backend.removeWorktree(FEAT)).rejects.toMatchObject({
+      code: 'remove_failed',
+      message: '워크트리를 지우지 못했어요 — fatal: cannot remove a locked working tree',
+    });
+  });
+
+  it('reports a failed listing as remove_failed and removes nothing', async () => {
+    const { backend, gitCalls } = await setup(async () => {
+      throw new Error('fatal: not a git repository');
+    });
+    await expect(backend.removeWorktree(FEAT)).rejects.toMatchObject({ code: 'remove_failed', message: '워크트리를 지우지 못했어요 — fatal: not a git repository' });
+    expect(gitCalls.some((c) => c[1] === 'worktree' && c[2] === 'remove')).toBe(false);
   });
 });
 

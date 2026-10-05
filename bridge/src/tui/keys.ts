@@ -1,4 +1,4 @@
-// Keys for the lobby and its prompts. While attached, everything goes to the agent except
+// Keys for the list and its prompts. While attached, everything goes to the agent except
 // Ctrl+], which can arrive as a raw byte or, if the agent turned on an extended keyboard
 // protocol in our terminal, as kitty CSI-u or xterm modifyOtherKeys.
 
@@ -7,6 +7,7 @@ const ESCAPE_FORMS = [ESCAPE_BYTE, '\x1b[93;5u', '\x1b[27;5;93~'];
 
 export type Key =
   | { name: 'up' | 'down' | 'left' | 'right' | 'enter' | 'escape' | 'backspace' | 'tab' | 'ctrl-c' | 'ctrl-]' }
+  | { name: 'pgup' | 'pgdn' | 'paste-start' | 'paste-end' }
   | { name: 'char'; ch: string };
 
 export function isAttachEscape(chunk: string): boolean {
@@ -18,6 +19,8 @@ const SEQUENCES: [string, Key][] = [
   ['\x1b[B', { name: 'down' }], ['\x1bOB', { name: 'down' }],
   ['\x1b[C', { name: 'right' }], ['\x1bOC', { name: 'right' }],
   ['\x1b[D', { name: 'left' }], ['\x1bOD', { name: 'left' }],
+  ['\x1b[5~', { name: 'pgup' }], ['\x1b[6~', { name: 'pgdn' }],
+  ['\x1b[200~', { name: 'paste-start' }], ['\x1b[201~', { name: 'paste-end' }],
   ['\x1b[93;5u', { name: 'ctrl-]' }], ['\x1b[27;5;93~', { name: 'ctrl-]' }],
 ];
 
