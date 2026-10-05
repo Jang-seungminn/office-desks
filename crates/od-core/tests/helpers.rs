@@ -33,17 +33,27 @@ fn fixture(name: &str) -> Value {
     read_json(crate_path(&format!("../../bridge/test/fixtures/{name}")))
 }
 
-/// JS prints 42.0 as `42`; serde prints an f64 as `42.0`. Compare numbers by value.
+/// Strict numbers: TS prints integral numbers without `.0` (`JSON.stringify(12.0)` is `12`), so
+/// Rust must too. Fails on an integral float anywhere in `v` (it would serialize as `N.0`); the
+/// callers then compare with `Value` equality, which tells `12` from `12.0` and is
+/// key-order-insensitive.
 fn normalize(v: Value) -> Value {
-    match v {
-        Value::Number(n) => match n.as_f64() {
-            Some(f) if f.fract() == 0.0 && f.abs() < 9e15 => Value::from(f as i64),
-            _ => Value::Number(n),
-        },
-        Value::Array(a) => Value::Array(a.into_iter().map(normalize).collect()),
-        Value::Object(o) => Value::Object(o.into_iter().map(|(k, v)| (k, normalize(v))).collect()),
-        other => other,
+    fn check(v: &Value, path: &str) {
+        match v {
+            Value::Number(n) => assert!(
+                !(n.is_f64() && n.as_f64().is_some_and(|f| f.fract() == 0.0)),
+                "{path}: Rust emits the integral number {n} as a float, TS as an integer"
+            ),
+            Value::Array(a) => a
+                .iter()
+                .enumerate()
+                .for_each(|(i, x)| check(x, &format!("{path}[{i}]"))),
+            Value::Object(o) => o.iter().for_each(|(k, x)| check(x, &format!("{path}.{k}"))),
+            _ => {}
+        }
     }
+    check(&v, "$");
+    v
 }
 
 fn rows<T: for<'de> Deserialize<'de>>(v: &Value) -> Vec<T> {

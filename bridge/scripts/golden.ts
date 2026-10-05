@@ -9,7 +9,7 @@ import { subagentInfos } from '../src/subagents.js';
 import { readTranscript, resetTranscriptCache, type TranscriptResult } from '../src/transcript.js';
 import { validateHire } from '../src/hire.js';
 import { charBytes, KEY_BYTES, keyBytes } from '../src/keys.js';
-import type { AnswerRequest, AskedQuestion, SendRequest, TerminalKey, AwardBoard, ConversationResponse, BackendInfo, HireRequest, OfficeDesk, OrgChart, ServerMessage, UsageSnapshot } from '../src/model.js';
+import type { AnswerRequest, AskedQuestion, FileDiffResponse, FocusRequest, KeyRequest, QueueRequest, SearchResult, SendRequest, TerminalKey, TerminalScreen, WorktreeUpdate, AwardBoard, ConversationResponse, BackendInfo, HireRequest, OfficeDesk, OrgChart, ServerMessage, UsageSnapshot } from '../src/model.js';
 import { composerState, screenSupport } from '../src/screen.js';
 
 import { tmpdir } from 'node:os';
@@ -455,6 +455,43 @@ write('wire-upload', {
     { error: '업로드 폴더가 올바르지 않습니다' },
     { error: '업로드 폴더의 소유자가 다릅니다' },
   ],
+});
+
+// The remaining request/response wire types, as samples.
+write('wire-requests', {
+  keys: [
+    { terminalHandle: 'h1', key: 'shift-tab' },
+    { terminalHandle: 'h1', key: '3' },
+    { terminalHandle: 'h1', char: '가' },
+    { terminalHandle: 'h1' },
+  ] satisfies KeyRequest[],
+  queue: [
+    { terminalHandle: 'h1', action: 'send-now' },
+    { terminalHandle: 'h1', action: 'cancel' },
+  ] satisfies QueueRequest[],
+  focus: [{ terminalHandle: 'h1' }] satisfies FocusRequest[],
+  worktree: [
+    { deskId: 'r1::/p/feat', workspaceStatus: 'in-review' },
+    { deskId: 'r1::/p/feat', comment: '리뷰 대기 중' },
+    { deskId: 'r1::/p/feat', workspaceStatus: 'done', comment: '' },
+    { deskId: 'r1::/p/feat' },
+  ] satisfies WorktreeUpdate[],
+  search: [
+    { title: 'Fix login', agent: 'claude', project: 'web', updatedAt: '2026-10-05T09:30:00.000Z', snippet: 'the [[login]] form', role: 'user', deskId: 'r1::/p/feat', agentId: 'tab1:leaf1', resumeCommand: null },
+    { title: '', agent: 'codex', project: 'api', updatedAt: null, snippet: '', role: null, deskId: null, agentId: null, resumeCommand: 'codex resume 0199' },
+  ] satisfies SearchResult[],
+  screens: [
+    { found: true, lines: ['> hello', '', '  ? for shortcuts'], composer: 'ready' },
+    { found: true, lines: ['Do you want to proceed?', '❯ 1. Yes'], composer: 'menu' },
+    { found: false, lines: [], composer: 'unknown' },
+  ] satisfies TerminalScreen[],
+  diffs: [
+    { file: { path: 'src/a.ts', status: 'modified', added: 3, deleted: 1 }, diff: '@@ -1 +1 @@\n-a\n+b\n', truncated: false },
+    { file: { path: 'new.md', status: 'untracked', added: 120, deleted: 0 }, diff: '', truncated: true },
+    { file: { path: 'b.txt', status: 'renamed', added: 0, deleted: 0 }, diff: '', truncated: false },
+    { file: { path: 'gone.rs', status: 'deleted', added: 0, deleted: 9 }, diff: '-x\n', truncated: false },
+    { file: { path: '한글.txt', status: 'added', added: 1, deleted: 0 }, diff: '+가\n', truncated: false },
+  ] satisfies FileDiffResponse[],
 });
 
 // listCommands over a fixture home. Everything is created in a temp dir; paths inside

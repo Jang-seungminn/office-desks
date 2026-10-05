@@ -14,18 +14,27 @@ fn golden(name: &str) -> Value {
     serde_json::from_str(&text).expect("golden is valid JSON")
 }
 
-/// JS prints 42.0 as `42`; serde prints an f64 as `42.0`. Compare numbers by value so that
-/// only real shape differences fail. serde_json::Value objects compare key-order-insensitively.
+/// Strict numbers: TS prints integral numbers without `.0` (`JSON.stringify(12.0)` is `12`), so
+/// Rust must too. Fails on an integral float anywhere in `v` (it would serialize as `N.0`); the
+/// callers then compare with `Value` equality, which tells `12` from `12.0` and is
+/// key-order-insensitive.
 fn normalize(v: Value) -> Value {
-    match v {
-        Value::Number(n) => match n.as_f64() {
-            Some(f) if f.fract() == 0.0 && f.abs() < 9e15 => Value::from(f as i64),
-            _ => Value::Number(n),
-        },
-        Value::Array(a) => Value::Array(a.into_iter().map(normalize).collect()),
-        Value::Object(o) => Value::Object(o.into_iter().map(|(k, v)| (k, normalize(v))).collect()),
-        other => other,
+    fn check(v: &Value, path: &str) {
+        match v {
+            Value::Number(n) => assert!(
+                !(n.is_f64() && n.as_f64().is_some_and(|f| f.fract() == 0.0)),
+                "{path}: Rust emits the integral number {n} as a float, TS as an integer"
+            ),
+            Value::Array(a) => a
+                .iter()
+                .enumerate()
+                .for_each(|(i, x)| check(x, &format!("{path}[{i}]"))),
+            Value::Object(o) => o.iter().for_each(|(k, x)| check(x, &format!("{path}.{k}"))),
+            _ => {}
+        }
     }
+    check(&v, "$");
+    v
 }
 
 fn roundtrip<T: DeserializeOwned + Serialize>(name: &str) {
@@ -686,4 +695,32 @@ mod task10 {
             );
         }
     }
+}
+
+/// The remaining request/response wire types round-trip exactly (strict numbers, omitted optional
+/// keys stay omitted).
+#[test]
+fn request_and_response_samples_roundtrip() {
+    use od_core::model::{
+        FileDiffResponse, FocusRequest, KeyRequest, QueueRequest, SearchResult, TerminalScreen,
+        WorktreeUpdate,
+    };
+    fn each<T: DeserializeOwned + Serialize>(g: &Value, key: &str) {
+        let items = g[key].as_array().unwrap_or_else(|| panic!("{key}: array"));
+        assert!(!items.is_empty(), "{key}: no samples");
+        for v in items {
+            let typed: T = serde_json::from_value(v.clone())
+                .unwrap_or_else(|e| panic!("{key}: deserialize {v}: {e}"));
+            let back = normalize(serde_json::to_value(&typed).expect("serialize"));
+            assert_eq!(&back, v, "{key} round-trip differs");
+        }
+    }
+    let g = golden("wire-requests");
+    each::<KeyRequest>(&g, "keys");
+    each::<QueueRequest>(&g, "queue");
+    each::<FocusRequest>(&g, "focus");
+    each::<WorktreeUpdate>(&g, "worktree");
+    each::<SearchResult>(&g, "search");
+    each::<TerminalScreen>(&g, "screens");
+    each::<FileDiffResponse>(&g, "diffs");
 }

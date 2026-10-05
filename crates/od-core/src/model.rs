@@ -21,6 +21,16 @@ fn lenient_ms<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> 
     }))
 }
 
+/// A JS `number` as `JSON.stringify` prints it: an integral value without `.0` (serde would
+/// print `12.0` for an `f64`). Integral values beyond 2^53 cannot occur in a JS number anyway.
+fn js_number<S: serde::Serializer>(v: &f64, s: S) -> Result<S::Ok, S::Error> {
+    if v.fract() == 0.0 && v.abs() < 9_007_199_254_740_992.0 {
+        s.serialize_i64(*v as i64)
+    } else {
+        s.serialize_f64(*v)
+    }
+}
+
 /// What a character is visibly doing at its desk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -204,6 +214,8 @@ pub struct OrgChart {
 pub struct UsageWindow {
     pub key: String,
     pub label: String,
+    /// Printed like a JS number: `12`, not `12.0`.
+    #[serde(serialize_with = "js_number")]
     pub used_percent: f64,
     #[serde(default, deserialize_with = "lenient_ms")]
     pub resets_at: Option<i64>,
