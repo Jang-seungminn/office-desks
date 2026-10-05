@@ -3,6 +3,7 @@
 
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::Request;
@@ -11,9 +12,11 @@ use axum::response::Response;
 use od_core::answer::{answer_questions, validate_choices, BackendAnswerIO};
 use od_core::backend::{BackendError, KeyInput};
 use od_core::keys::{char_bytes, key_bytes};
-use od_core::model::{ComposerState, QuestionStatus};
+use od_core::model::{ComposerState, QuestionStatus, TerminalKey};
 use od_core::screen::composer_state;
-use od_core::uploads::{compose_prompt, parse_images, save_images};
+use od_core::uploads::{
+    compose_prompt, ensure_private_dir, parse_images, save_images, too_many, MAX_IMAGES,
+};
 use serde_json::{json, Map, Value};
 
 use super::{field, post_body};
@@ -74,6 +77,30 @@ fn has_images(images: Option<&Value>) -> bool {
     }
 }
 
+/// JS `length > 6` for any JSON value (`ToPrimitive`, then `ToNumber`).
+fn more_than_max(len: &Value) -> bool {
+    let n = match len {
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        Value::Bool(b) => f64::from(u8::from(*b)),
+        Value::Null => 0.0,
+        other => js::number(&js::string(other)),
+    };
+    n > MAX_IMAGES as f64
+}
+
+/// `saveImages` on an object with a truthy `length`: the count check, then the folder is made,
+/// then `for…of` throws a `TypeError` (the catch-all's 502).
+async fn object_images(len: &Value, dir: PathBuf) -> ApiError {
+    if more_than_max(len) {
+        return too_many().into();
+    }
+    match tokio::task::spawn_blocking(move || ensure_private_dir(&dir)).await {
+        Ok(Ok(())) => ApiError::Internal("images is not iterable".into()),
+        Ok(Err(e)) => e.into(),
+        Err(e) => e.into(),
+    }
+}
+
 /// `POST /api/send`.
 pub(crate) async fn send(st: &AppState, req: Request) -> Result<Response, ApiError> {
     let body = post_body(req, SEND_CAP).await?;
@@ -109,8 +136,13 @@ pub(crate) async fn send(st: &AppState, req: Request) -> Result<Response, ApiErr
     if js::trim(&text).is_empty() && !has_images(images) {
         return Ok(error(StatusCode::BAD_REQUEST, "empty message"));
     }
-    let imgs = parse_images(images.unwrap_or(&Value::Null))?;
     let dir: PathBuf = st.cfg.upload_dir.clone();
+    if let Some(Value::Object(m)) = images {
+        if let Some(len) = m.get("length").filter(|l| js::truthy(l)) {
+            return Err(object_images(len, dir).await);
+        }
+    }
+    let imgs = parse_images(images.unwrap_or(&Value::Null))?;
     let paths = tokio::task::spawn_blocking(move || save_images(&imgs, &dir)).await??;
     let prompt = compose_prompt(&text, &paths);
     deliver(st, st.backend.send_prompt(&handle, &prompt)).await
@@ -159,24 +191,32 @@ pub(crate) async fn keys(st: &AppState, req: Request) -> Result<Response, ApiErr
     Ok(ok())
 }
 
+const SEND_NOW: [TerminalKey; 1] = [TerminalKey::CtrlEnter];
+const CANCEL: [TerminalKey; 2] = [TerminalKey::Up, TerminalKey::CtrlU];
+
 /// `POST /api/queue`: act on the prompt Claude Code has queued.
-pub(crate) async fn queue(st: &AppState, req: Request) -> Result<Response, ApiError> {
+pub(crate) async fn queue(st: Arc<AppState>, req: Request) -> Result<Response, ApiError> {
     let body = post_body(req, CAP).await?;
     let Some(handle) = field(&body, "terminalHandle")?.and_then(|h| st.known_handle(h)) else {
         return Ok(unknown_terminal());
     };
-    let keys: &[&str] = match field(&body, "action")?.and_then(Value::as_str) {
-        Some("send-now") => &["ctrl-enter"],
-        Some("cancel") => &["up", "ctrl-u"],
+    let keys: &'static [TerminalKey] = match field(&body, "action")?.and_then(Value::as_str) {
+        Some("send-now") => &SEND_NOW,
+        Some("cancel") => &CANCEL,
         _ => return Ok(error(StatusCode::BAD_REQUEST, "unknown action")),
     };
-    for key in keys {
-        let bytes = key_bytes(key).expect("queue keys are known keys");
-        st.backend
-            .send_keys(&handle, KeyInput::Bytes(bytes.to_owned()))
-            .await?;
-        tokio::time::sleep(Duration::from_millis(300)).await;
-    }
+    // Its own task: a client that goes away must not cut the key sequence short.
+    let backend = Arc::clone(&st.backend);
+    tokio::spawn(async move {
+        for key in keys {
+            backend
+                .send_keys(&handle, KeyInput::Bytes(key.bytes().to_owned()))
+                .await?;
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+        Ok::<(), BackendError>(())
+    })
+    .await??;
     st.poller.refresh_detached();
     Ok(ok())
 }
@@ -191,25 +231,25 @@ pub(crate) async fn focus(st: &AppState, req: Request) -> Result<Response, ApiEr
     Ok(ok())
 }
 
-/// Holds a terminal in `answering` and releases it on drop (also when the request is dropped).
-struct Answering<'a> {
-    st: &'a AppState,
+/// Holds a terminal in `answering` and releases it on drop (also if the task panics).
+struct Answering {
+    st: Arc<AppState>,
     handle: String,
 }
 
-impl<'a> Answering<'a> {
+impl Answering {
     /// None when the terminal is already being answered.
-    fn claim(st: &'a AppState, handle: &str) -> Option<Self> {
+    fn claim(st: &Arc<AppState>, handle: &str) -> Option<Self> {
         lock(&st.answering)
             .insert(handle.to_string())
             .then(|| Answering {
-                st,
+                st: Arc::clone(st),
                 handle: handle.to_string(),
             })
     }
 }
 
-impl Drop for Answering<'_> {
+impl Drop for Answering {
     fn drop(&mut self) {
         lock(&self.st.answering).remove(&self.handle);
     }
@@ -217,7 +257,7 @@ impl Drop for Answering<'_> {
 
 /// `POST /api/answer`: answer an AskUserQuestion dialog from the chat card by pressing the same
 /// keys a person would.
-pub(crate) async fn answer(st: &AppState, req: Request) -> Result<Response, ApiError> {
+pub(crate) async fn answer(st: Arc<AppState>, req: Request) -> Result<Response, ApiError> {
     let body = post_body(req, CAP).await?;
     let agent_id = field(&body, "agentId")?.and_then(Value::as_str);
     let found = st.find_agent(agent_id);
@@ -227,7 +267,7 @@ pub(crate) async fn answer(st: &AppState, req: Request) -> Result<Response, ApiE
     }) else {
         return Ok(error(StatusCode::NOT_FOUND, "unknown agent"));
     };
-    let file = super::media::file_of(st, &desk, &agent).await;
+    let file = super::media::file_of(&st, &desk, &agent).await;
     let tool_use_id = field(&body, "toolUseId")?.and_then(Value::as_str);
     let ask = match file {
         Some(f) => super::read::read_file(PathBuf::from(f), false)
@@ -251,14 +291,19 @@ pub(crate) async fn answer(st: &AppState, req: Request) -> Result<Response, ApiE
         Ok(c) => c,
         Err(m) => return Ok(error(StatusCode::BAD_REQUEST, &m)),
     };
-    let Some(_claim) = Answering::claim(st, &handle) else {
+    let Some(claim) = Answering::claim(&st, &handle) else {
         return Ok(error(StatusCode::CONFLICT, "답을 입력하는 중입니다"));
     };
-    let mut io = BackendAnswerIO {
-        backend: &*st.backend,
-        handle: &handle,
-    };
-    if let Err(e) = answer_questions(&mut io, &ask.questions, &choices).await {
+    // Its own task, holding the claim: a client that goes away must not stop the keys halfway.
+    let driven = tokio::spawn(async move {
+        let mut io = BackendAnswerIO {
+            backend: &*claim.st.backend,
+            handle: &claim.handle,
+        };
+        answer_questions(&mut io, &ask.questions, &choices).await
+    })
+    .await?;
+    if let Err(e) = driven {
         return Ok(error(StatusCode::CONFLICT, &e.message));
     }
     st.poller.refresh_detached();

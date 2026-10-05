@@ -1684,15 +1684,49 @@ async fn send_checks_the_handle_text_and_images() {
         "지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)"
     );
     assert!(fake.calls_of("send_prompt").is_empty());
-    // An object with a truthy length is "some images", but parse_images finds none.
-    let r = post(
-        &s,
-        "/api/send",
-        r#"{"terminalHandle":"pty_1","images":{"length":1}}"#,
-    )
-    .await;
-    assert_eq!(r.status, 200);
-    assert_eq!(fake.calls_of("send_prompt"), ["send_prompt pty_1 "]);
+    // An object with a truthy length: the count check (JS `>`), then `for…of` throws.
+    let many = "이미지는 한 번에 6장까지 보낼 수 있습니다";
+    for (len, status, msg) in [
+        ("7", 400, many),
+        (r#""7""#, 400, many),
+        ("[7]", 400, many),
+        ("6", 502, "images is not iterable"),
+        ("1", 502, "images is not iterable"),
+        ("true", 502, "images is not iterable"),
+        (r#""x""#, 502, "images is not iterable"),
+        ("{}", 502, "images is not iterable"),
+    ] {
+        for text in ["", "hi"] {
+            let body = format!(
+                r#"{{"terminalHandle":"pty_1","text":"{text}","images":{{"length":{len}}}}}"#
+            );
+            let r = post(&s, "/api/send", &body).await;
+            assert_eq!(
+                sb(&r),
+                (status, format!(r#"{{"error":"{msg}"}}"#)),
+                "{body}"
+            );
+        }
+    }
+    // A string is counted by its UTF-16 length before its "images" are rejected.
+    for (images, msg) in [
+        ("abcdefg", many),
+        ("😀😀😀😀", many),
+        (
+            "😀😀😀",
+            "지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)",
+        ),
+    ] {
+        let body = format!(r#"{{"terminalHandle":"pty_1","images":"{images}"}}"#);
+        let r = post(&s, "/api/send", &body).await;
+        assert_eq!(sb(&r), (400, format!(r#"{{"error":"{msg}"}}"#)), "{images}");
+    }
+    // More than 6 real images.
+    let img = serde_json::json!({ "mediaType": "image/png", "data": b64(&PNG) });
+    let body = serde_json::json!({ "terminalHandle": "pty_1", "images": vec![img; 7] });
+    let r = post(&s, "/api/send", &body.to_string()).await;
+    assert_eq!(sb(&r), (400, format!(r#"{{"error":"{many}"}}"#)));
+    assert!(fake.calls_of("send_prompt").is_empty());
     // A real image is saved in the upload folder and its path follows the text.
     let body = serde_json::json!({
         "terminalHandle": "pty_1", "text": " look ",
@@ -2034,4 +2068,221 @@ async fn a_second_answer_on_the_same_terminal_is_409() {
     let r = first.await.unwrap();
     assert_eq!(r.status, 200);
     assert_eq!(fake.calls_of("send_keys"), ["send_keys pty_1 \"2\""]);
+}
+
+#[tokio::test]
+async fn send_takes_bodies_up_to_80_mb() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    set_screen(&fake, idle_composer());
+    let text = "x".repeat(70_000);
+    let body = format!(r#"{{"terminalHandle":"pty_1","text":"{text}"}}"#);
+    let r = post(&s, "/api/send", &body).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(
+        fake.calls_of("send_prompt"),
+        [format!("send_prompt pty_1 {text}")]
+    );
+    // Other input routes keep the 64 000 byte cap.
+    let pad = "x".repeat(64_000);
+    let body = format!(r#"{{"terminalHandle":"pty_1","key":"esc","pad":"{pad}"}}"#);
+    let r = post(&s, "/api/keys", &body).await;
+    assert_eq!(
+        sb(&r),
+        (400, r#"{"error":"요청이 너무 큽니다"}"#.to_string())
+    );
+    let pad = "x".repeat(80 * 1024 * 1024);
+    let body = format!(r#"{{"terminalHandle":"pty_1","text":"{pad}"}}"#);
+    let r = post(&s, "/api/send", &body).await;
+    assert_eq!(
+        sb(&r),
+        (400, r#"{"error":"요청이 너무 큽니다"}"#.to_string())
+    );
+    assert_eq!(fake.calls_of("send_prompt").len(), 1);
+}
+
+#[tokio::test]
+async fn send_with_an_unusable_upload_folder_is_502() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    set_screen(&fake, idle_composer());
+    // The scratch upload folder is a file.
+    std::fs::write(s.dir.path().join("uploads"), b"x").unwrap();
+    let img = serde_json::json!({ "mediaType": "image/png", "data": b64(&PNG) });
+    let body = serde_json::json!({ "terminalHandle": "pty_1", "images": [img] });
+    let r = post(&s, "/api/send", &body.to_string()).await;
+    assert_eq!(r.status, 502, "{}", r.text());
+    let v = r.json();
+    assert!(v["error"].is_string());
+    assert!(v.get("code").is_none());
+    // The object path makes the folder before it throws, so the folder error wins there too.
+    let r = post(
+        &s,
+        "/api/send",
+        r#"{"terminalHandle":"pty_1","images":{"length":1}}"#,
+    )
+    .await;
+    assert_eq!(r.status, 502);
+    assert_ne!(r.json()["error"], "images is not iterable");
+    assert!(fake.calls_of("send_prompt").is_empty());
+}
+
+#[tokio::test]
+async fn queue_key_failures_go_to_the_catch_all() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    err_of(
+        &fake,
+        "send_keys",
+        BackendError::with_code("read only", "terminal_not_writable"),
+    );
+    let body = r#"{"terminalHandle":"pty_1","action":"cancel"}"#;
+    let r = post(&s, "/api/queue", body).await;
+    assert_eq!(
+        sb(&r),
+        (
+            409,
+            r#"{"error":"read only","code":"terminal_not_writable"}"#.to_string()
+        )
+    );
+    assert_eq!(
+        fake.calls_of("send_keys").len(),
+        1,
+        "stops at the first failure"
+    );
+    err_of(&fake, "send_keys", BackendError::plain("gone"));
+    let r = post(&s, "/api/queue", body).await;
+    assert_eq!(sb(&r), (502, r#"{"error":"gone"}"#.to_string()));
+}
+
+#[tokio::test]
+async fn answer_read_errors_and_driver_timeouts() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    let body = r#"{"agentId":"a1","toolUseId":"qp","choices":[[1]]}"#;
+    // An unreadable transcript is the catch-all's 502.
+    fake.set_session(Some(
+        s.dir
+            .path()
+            .join("missing.jsonl")
+            .to_string_lossy()
+            .into_owned(),
+    ));
+    let r = answer(&s, body).await;
+    assert_eq!(r.status, 502);
+    assert!(r.json().get("code").is_none());
+    // The dialog never shows: the driver gives up after 3 s with its own message (409).
+    fake.set_session(Some(question_transcript(s.dir.path())));
+    set_screen(&fake, idle_composer());
+    let r = answer(&s, body).await;
+    assert_eq!(
+        sb(&r),
+        (
+            409,
+            r#"{"error":"터미널에 \"Color\" 질문이 보이지 않아 멈췄습니다. 터미널 탭에서 확인해 주세요"}"#
+                .to_string()
+        )
+    );
+    assert!(fake.calls_of("send_keys").is_empty());
+    // The terminal was released.
+    set_screen(&fake, color_question());
+    fake.screens_after_keys
+        .lock()
+        .unwrap()
+        .push_back(idle_composer());
+    assert_eq!(answer(&s, body).await.status, 200);
+}
+
+#[tokio::test]
+async fn a_dropped_client_does_not_cut_the_answer_short() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    fake.set_session(Some(question_transcript(s.dir.path())));
+    set_screen(&fake, color_question());
+    fake.screens_after_keys
+        .lock()
+        .unwrap()
+        .push_back(idle_composer());
+    let gate = Arc::new(tokio::sync::Notify::new());
+    *fake.pending_keys.lock().unwrap() = Some(gate.clone());
+    let body = r#"{"agentId":"a1","toolUseId":"qp","choices":[[1]]}"#;
+    let client = support::Client::new(s.handle.port);
+    let first = tokio::spawn(async move {
+        client
+            .request(
+                "POST",
+                "/api/answer",
+                &JSON_CT,
+                Some(body.as_bytes().to_vec()),
+            )
+            .await
+    });
+    wait_until(
+        "the answer reads the screen",
+        Duration::from_secs(5),
+        || !fake.calls_of("read_screen").is_empty(),
+    )
+    .await;
+    // The client goes away while the driver waits on the screen.
+    first.abort();
+    let _ = first.await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    *fake.pending_keys.lock().unwrap() = None;
+    gate.notify_one();
+    wait_until("the key is still pressed", Duration::from_secs(5), || {
+        !fake.calls_of("send_keys").is_empty()
+    })
+    .await;
+    assert_eq!(fake.calls_of("send_keys"), ["send_keys pty_1 \"2\""]);
+    // The claim is released once the driver ends, and shutdown still completes.
+    wait_until("the terminal is released", Duration::from_secs(5), || {
+        fake.screens_after_keys.lock().unwrap().is_empty()
+    })
+    .await;
+    set_screen(&fake, color_question());
+    fake.screens_after_keys
+        .lock()
+        .unwrap()
+        .push_back(idle_composer());
+    let mut ok = false;
+    for _ in 0..50 {
+        let r = answer(&s, body).await;
+        if r.status == 200 {
+            ok = true;
+            break;
+        }
+        assert_eq!(r.text(), r#"{"error":"답을 입력하는 중입니다"}"#);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(ok, "the claim was released");
+    s.handle.shutdown().await;
+    tokio::time::timeout(Duration::from_secs(5), s.handle.closed())
+        .await
+        .expect("closed");
+}
+
+#[tokio::test]
+async fn a_dropped_client_does_not_cut_the_queue_short() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    let client = support::Client::new(s.handle.port);
+    let body = r#"{"terminalHandle":"pty_1","action":"cancel"}"#;
+    let first = tokio::spawn(async move {
+        client
+            .request(
+                "POST",
+                "/api/queue",
+                &JSON_CT,
+                Some(body.as_bytes().to_vec()),
+            )
+            .await
+    });
+    wait_until("the first key", Duration::from_secs(5), || {
+        !fake.calls_of("send_keys").is_empty()
+    })
+    .await;
+    first.abort();
+    let _ = first.await;
+    wait_until("the second key", Duration::from_secs(5), || {
+        fake.calls_of("send_keys").len() == 2
+    })
+    .await;
+    s.handle.shutdown().await;
+    tokio::time::timeout(Duration::from_secs(5), s.handle.closed())
+        .await
+        .expect("closed");
 }
