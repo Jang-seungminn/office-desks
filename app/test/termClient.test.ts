@@ -265,6 +265,30 @@ describe('TermSocket', () => {
     expect(last().sent).toHaveLength(0);
   });
 
+  it('after close(), late events from the old socket change nothing (the done guard)', () => {
+    const t = new TermSocket(cfg, 'a', h, make);
+    const ws = last();
+    const { onopen, onmessage, onclose } = ws;
+    ws.open();
+    t.resize(80, 24);
+    t.close();
+    // The browser may still deliver events it had queued for the old handlers.
+    onmessage!({ data: new Uint8Array([1, 2]).buffer });
+    onmessage!({ data: '{"type":"exit","code":0}' });
+    onopen!();
+    onclose!({ code: 1013 });
+    onclose!({ code: 1006 });
+    vi.advanceTimersByTime(5000);
+    expect(h.output).not.toHaveBeenCalled();
+    expect(h.reset).not.toHaveBeenCalled();
+    expect(statuses()).toEqual(['connecting', 'open']);
+    expect(FakeWs.all).toHaveLength(1);
+    expect(ws.texts).toEqual(['{"type":"resize","cols":80,"rows":24}']);
+    t.resize(100, 30);
+    t.input('x');
+    expect(ws.sent).toHaveLength(1);
+  });
+
   it('close() while connecting closes with 1000 once open (no URL in the console)', () => {
     const t = new TermSocket(cfg, 'a', h, make);
     t.close();

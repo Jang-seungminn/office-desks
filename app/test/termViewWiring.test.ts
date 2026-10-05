@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   terms: [] as any[],
   sockets: [] as any[],
+  real: false,
   gl: { fail: false, instances: [] as any[] },
   proposed: { cols: 100, rows: 30 } as { cols: number; rows: number } | undefined,
   observers: [] as any[],
@@ -100,7 +101,9 @@ vi.mock('../src/termClient', async (orig) => {
     inputBinary = vi.fn();
     resize = vi.fn();
     close = vi.fn();
-    constructor(public cfg: unknown, public agentId: string, public h: any) {
+    constructor(public cfg: any, public agentId: string, public h: any) {
+      // A constructor may return another object: the real socket, for the token test.
+      if (m.real) return new real.TermSocket(cfg, agentId, h) as any;
       m.sockets.push(this);
       h.status('connecting');
     }
@@ -144,6 +147,7 @@ beforeEach(() => {
   m.gl.fail = false;
   m.proposed = { cols: 100, rows: 30 };
   m.observers.length = 0;
+  m.real = false;
   (globalThis as any).ResizeObserver = RO;
   document.body.replaceChildren();
 });
@@ -182,7 +186,9 @@ describe('TermView', () => {
     s.h.output(new Uint8Array([65]));
     expect(t.written).toHaveLength(1);
     s.h.reset();
-    expect(t.resets).toBe(1);
+    // RIS goes through the write queue, behind any output still pending from the old socket.
+    expect(Array.from(t.written.at(-1))).toEqual([0x1b, 0x63]);
+    expect(t.resets).toBe(0);
   });
 
   it('tells the server the size even when it equals the xterm default', () => {
@@ -251,6 +257,57 @@ describe('TermView', () => {
     v.fit();
     expect(s.close).toHaveBeenCalledTimes(1);
     expect(v.text()).toBe('');
+  });
+
+  it('sets windowsPty (ConPTY) on Windows only', () => {
+    const ua = vi.spyOn(navigator, 'userAgent', 'get');
+    ua.mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/129');
+    new TermView(pane().el, { port: 1, token: 't' }, 'a');
+    expect(m.terms[0].opts.windowsPty).toEqual({ backend: 'conpty' });
+    ua.mockReturnValue('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15');
+    new TermView(pane().el, { port: 1, token: 't' }, 'b');
+    expect(m.terms[1].opts.windowsPty).toBeUndefined();
+    ua.mockRestore();
+  });
+
+  it('with the real socket, the token goes only into the WebSocket URL: not the DOM, title, history or console', () => {
+    const urls: string[] = [];
+    class Ws {
+      binaryType = '';
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onclose: ((e: { code: number }) => void) | null = null;
+      onmessage: ((e: { data: unknown }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(u: string) {
+        urls.push(u);
+        sockets.push(this);
+      }
+      send() {}
+      close() {}
+    }
+    const sockets: Ws[] = [];
+    vi.stubGlobal('WebSocket', Ws);
+    const logs = (['log', 'info', 'debug', 'warn', 'error'] as const).map((k) => vi.spyOn(console, k).mockImplementation(() => {}));
+    m.real = true;
+    const token = 'tok-3f9a1c';
+    const p = pane();
+    const v = new TermView(p.el, { port: 51234, token }, 'wt:1/2');
+    expect(urls).toEqual([`ws://127.0.0.1:51234/term/wt%3A1%2F2?token=${token}`]);
+    // A failed attach and its banner: still nothing.
+    sockets[0].onerror?.();
+    sockets[0].onclose?.({ code: 1006 });
+    expect(p.el.querySelector('.term-banner')!.textContent).toContain('터미널에 연결하지 못했어요');
+    const attrs = [...document.querySelectorAll('*')].flatMap((el) => [...el.attributes].map((a) => a.value));
+    expect(attrs.join('\n')).not.toContain(token);
+    expect(document.documentElement.outerHTML).not.toContain(token);
+    expect(document.title).not.toContain(token);
+    expect(location.href).not.toContain(token);
+    expect(JSON.stringify(history.state)).not.toContain(token);
+    for (const l of logs) expect(l).not.toHaveBeenCalled();
+    v.dispose();
+    for (const l of logs) l.mockRestore();
+    vi.unstubAllGlobals();
   });
 
   it('text() joins the active buffer lines', () => {

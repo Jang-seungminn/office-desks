@@ -64,11 +64,11 @@ export class Workspace {
   }
 
   copy(): string {
-    return this.activeView()?.copySelection() ?? '';
+    return this.targetView()?.copySelection() ?? '';
   }
 
   paste(text: string): void {
-    this.activeView()?.paste(text);
+    this.targetView()?.paste(text);
   }
 
   /** Refits the visible panes (after the sidebar toggles). */
@@ -86,6 +86,16 @@ export class Workspace {
     this.gone.clear();
     for (const t of this.st.tabs) if (!live.has(t.agentId)) this.gone.add(t.agentId);
     this.renderBar();
+  }
+
+  /** The visible pane holding keyboard focus (the split one, say), else the active one. */
+  private targetView(): TermView | undefined {
+    const f = document.activeElement;
+    for (const id of [this.st.active, this.st.split]) {
+      const slot = id ? this.slots.get(id) : undefined;
+      if (slot && f && slot.pane.contains(f)) return slot.view;
+    }
+    return this.activeView();
   }
 
   private activeView(): TermView | undefined {

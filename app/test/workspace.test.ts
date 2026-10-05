@@ -182,6 +182,24 @@ describe('Workspace', () => {
     expect(root.querySelector('.tab[data-agent="B"]')!.classList.contains('gone')).toBe(false);
   });
 
+  it('copy and paste go to the focused pane of a split, else the active one', () => {
+    ws.open(d, A);
+    ws.open(d, B);
+    ws.switchTo(0);
+    ws.toggleSplit(); // A left (active), B right (split)
+    const inB = document.createElement('textarea'); // stands in for xterm's textarea
+    view('B').host.append(inB);
+    inB.focus();
+    expect(ws.copy()).toBe('sel:B');
+    ws.paste('right');
+    expect(view('B').pasted).toEqual(['right']);
+    expect(view('A').pasted).toEqual([]);
+    inB.blur();
+    expect(ws.copy()).toBe('sel:A');
+    ws.paste('left');
+    expect(view('A').pasted).toEqual(['left']);
+  });
+
   it('copy and paste go to the active view', () => {
     expect(ws.copy()).toBe('');
     ws.paste('nothing');
@@ -201,10 +219,14 @@ describe('Workspace', () => {
     expect(document.activeElement).toBe(root.querySelector('.tab[data-agent="A"] .tab-close'));
   });
 
-  it('never writes the token into the DOM', () => {
+  it('hands the config to each view in memory and never writes the token into the DOM', () => {
+    // The real-socket check is in termViewWiring.test.ts.
     ws.open(d, A);
     ws.open(d, B);
     ws.toggleSplit();
+    expect(views.every((v) => v.cfg === cfg)).toBe(true);
+    const attrs = [...document.querySelectorAll('*')].flatMap((el) => [...el.attributes].map((a) => a.value));
+    expect(attrs.join('\n')).not.toContain('secret-token');
     expect(document.documentElement.outerHTML).not.toContain('secret-token');
     expect(document.title).not.toContain('secret-token');
   });

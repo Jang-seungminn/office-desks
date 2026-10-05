@@ -4,8 +4,11 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal, type IDisposable } from '@xterm/xterm';
-import type { TermConfig } from './host';
+import { platform, type TermConfig } from './host';
 import { MAX_COLS, MAX_ROWS, TermSocket, type TermStatus } from './termClient';
+
+/** ESC c (RIS): a full terminal reset, in order with the output stream. */
+export const RIS = new Uint8Array([0x1b, 0x63]);
 
 /** The banner for a status, or null for none (connecting, open). */
 export function bannerText(s: TermStatus, code?: number | null): string | null {
@@ -87,6 +90,11 @@ export class TermView {
       lineHeight: 1.1,
       scrollback: 5000,
       cursorBlink: true,
+      // ConPTY reprints the screen on resize; without this xterm also reflows the scrollback down
+      // and lines come out twice.
+      // TODO: pass buildNumber for Windows 10 builds older than 21376 (their ConPTY reflows
+      // differently); it needs the OS build from the host.
+      windowsPty: platform() === 'win' ? { backend: 'conpty' } : undefined,
       theme: { background: '#151210', foreground: '#efe6d8' },
     });
     this.term = term;
@@ -105,7 +113,9 @@ export class TermView {
 
     this.socket = new TermSocket(cfg, agentId, {
       output: (bytes) => term.write(bytes),
-      reset: () => term.reset(),
+      // RIS through the write queue, not term.reset(): reset() applies at once and leaves earlier
+      // queued writes (the old socket's output) to land on top of the fresh snapshot.
+      reset: () => term.write(RIS),
       status: (s, code) => this.setStatus(s, code),
     });
     this.subs.push(
