@@ -8,12 +8,14 @@ mod app;
 pub mod assets;
 mod enrich;
 mod hook;
-pub mod hub;
+mod hub;
+/// JS coercion helpers. Public for the integration tests only (`encode_uri_component`).
+#[doc(hidden)]
 pub mod js;
-pub mod poller;
-pub mod reqs;
+mod poller;
+mod reqs;
 mod routes;
-pub mod security;
+mod security;
 mod term;
 mod ws;
 
