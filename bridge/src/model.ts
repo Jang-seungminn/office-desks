@@ -72,7 +72,32 @@ export interface OfficeSnapshot {
 
 // --- Bridge <-> web protocol ---
 
+export interface BackendCapabilities {
+  /** Plan usage limits (5-hour / weekly). */
+  usage: boolean;
+  /** Full-text search over conversations. */
+  search: boolean;
+  /** Edit a worktree's board status and comment. */
+  board: boolean;
+  /** Create worktrees and start agents. */
+  hire: boolean;
+  /** git change counts and diffs for desks. */
+  changes: boolean;
+  /** The bridge reads transcripts for model/effort/stats; false when the backend fills them itself. */
+  transcripts: boolean;
+  /** Bring a terminal to the front of the host app. */
+  focus: boolean;
+  /** Projects are added by the bridge (addRepo) rather than by the host app. */
+  repos: boolean;
+}
+
+export interface BackendInfo {
+  name: string;
+  capabilities: BackendCapabilities;
+}
+
 export type ServerMessage =
+  | { type: 'backend'; backend: BackendInfo }
   | { type: 'snapshot'; snapshot: OfficeSnapshot }
   | { type: 'usage'; usage: UsageSnapshot }
   | { type: 'org'; org: OrgChart }

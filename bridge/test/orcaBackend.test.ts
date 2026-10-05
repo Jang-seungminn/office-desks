@@ -208,3 +208,23 @@ describe('OrcaBackend board, search, usage, sessions', () => {
     expect(b.cachedSession('tab:leaf')).toBe('/s.jsonl');
   });
 });
+
+describe('OrcaBackend v2', () => {
+  it('turns terminal_not_writable into a friendly error with a stable code', async () => {
+    const { orca } = fake(() => new OrcaCliError('terminal_not_writable Terminal prompt request ID: 1fe4f207-0a7f-487d-8c7e-d7f040e56dd6. Re-issue …', 'terminal_not_writable'));
+    const b = new OrcaBackend(orca, undefined, Date.now, 'darwin');
+    const sent = await b.sendPrompt('term_1', 'hi').catch((e: unknown) => e);
+    expect(sent).toMatchObject({ code: 'terminal_not_writable' });
+    expect((sent as Error).message).toMatch(/입력할 수 없어요/);
+    await expect(b.sendKeys('term_1', { enter: true })).rejects.toMatchObject({ code: 'terminal_not_writable' });
+  });
+
+  it('declares what Orca can do and refuses native-only calls', async () => {
+    const b = new OrcaBackend(fake().orca);
+    expect(b.capabilities).toEqual({ usage: true, search: true, board: true, hire: true, changes: true, transcripts: true, focus: true, repos: false });
+    expect(b.messages.noSession).toMatch(/Agent Session History/);
+    expect(b.hook('x', 'y', {})).toBe(false);
+    await expect(b.addRepo('/tmp')).rejects.toMatchObject({ code: 'unsupported' });
+    await expect(b.dispose()).resolves.toBeUndefined();
+  });
+});
