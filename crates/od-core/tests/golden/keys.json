@@ -1,0 +1,140 @@
+{
+  "keys": {
+    "1": "1",
+    "2": "2",
+    "3": "3",
+    "4": "4",
+    "5": "5",
+    "6": "6",
+    "7": "7",
+    "8": "8",
+    "9": "9",
+    "up": "\u001b[A",
+    "down": "\u001b[B",
+    "right": "\u001b[C",
+    "left": "\u001b[D",
+    "enter": "\r",
+    "esc": "\u001b",
+    "tab": "\t",
+    "shift-tab": "\u001b[Z",
+    "space": " ",
+    "ctrl-c": "\u0003",
+    "ctrl-u": "\u0015",
+    "ctrl-enter": "\u001b[13;5u",
+    "backspace": "",
+    "y": "y",
+    "n": "n"
+  },
+  "rejected": [
+    {
+      "key": "constructor",
+      "expected": null
+    },
+    {
+      "key": "__proto__",
+      "expected": null
+    },
+    {
+      "key": "toString",
+      "expected": null
+    },
+    {
+      "key": "F1",
+      "expected": null
+    },
+    {
+      "key": "",
+      "expected": null
+    },
+    {
+      "key": "Enter",
+      "expected": null
+    },
+    {
+      "key": "ctrl-d",
+      "expected": null
+    }
+  ],
+  "chars": [
+    {
+      "ch": "a",
+      "expected": "a"
+    },
+    {
+      "ch": "Z",
+      "expected": "Z"
+    },
+    {
+      "ch": "한",
+      "expected": "한"
+    },
+    {
+      "ch": " ",
+      "expected": " "
+    },
+    {
+      "ch": "!",
+      "expected": "!"
+    },
+    {
+      "ch": "~",
+      "expected": "~"
+    },
+    {
+      "ch": "5",
+      "expected": "5"
+    },
+    {
+      "ch": "€",
+      "expected": "€"
+    },
+    {
+      "ch": "😀",
+      "expected": "😀"
+    },
+    {
+      "ch": "\u001b",
+      "expected": null
+    },
+    {
+      "ch": "\n",
+      "expected": null
+    },
+    {
+      "ch": "\t",
+      "expected": null
+    },
+    {
+      "ch": "",
+      "expected": null
+    },
+    {
+      "ch": "ab",
+      "expected": null
+    },
+    {
+      "ch": "",
+      "expected": null
+    },
+    {
+      "ch": "한글",
+      "expected": null
+    },
+    {
+      "ch": "é",
+      "expected": "é"
+    },
+    {
+      "ch": "́",
+      "expected": null
+    },
+    {
+      "ch": " ",
+      "expected": null
+    },
+    {
+      "ch": "​",
+      "expected": null
+    }
+  ]
+}

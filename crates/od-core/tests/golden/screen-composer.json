@@ -1,0 +1,288 @@
+[
+  {
+    "name": "claude-2.1/composer-queued.txt",
+    "lines": [
+      "     time.sleep(1)\"; done; echo waited (11s)                                                 33",
+      "     (ctrl+b to run in background)                                                           34 -export function zoneOf(desk: OfficeDesk): ZoneKey {",
+      "                                                                                             35 -  if (desk.agents.some((a) => ACTIVE.has(a.state))) return 'working",
+      "❯ (대기열 화면 캡처용 테스트 메시지입니다. 무시해 주세요)                                       -';",
+      "  ctrl+enter to send now                                                                     34 +const NONE: ReadonlySet<string> = new Set();",
+      "                                                                                             35 +",
+      "✻ Inferring… (3m 47s · ↓ 14.6k tokens)                                                       36 +/** `unseen`: agents with a finished/waiting report not yet opened",
+      "  ⎿  Tip: Use /btw to ask a quick side question without interrupting Claude's current work      +— they stay on the top floor. */",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── office-desks-orca-agent-view ─",
+      "❯ Press up to edit queued messages",
+      "─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "  ⏵⏵ bypass permissions on · 1 shell · ← for agents",
+      ""
+    ],
+    "agentType": "claude",
+    "expected": "ready"
+  },
+  {
+    "name": "claude-2.1/composer-working.txt",
+    "lines": [
+      "⏺ Running 2 shell commands…                                                                     +> = NONE): ZoneKey {",
+      "  ⎿  $ S=/tmp/scratch  38 +  if (desk.agents.some((a) => ACTIVE.has(a.state) || unseen.has(a.i",
+      "     scratch; H=$(cat $S/me_handle); for i in $(seq 1 10); do           +d))) return 'working';",
+      "     python3 -c \"import time; time.sleep(3)\"; orca terminal read --terminal $H --screen      39    return desk.agents.length ? 'waiting' : 'idle';",
+      "     --json > $S/single_q_$i.json 2>&1; done; echo cap…                                      40  }",
+      "                                                                                             41",
+      "· Inferring… (2m 8s · ↓ 6.9k tokens)                                                         39 -export function recency(desk: OfficeDesk): number {",
+      "  ⎿  Tip: Use /btw to ask a quick side question without interrupting Claude's current work   40 -  const zone = zoneOf(desk);",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── office-desks-orca-agent-view ─",
+      "❯",
+      "─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "  ⏵⏵ bypass permissions on · 1 shell · ← for agents",
+      ""
+    ],
+    "agentType": "claude",
+    "expected": "ready"
+  },
+  {
+    "name": "claude-2.1/question-multi-first.txt",
+    "lines": [
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "←  ☐ Color  ☐ Sizes  ✔ Submit  →",
+      "Which color?",
+      "❯ 1. Red",
+      "     warm",
+      "  2. Blue",
+      "     cool",
+      "  3. Type something.",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "  4. Chat about this",
+      "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+      ""
+    ],
+    "agentType": "claude",
+    "expected": "menu"
+  },
+  {
+    "name": "claude-2.1/question-multi-review.txt",
+    "lines": [
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "←  ☒ Color  ☒ Sizes  ✔ Submit  →",
+      "Review your answers",
+      " ● Which color?",
+      "   → Blue",
+      " ● Which sizes?",
+      "   → Small, Large",
+      "Ready to submit your answers?",
+      "❯ 1. Submit answers",
+      "  2. Cancel",
+      ""
+    ],
+    "agentType": "claude",
+    "expected": "menu"
+  },
+  {
+    "name": "claude-2.1/question-single-with-pane.txt",
+    "lines": [
+      "                                                                                             35 +",
+      "  Ran 2 shell commands                                                                       36 +/** `unseen`: agents with a finished/waiting report not yet opened",
+      "───────────────────────────────────────────────────────────────────────────────────────────     +— they stay on the top floor. */",
+      " ☐ 캡처 테스트                                                                               37 +export function zoneOf(desk: OfficeDesk, unseen: ReadonlySet<string",
+      "                                                                                                +> = NONE): ZoneKey {",
+      "│ [화면 캡처용 테스트] 질문이 하나일 때의 터미널 화면을 저장하는 중입니다. 30초쥐 뒤에       38 +  if (desk.agents.some((a) => ACTIVE.has(a.state) || unseen.has(a.i",
+      "│ 터미널에서 아무거나 골라 주세요.                                                              +d))) return 'working';",
+      "                                                                                             39    return desk.agents.length ? 'waiting' : 'idle';",
+      "❯ 1. 확인                                                                                    40  }",
+      "     터미널에서 선택                                                                         41",
+      "  2. 다시                                                                                    39 -export function recency(desk: OfficeDesk): number {",
+      "     아무거나 골라도 됩니다                                                                  40 -  const zone = zoneOf(desk);",
+      "  3. Type something.                                                                         41 -  const relevant = zone === 'working' ? desk.agents.filter((a) => A",
+      "───────────────────────────────────────────────────────────────────────────────────────────     -CTIVE.has(a.state)) : desk.agents;",
+      "  4. Chat about this                                                                         42 +export function recency(desk: OfficeDesk, unseen: ReadonlySet<strin",
+      "                                                                                                +g> = NONE): number {",
+      "Enter to select · ↑/↓ to navigate · Esc to cancel                                            43 +  const zone = zoneOf(desk, unseen);",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── office-desks-orca-agent-view ─",
+      ""
+    ],
+    "agentType": "claude",
+    "expected": "menu"
+  },
+  {
+    "name": "claude-2.1/trust-dialog.txt",
+    "lines": [
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      " Accessing workspace:",
+      " /tmp/scratch/askq",
+      " Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source",
+      " project, or work from your team). If not, take a moment to review what's in this folder first.",
+      " Claude Code'll be able to read, edit, and execute files here.",
+      " Security guide",
+      " ❯ No, exit",
+      "   Yes, I trust this folder",
+      " Enter to confirm · Esc to cancel",
+      ""
+    ],
+    "agentType": "claude",
+    "expected": "menu"
+  },
+  {
+    "name": "inline composer",
+    "lines": [
+      "⏺ Done.",
+      "",
+      "──────────────────────────────────────────────────────────── command context logging ─",
+      "❯ ",
+      "────────────────────────────────────────────────────────────",
+      "  ⏵⏵ auto mode on · 1 shell"
+    ],
+    "agentType": "claude",
+    "expected": "ready"
+  },
+  {
+    "name": "inline multi-line draft",
+    "lines": [
+      "x",
+      "────────────────────────────────────────────────────────────",
+      "❯ first line",
+      "  second line",
+      "────────────────────────────────────────────────────────────",
+      "footer"
+    ],
+    "agentType": "claude",
+    "expected": "ready"
+  },
+  {
+    "name": "inline usage dialog",
+    "lines": [
+      "Settings  Status  Config  Usage",
+      "",
+      "Current session  ███░░ 12% used",
+      "Esc to cancel"
+    ],
+    "agentType": "claude",
+    "expected": "menu"
+  },
+  {
+    "name": "inline permission dialog",
+    "lines": [
+      "Bash command",
+      "  rm -rf build",
+      "Do you want to proceed?",
+      "❯ 1. Yes",
+      "  2. No",
+      "",
+      "Esc to cancel"
+    ],
+    "agentType": "claude",
+    "expected": "menu"
+  },
+  {
+    "name": "inline other agent",
+    "lines": [
+      "anything"
+    ],
+    "agentType": "codex",
+    "expected": "unknown"
+  },
+  {
+    "name": "inline blank",
+    "lines": [
+      "",
+      ""
+    ],
+    "agentType": "claude",
+    "expected": "unknown"
+  },
+  {
+    "name": "inline empty",
+    "lines": [],
+    "agentType": "claude",
+    "expected": "unknown"
+  },
+  {
+    "name": "inline heavy rules",
+    "lines": [
+      "━━━━━━━━",
+      "❯",
+      "━━━━━━━━"
+    ],
+    "agentType": "claude",
+    "expected": "ready"
+  },
+  {
+    "name": "inline short rule",
+    "lines": [
+      "───────",
+      "❯ x",
+      "───────"
+    ],
+    "agentType": "claude",
+    "expected": "menu"
+  },
+  {
+    "name": "inline prompt at top",
+    "lines": [
+      "❯ x",
+      "────────────────────────────────────────────────────────────"
+    ],
+    "agentType": "claude",
+    "expected": "menu"
+  },
+  {
+    "name": "inline draft too long",
+    "lines": [
+      "────────────────────────────────────────────────────────────",
+      "❯ x",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "────────────────────────────────────────────────────────────"
+    ],
+    "agentType": "claude",
+    "expected": "menu"
+  },
+  {
+    "name": "inline draft 11 lines",
+    "lines": [
+      "────────────────────────────────────────────────────────────",
+      "❯ x",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "  more",
+      "────────────────────────────────────────────────────────────"
+    ],
+    "agentType": "claude",
+    "expected": "ready"
+  },
+  {
+    "name": "inline indented",
+    "lines": [
+      "  ────────────────────────────────────────────────────────────",
+      "  ❯ hi   ",
+      "  ────────────────────────────────────────────────────────────"
+    ],
+    "agentType": "claude",
+    "expected": "ready"
+  },
+  {
+    "name": "inline prompt glued",
+    "lines": [
+      "────────────────────────────────────────────────────────────",
+      "❯hi",
+      "────────────────────────────────────────────────────────────"
+    ],
+    "agentType": "claude",
+    "expected": "menu"
+  }
+]

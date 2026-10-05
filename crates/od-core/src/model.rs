@@ -3,8 +3,23 @@
 //! Wire rules: camelCase fields; `T | null` is `Option<T>` and always serialized (as `null`);
 //! TS `field?:` is `Option<T>` that is omitted when `None`.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
+
+/// Orca reports some timestamps (ms) as JSON floats; accept them and truncate to whole ms.
+/// Serialization is unchanged (an integer).
+fn lenient_ms<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Num {
+        Int(i64),
+        Float(f64),
+    }
+    Ok(Option::<Num>::deserialize(d)?.map(|n| match n {
+        Num::Int(i) => i,
+        Num::Float(f) => f as i64,
+    }))
+}
 
 /// What a character is visibly doing at its desk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +50,7 @@ pub struct OfficeAgent {
     pub activity: String,
     pub prompt: Option<String>,
     pub last_message: Option<String>,
+    #[serde(default, deserialize_with = "lenient_ms")]
     pub since: Option<i64>,
 }
 
@@ -72,6 +88,7 @@ pub struct OfficeDesk {
     pub preview: String,
     pub is_active: bool,
     pub unread: bool,
+    #[serde(default, deserialize_with = "lenient_ms")]
     pub last_activity_at: Option<i64>,
     pub changes: Option<DeskChanges>,
     pub pr: Option<DeskPr>,
@@ -188,6 +205,7 @@ pub struct UsageWindow {
     pub key: String,
     pub label: String,
     pub used_percent: f64,
+    #[serde(default, deserialize_with = "lenient_ms")]
     pub resets_at: Option<i64>,
     pub reset_description: Option<String>,
 }

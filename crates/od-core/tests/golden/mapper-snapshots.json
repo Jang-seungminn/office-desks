@@ -1,0 +1,2964 @@
+[
+  {
+    "name": "fixtures",
+    "worktrees": [
+      {
+        "worktreeId": "repoA::/Users/me/proj/office_desks",
+        "repoId": "repoA",
+        "repo": "office_desks",
+        "path": "/Users/me/proj/office_desks",
+        "branch": "",
+        "displayName": "office_desks",
+        "status": "permission",
+        "workspaceStatus": "in-progress",
+        "comment": "",
+        "preview": "Honking…   8",
+        "isActive": true,
+        "isArchived": false,
+        "agents": [
+          {
+            "paneKey": "tab1:leaf1",
+            "agentType": "claude",
+            "state": "waiting",
+            "toolName": "ExitPlanMode",
+            "toolInput": null,
+            "prompt": "build an office view",
+            "lastAssistantMessage": null,
+            "stateStartedAt": 1790997660310
+          }
+        ]
+      },
+      {
+        "worktreeId": "repoB::C:\\Users\\me\\secretary",
+        "repoId": "repoB",
+        "repo": "secretary",
+        "path": "C:\\Users\\me\\secretary",
+        "branch": "refs/heads/knowledge-graph",
+        "displayName": "",
+        "status": "working",
+        "workspaceStatus": "in-progress",
+        "comment": "running tests",
+        "isActive": false,
+        "agents": [
+          {
+            "paneKey": "tab2:leaf2",
+            "agentType": "codex",
+            "state": "working",
+            "toolName": "Bash",
+            "toolInput": "npm   test\n --watch=false"
+          },
+          {
+            "paneKey": "tab3:leaf3",
+            "agentType": "claude",
+            "state": "working",
+            "toolName": "Grep",
+            "toolInput": "TODO"
+          },
+          {
+            "paneKey": "tab4:leaf4",
+            "agentType": "claude",
+            "state": "working",
+            "toolName": null
+          },
+          {
+            "paneKey": "tab5:leaf5",
+            "agentType": "claude",
+            "state": "done",
+            "lastAssistantMessage": "All green."
+          }
+        ]
+      },
+      {
+        "worktreeId": "repoC::/Users/me/old",
+        "repo": "old",
+        "displayName": "old",
+        "status": "inactive",
+        "isArchived": true,
+        "agents": []
+      },
+      {
+        "worktreeId": "repoD::/Users/me/empty",
+        "repo": "empty",
+        "displayName": "empty",
+        "status": "inactive",
+        "agents": []
+      }
+    ],
+    "terminals": [
+      {
+        "handle": "term_1",
+        "tabId": "tab1",
+        "leafId": "leaf1",
+        "title": "✳ Fix login"
+      },
+      {
+        "handle": "term_2",
+        "tabId": "tab2",
+        "leafId": "leaf2"
+      },
+      {
+        "handle": "term_3",
+        "tabId": "tab3",
+        "leafId": "leaf3"
+      },
+      {
+        "handle": "term_x",
+        "tabId": "tabX",
+        "leafId": "leafX"
+      }
+    ],
+    "now": 123,
+    "deskName": null,
+    "expected": {
+      "desks": [
+        {
+          "id": "repoA::/Users/me/proj/office_desks",
+          "repoId": "repoA",
+          "isMain": false,
+          "parentId": null,
+          "name": "office_desks",
+          "repo": "office_desks",
+          "branch": "",
+          "path": "/Users/me/proj/office_desks",
+          "status": "permission",
+          "workspaceStatus": "in-progress",
+          "comment": "",
+          "preview": "Honking… 8",
+          "isActive": true,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": [
+            {
+              "id": "tab1:leaf1",
+              "terminalHandle": "term_1",
+              "agentType": "claude",
+              "terminalTitle": "Fix login",
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "waiting",
+              "rawState": "waiting",
+              "activity": "확인 필요: ExitPlanMode",
+              "prompt": "build an office view",
+              "lastMessage": null,
+              "since": 1790997660310
+            }
+          ]
+        },
+        {
+          "id": "repoB::C:\\Users\\me\\secretary",
+          "repoId": "repoB",
+          "isMain": false,
+          "parentId": null,
+          "name": "secretary",
+          "repo": "secretary",
+          "branch": "knowledge-graph",
+          "path": "C:\\Users\\me\\secretary",
+          "status": "working",
+          "workspaceStatus": "in-progress",
+          "comment": "running tests",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": [
+            {
+              "id": "tab2:leaf2",
+              "terminalHandle": "term_2",
+              "agentType": "codex",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "running",
+              "rawState": "working",
+              "activity": "Bash: npm test --watch=false",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tab3:leaf3",
+              "terminalHandle": "term_3",
+              "agentType": "claude",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "reading",
+              "rawState": "working",
+              "activity": "Grep: TODO",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tab4:leaf4",
+              "terminalHandle": null,
+              "agentType": "claude",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "typing",
+              "rawState": "working",
+              "activity": "생각 중…",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tab5:leaf5",
+              "terminalHandle": null,
+              "agentType": "claude",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "done",
+              "rawState": "done",
+              "activity": "완료 · 다음 지시 대기",
+              "prompt": null,
+              "lastMessage": "All green.",
+              "since": null
+            }
+          ]
+        },
+        {
+          "id": "repoD::/Users/me/empty",
+          "repoId": "repoD",
+          "isMain": false,
+          "parentId": null,
+          "name": "empty",
+          "repo": "empty",
+          "branch": "",
+          "path": "",
+          "status": "inactive",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        }
+      ],
+      "updatedAt": 123,
+      "error": null
+    }
+  },
+  {
+    "name": "fixtures-native-desk-name",
+    "worktrees": [
+      {
+        "worktreeId": "repoA::/Users/me/proj/office_desks",
+        "repoId": "repoA",
+        "repo": "office_desks",
+        "path": "/Users/me/proj/office_desks",
+        "branch": "",
+        "displayName": "office_desks",
+        "status": "permission",
+        "workspaceStatus": "in-progress",
+        "comment": "",
+        "preview": "Honking…   8",
+        "isActive": true,
+        "isArchived": false,
+        "agents": [
+          {
+            "paneKey": "tab1:leaf1",
+            "agentType": "claude",
+            "state": "waiting",
+            "toolName": "ExitPlanMode",
+            "toolInput": null,
+            "prompt": "build an office view",
+            "lastAssistantMessage": null,
+            "stateStartedAt": 1790997660310
+          }
+        ]
+      },
+      {
+        "worktreeId": "repoB::C:\\Users\\me\\secretary",
+        "repoId": "repoB",
+        "repo": "secretary",
+        "path": "/Users/me/secretary/",
+        "branch": "refs/heads/knowledge-graph",
+        "displayName": "",
+        "status": "working",
+        "workspaceStatus": "in-progress",
+        "comment": "running tests",
+        "isActive": false,
+        "agents": [
+          {
+            "paneKey": "tab2:leaf2",
+            "agentType": "codex",
+            "state": "working",
+            "toolName": "Bash",
+            "toolInput": "npm   test\n --watch=false"
+          },
+          {
+            "paneKey": "tab3:leaf3",
+            "agentType": "claude",
+            "state": "working",
+            "toolName": "Grep",
+            "toolInput": "TODO"
+          },
+          {
+            "paneKey": "tab4:leaf4",
+            "agentType": "claude",
+            "state": "working",
+            "toolName": null
+          },
+          {
+            "paneKey": "tab5:leaf5",
+            "agentType": "claude",
+            "state": "done",
+            "lastAssistantMessage": "All green."
+          }
+        ]
+      },
+      {
+        "worktreeId": "repoC::/Users/me/old",
+        "repo": "old",
+        "displayName": "old",
+        "status": "inactive",
+        "isArchived": true,
+        "agents": []
+      },
+      {
+        "worktreeId": "repoD::/Users/me/empty",
+        "repo": "empty",
+        "displayName": "empty",
+        "status": "inactive",
+        "agents": []
+      }
+    ],
+    "terminals": [
+      {
+        "handle": "term_1",
+        "tabId": "tab1",
+        "leafId": "leaf1",
+        "title": "✳ Fix login"
+      },
+      {
+        "handle": "term_2",
+        "tabId": "tab2",
+        "leafId": "leaf2"
+      },
+      {
+        "handle": "term_3",
+        "tabId": "tab3",
+        "leafId": "leaf3"
+      },
+      {
+        "handle": "term_x",
+        "tabId": "tabX",
+        "leafId": "leafX"
+      }
+    ],
+    "now": 123,
+    "deskName": "native",
+    "expected": {
+      "desks": [
+        {
+          "id": "repoA::/Users/me/proj/office_desks",
+          "repoId": "repoA",
+          "isMain": false,
+          "parentId": null,
+          "name": "office_desks",
+          "repo": "office_desks",
+          "branch": "",
+          "path": "/Users/me/proj/office_desks",
+          "status": "permission",
+          "workspaceStatus": "in-progress",
+          "comment": "",
+          "preview": "Honking… 8",
+          "isActive": true,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": [
+            {
+              "id": "tab1:leaf1",
+              "terminalHandle": "term_1",
+              "agentType": "claude",
+              "terminalTitle": "Fix login",
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "waiting",
+              "rawState": "waiting",
+              "activity": "확인 필요: ExitPlanMode",
+              "prompt": "build an office view",
+              "lastMessage": null,
+              "since": 1790997660310
+            }
+          ]
+        },
+        {
+          "id": "repoB::C:\\Users\\me\\secretary",
+          "repoId": "repoB",
+          "isMain": false,
+          "parentId": null,
+          "name": "secretary",
+          "repo": "secretary",
+          "branch": "knowledge-graph",
+          "path": "/Users/me/secretary/",
+          "status": "working",
+          "workspaceStatus": "in-progress",
+          "comment": "running tests",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": [
+            {
+              "id": "tab2:leaf2",
+              "terminalHandle": "term_2",
+              "agentType": "codex",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "running",
+              "rawState": "working",
+              "activity": "Bash: npm test --watch=false",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tab3:leaf3",
+              "terminalHandle": "term_3",
+              "agentType": "claude",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "reading",
+              "rawState": "working",
+              "activity": "Grep: TODO",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tab4:leaf4",
+              "terminalHandle": null,
+              "agentType": "claude",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "typing",
+              "rawState": "working",
+              "activity": "생각 중…",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tab5:leaf5",
+              "terminalHandle": null,
+              "agentType": "claude",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "done",
+              "rawState": "done",
+              "activity": "완료 · 다음 지시 대기",
+              "prompt": null,
+              "lastMessage": "All green.",
+              "since": null
+            }
+          ]
+        },
+        {
+          "id": "repoD::/Users/me/empty",
+          "repoId": "repoD",
+          "isMain": false,
+          "parentId": null,
+          "name": "empty",
+          "repo": "empty",
+          "branch": "",
+          "path": "",
+          "status": "inactive",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        }
+      ],
+      "updatedAt": 123,
+      "error": null
+    }
+  },
+  {
+    "name": "edge",
+    "worktrees": [
+      {
+        "worktreeId": "x::y",
+        "agents": [
+          {}
+        ]
+      },
+      {
+        "worktreeId": "r::/a",
+        "unread": true,
+        "comment": " ",
+        "preview": "가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 end",
+        "lastActivityAt": 1700000001000,
+        "isMainWorktree": true,
+        "parentWorktreeId": "r::/p"
+      },
+      {
+        "worktreeId": "r::/vault",
+        "repo": "vault",
+        "displayName": "main",
+        "branch": "refs/heads/main"
+      },
+      {
+        "worktreeId": "r::/named",
+        "repo": "vault",
+        "displayName": "Custom",
+        "branch": "refs/heads/main",
+        "workspaceStatus": "done"
+      },
+      {
+        "worktreeId": "r::/nothing"
+      },
+      {
+        "worktreeId": "",
+        "repo": "dropped"
+      },
+      {
+        "worktreeId": "r::/arch",
+        "isArchived": true
+      },
+      {
+        "worktreeId": "r::/ws",
+        "lastActivityAt": "yesterday",
+        "isActive": 1,
+        "comment": "  keep  ",
+        "preview": "  a \n\t b  "
+      },
+      {
+        "worktreeId": "r::/agents",
+        "agents": [
+          {
+            "paneKey": "",
+            "agentType": "codex",
+            "state": "permission",
+            "toolName": "Edit",
+            "toolInput": "x"
+          },
+          {
+            "paneKey": "tab9:leaf9",
+            "state": "blocked"
+          },
+          {
+            "paneKey": "tab9:leaf9",
+            "state": "idle",
+            "toolName": "Bash"
+          },
+          {
+            "paneKey": "tabA:leafA",
+            "state": "working",
+            "toolName": "Monitor",
+            "toolInput": "long input long input long input long input long input long input long input long input long input long input ",
+            "prompt": "p",
+            "lastAssistantMessage": "m",
+            "stateStartedAt": 1700000002000
+          },
+          {
+            "paneKey": "tabB:leafB",
+            "state": "working",
+            "toolName": "ToolSearch",
+            "toolInput": "a\nb"
+          },
+          {
+            "paneKey": "tabC:leafC",
+            "state": "nonsense"
+          },
+          {
+            "paneKey": "tabD:leafD",
+            "state": "waiting"
+          }
+        ]
+      },
+      {
+        "worktreeId": "r::/pr0",
+        "linkedPR": null
+      },
+      {
+        "worktreeId": "r::/pr1",
+        "linkedPR": false
+      },
+      {
+        "worktreeId": "r::/pr2",
+        "linkedPR": true
+      },
+      {
+        "worktreeId": "r::/pr3",
+        "linkedPR": 17
+      },
+      {
+        "worktreeId": "r::/pr4",
+        "linkedPR": "https://github.com/o/r/pull/9"
+      },
+      {
+        "worktreeId": "r::/pr5",
+        "linkedPR": "PR #12 "
+      },
+      {
+        "worktreeId": "r::/pr6",
+        "linkedPR": "pull 12 3"
+      },
+      {
+        "worktreeId": "r::/pr7",
+        "linkedPR": "http://x/1"
+      },
+      {
+        "worktreeId": "r::/pr8",
+        "linkedPR": "no digits"
+      },
+      {
+        "worktreeId": "r::/pr9",
+        "linkedPR": []
+      },
+      {
+        "worktreeId": "r::/pr10",
+        "linkedPR": {}
+      },
+      {
+        "worktreeId": "r::/pr11",
+        "linkedPR": {
+          "number": 5,
+          "url": "https://u/5",
+          "title": "T",
+          "state": "open"
+        }
+      },
+      {
+        "worktreeId": "r::/pr12",
+        "linkedPR": {
+          "prNumber": "8",
+          "htmlUrl": "https://h/8"
+        }
+      },
+      {
+        "worktreeId": "r::/pr13",
+        "linkedPR": {
+          "id": "x8",
+          "url": "http://insecure",
+          "htmlUrl": "https://h/ignored"
+        }
+      },
+      {
+        "worktreeId": "r::/pr14",
+        "linkedPR": {
+          "number": "abc",
+          "prNumber": 3
+        }
+      },
+      {
+        "worktreeId": "b::/x"
+      },
+      {
+        "worktreeId": "B::/x"
+      },
+      {
+        "worktreeId": "a::/Z"
+      },
+      {
+        "worktreeId": "a::/z"
+      },
+      {
+        "worktreeId": "a::/_z"
+      },
+      {
+        "worktreeId": "a::/-z"
+      },
+      {
+        "worktreeId": "a::/1"
+      },
+      {
+        "worktreeId": "a::/10"
+      },
+      {
+        "worktreeId": "a::/2"
+      },
+      {
+        "worktreeId": "a::/ab"
+      },
+      {
+        "worktreeId": "a::/aB"
+      },
+      {
+        "worktreeId": "a::/Ab"
+      },
+      {
+        "worktreeId": "a::/한글"
+      },
+      {
+        "worktreeId": "a::/é"
+      },
+      {
+        "worktreeId": "a::/e"
+      },
+      {
+        "worktreeId": "a::/f"
+      }
+    ],
+    "terminals": [
+      {
+        "handle": "h9",
+        "tabId": "tab9",
+        "leafId": "leaf9",
+        "title": "⠂ spinner only ⠂"
+      },
+      {
+        "handle": "h9b",
+        "tabId": "tab9",
+        "leafId": "leaf9",
+        "title": "  ✳ later wins  "
+      },
+      {
+        "handle": "hA",
+        "tabId": "tabA",
+        "leafId": "leafA",
+        "title": "⠂ "
+      },
+      {
+        "handle": "hB",
+        "tabId": "tabB",
+        "title": "no leaf"
+      },
+      {
+        "handle": "",
+        "tabId": "tabC",
+        "leafId": "leafC"
+      },
+      {
+        "tabId": "tabD",
+        "leafId": "leafD"
+      },
+      {
+        "handle": "hE",
+        "tabId": "tabE",
+        "leafId": "leafE",
+        "title": "한글 제목"
+      }
+    ],
+    "now": 1700000000000,
+    "deskName": null,
+    "expected": {
+      "desks": [
+        {
+          "id": "a::/_z",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/-z",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/1",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/10",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/2",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/ab",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/aB",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/Ab",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/e",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/é",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/f",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/z",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/Z",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/한글",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "b::/x",
+          "repoId": "b",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "B::/x",
+          "repoId": "B",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/a",
+          "repoId": "r",
+          "isMain": true,
+          "parentId": "r::/p",
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라…",
+          "isActive": false,
+          "unread": true,
+          "lastActivityAt": 1700000001000,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/agents",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": [
+            {
+              "id": "",
+              "terminalHandle": null,
+              "agentType": "codex",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "waiting",
+              "rawState": "permission",
+              "activity": "확인 필요: Edit",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tab9:leaf9",
+              "terminalHandle": "h9b",
+              "agentType": "agent",
+              "terminalTitle": "later wins",
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "waiting",
+              "rawState": "blocked",
+              "activity": "확인 필요",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tab9:leaf9",
+              "terminalHandle": "h9b",
+              "agentType": "agent",
+              "terminalTitle": "later wins",
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "done",
+              "rawState": "idle",
+              "activity": "완료 · 다음 지시 대기",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tabA:leafA",
+              "terminalHandle": "hA",
+              "agentType": "agent",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "running",
+              "rawState": "working",
+              "activity": "Monitor: long input long input long input long input long input long…",
+              "prompt": "p",
+              "lastMessage": "m",
+              "since": 1700000002000
+            },
+            {
+              "id": "tabB:leafB",
+              "terminalHandle": null,
+              "agentType": "agent",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "reading",
+              "rawState": "working",
+              "activity": "ToolSearch: a b",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tabC:leafC",
+              "terminalHandle": null,
+              "agentType": "agent",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "away",
+              "rawState": "nonsense",
+              "activity": "자리 비움",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tabD:leafD",
+              "terminalHandle": null,
+              "agentType": "agent",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "waiting",
+              "rawState": "waiting",
+              "activity": "확인 필요",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            }
+          ]
+        },
+        {
+          "id": "r::/named",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "Custom",
+          "repo": "vault",
+          "branch": "main",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": "done",
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/nothing",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/pr0",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/pr1",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/pr10",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": null,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr11",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 5,
+            "url": "https://u/5",
+            "title": "T",
+            "state": "open"
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr12",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 8,
+            "url": "https://h/8",
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr13",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": null,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr14",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": null,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr2",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/pr3",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 17,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr4",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 9,
+            "url": "https://github.com/o/r/pull/9",
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr5",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 12,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr6",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 3,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr7",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 1,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr8",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": null,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr9",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": null,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/vault",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "vault",
+          "repo": "vault",
+          "branch": "main",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/ws",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "keep",
+          "preview": "a b",
+          "isActive": true,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "x::y",
+          "repoId": "x",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": [
+            {
+              "id": "x::y#0",
+              "terminalHandle": null,
+              "agentType": "agent",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "away",
+              "rawState": "unknown",
+              "activity": "자리 비움",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            }
+          ]
+        }
+      ],
+      "updatedAt": 1700000000000,
+      "error": null
+    }
+  },
+  {
+    "name": "edge-native-desk-name",
+    "worktrees": [
+      {
+        "worktreeId": "x::y",
+        "agents": [
+          {}
+        ]
+      },
+      {
+        "worktreeId": "r::/a",
+        "unread": true,
+        "comment": " ",
+        "preview": "가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 end",
+        "lastActivityAt": 1700000001000,
+        "isMainWorktree": true,
+        "parentWorktreeId": "r::/p"
+      },
+      {
+        "worktreeId": "r::/vault",
+        "repo": "vault",
+        "displayName": "main",
+        "branch": "refs/heads/main"
+      },
+      {
+        "worktreeId": "r::/named",
+        "repo": "vault",
+        "displayName": "Custom",
+        "branch": "refs/heads/main",
+        "workspaceStatus": "done"
+      },
+      {
+        "worktreeId": "r::/nothing"
+      },
+      {
+        "worktreeId": "",
+        "repo": "dropped"
+      },
+      {
+        "worktreeId": "r::/arch",
+        "isArchived": true
+      },
+      {
+        "worktreeId": "r::/ws",
+        "lastActivityAt": "yesterday",
+        "isActive": 1,
+        "comment": "  keep  ",
+        "preview": "  a \n\t b  "
+      },
+      {
+        "worktreeId": "r::/agents",
+        "agents": [
+          {
+            "paneKey": "",
+            "agentType": "codex",
+            "state": "permission",
+            "toolName": "Edit",
+            "toolInput": "x"
+          },
+          {
+            "paneKey": "tab9:leaf9",
+            "state": "blocked"
+          },
+          {
+            "paneKey": "tab9:leaf9",
+            "state": "idle",
+            "toolName": "Bash"
+          },
+          {
+            "paneKey": "tabA:leafA",
+            "state": "working",
+            "toolName": "Monitor",
+            "toolInput": "long input long input long input long input long input long input long input long input long input long input ",
+            "prompt": "p",
+            "lastAssistantMessage": "m",
+            "stateStartedAt": 1700000002000
+          },
+          {
+            "paneKey": "tabB:leafB",
+            "state": "working",
+            "toolName": "ToolSearch",
+            "toolInput": "a\nb"
+          },
+          {
+            "paneKey": "tabC:leafC",
+            "state": "nonsense"
+          },
+          {
+            "paneKey": "tabD:leafD",
+            "state": "waiting"
+          }
+        ]
+      },
+      {
+        "worktreeId": "r::/pr0",
+        "linkedPR": null
+      },
+      {
+        "worktreeId": "r::/pr1",
+        "linkedPR": false
+      },
+      {
+        "worktreeId": "r::/pr2",
+        "linkedPR": true
+      },
+      {
+        "worktreeId": "r::/pr3",
+        "linkedPR": 17
+      },
+      {
+        "worktreeId": "r::/pr4",
+        "linkedPR": "https://github.com/o/r/pull/9"
+      },
+      {
+        "worktreeId": "r::/pr5",
+        "linkedPR": "PR #12 "
+      },
+      {
+        "worktreeId": "r::/pr6",
+        "linkedPR": "pull 12 3"
+      },
+      {
+        "worktreeId": "r::/pr7",
+        "linkedPR": "http://x/1"
+      },
+      {
+        "worktreeId": "r::/pr8",
+        "linkedPR": "no digits"
+      },
+      {
+        "worktreeId": "r::/pr9",
+        "linkedPR": []
+      },
+      {
+        "worktreeId": "r::/pr10",
+        "linkedPR": {}
+      },
+      {
+        "worktreeId": "r::/pr11",
+        "linkedPR": {
+          "number": 5,
+          "url": "https://u/5",
+          "title": "T",
+          "state": "open"
+        }
+      },
+      {
+        "worktreeId": "r::/pr12",
+        "linkedPR": {
+          "prNumber": "8",
+          "htmlUrl": "https://h/8"
+        }
+      },
+      {
+        "worktreeId": "r::/pr13",
+        "linkedPR": {
+          "id": "x8",
+          "url": "http://insecure",
+          "htmlUrl": "https://h/ignored"
+        }
+      },
+      {
+        "worktreeId": "r::/pr14",
+        "linkedPR": {
+          "number": "abc",
+          "prNumber": 3
+        }
+      },
+      {
+        "worktreeId": "b::/x"
+      },
+      {
+        "worktreeId": "B::/x"
+      },
+      {
+        "worktreeId": "a::/Z"
+      },
+      {
+        "worktreeId": "a::/z"
+      },
+      {
+        "worktreeId": "a::/_z"
+      },
+      {
+        "worktreeId": "a::/-z"
+      },
+      {
+        "worktreeId": "a::/1"
+      },
+      {
+        "worktreeId": "a::/10"
+      },
+      {
+        "worktreeId": "a::/2"
+      },
+      {
+        "worktreeId": "a::/ab"
+      },
+      {
+        "worktreeId": "a::/aB"
+      },
+      {
+        "worktreeId": "a::/Ab"
+      },
+      {
+        "worktreeId": "a::/한글"
+      },
+      {
+        "worktreeId": "a::/é"
+      },
+      {
+        "worktreeId": "a::/e"
+      },
+      {
+        "worktreeId": "a::/f"
+      }
+    ],
+    "terminals": [
+      {
+        "handle": "h9",
+        "tabId": "tab9",
+        "leafId": "leaf9",
+        "title": "⠂ spinner only ⠂"
+      },
+      {
+        "handle": "h9b",
+        "tabId": "tab9",
+        "leafId": "leaf9",
+        "title": "  ✳ later wins  "
+      },
+      {
+        "handle": "hA",
+        "tabId": "tabA",
+        "leafId": "leafA",
+        "title": "⠂ "
+      },
+      {
+        "handle": "hB",
+        "tabId": "tabB",
+        "title": "no leaf"
+      },
+      {
+        "handle": "",
+        "tabId": "tabC",
+        "leafId": "leafC"
+      },
+      {
+        "tabId": "tabD",
+        "leafId": "leafD"
+      },
+      {
+        "handle": "hE",
+        "tabId": "tabE",
+        "leafId": "leafE",
+        "title": "한글 제목"
+      }
+    ],
+    "now": 1700000000000,
+    "deskName": "native",
+    "expected": {
+      "desks": [
+        {
+          "id": "a::/_z",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/-z",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/1",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/10",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/2",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/ab",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/aB",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/Ab",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/e",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/é",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/f",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/z",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/Z",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "a::/한글",
+          "repoId": "a",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "b::/x",
+          "repoId": "b",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "B::/x",
+          "repoId": "B",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/a",
+          "repoId": "r",
+          "isMain": true,
+          "parentId": "r::/p",
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라 가나다라…",
+          "isActive": false,
+          "unread": true,
+          "lastActivityAt": 1700000001000,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/agents",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": [
+            {
+              "id": "",
+              "terminalHandle": null,
+              "agentType": "codex",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "waiting",
+              "rawState": "permission",
+              "activity": "확인 필요: Edit",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tab9:leaf9",
+              "terminalHandle": "h9b",
+              "agentType": "agent",
+              "terminalTitle": "later wins",
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "waiting",
+              "rawState": "blocked",
+              "activity": "확인 필요",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tab9:leaf9",
+              "terminalHandle": "h9b",
+              "agentType": "agent",
+              "terminalTitle": "later wins",
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "done",
+              "rawState": "idle",
+              "activity": "완료 · 다음 지시 대기",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tabA:leafA",
+              "terminalHandle": "hA",
+              "agentType": "agent",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "running",
+              "rawState": "working",
+              "activity": "Monitor: long input long input long input long input long input long…",
+              "prompt": "p",
+              "lastMessage": "m",
+              "since": 1700000002000
+            },
+            {
+              "id": "tabB:leafB",
+              "terminalHandle": null,
+              "agentType": "agent",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "reading",
+              "rawState": "working",
+              "activity": "ToolSearch: a b",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tabC:leafC",
+              "terminalHandle": null,
+              "agentType": "agent",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "away",
+              "rawState": "nonsense",
+              "activity": "자리 비움",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            },
+            {
+              "id": "tabD:leafD",
+              "terminalHandle": null,
+              "agentType": "agent",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "waiting",
+              "rawState": "waiting",
+              "activity": "확인 필요",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            }
+          ]
+        },
+        {
+          "id": "r::/named",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "Custom",
+          "repo": "vault",
+          "branch": "main",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": "done",
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/nothing",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/pr0",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/pr1",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/pr10",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": null,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr11",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 5,
+            "url": "https://u/5",
+            "title": "T",
+            "state": "open"
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr12",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 8,
+            "url": "https://h/8",
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr13",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": null,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr14",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": null,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr2",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/pr3",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 17,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr4",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 9,
+            "url": "https://github.com/o/r/pull/9",
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr5",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 12,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr6",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 3,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr7",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": 1,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr8",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": null,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/pr9",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": {
+            "number": null,
+            "url": null,
+            "title": null,
+            "state": null
+          },
+          "agents": []
+        },
+        {
+          "id": "r::/vault",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "vault",
+          "repo": "vault",
+          "branch": "main",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "r::/ws",
+          "repoId": "r",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "keep",
+          "preview": "a b",
+          "isActive": true,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": []
+        },
+        {
+          "id": "x::y",
+          "repoId": "x",
+          "isMain": false,
+          "parentId": null,
+          "name": "worktree",
+          "repo": "",
+          "branch": "",
+          "path": "",
+          "status": "unknown",
+          "workspaceStatus": null,
+          "comment": "",
+          "preview": "",
+          "isActive": false,
+          "unread": false,
+          "lastActivityAt": null,
+          "changes": null,
+          "pr": null,
+          "agents": [
+            {
+              "id": "x::y#0",
+              "terminalHandle": null,
+              "agentType": "agent",
+              "terminalTitle": null,
+              "subagentsRunning": 0,
+              "model": null,
+              "effort": null,
+              "stats": null,
+              "state": "away",
+              "rawState": "unknown",
+              "activity": "자리 비움",
+              "prompt": null,
+              "lastMessage": null,
+              "since": null
+            }
+          ]
+        }
+      ],
+      "updatedAt": 1700000000000,
+      "error": null
+    }
+  },
+  {
+    "name": "empty",
+    "worktrees": [],
+    "terminals": [],
+    "now": 0,
+    "deskName": null,
+    "expected": {
+      "desks": [],
+      "updatedAt": 0,
+      "error": null
+    }
+  }
+]
