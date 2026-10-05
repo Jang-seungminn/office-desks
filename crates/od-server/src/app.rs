@@ -160,8 +160,7 @@ async fn dispatch(State(st): State<Arc<AppState>>, req: Request) -> Response {
         Err(message) => return json(StatusCode::BAD_REQUEST, &json!({ "error": message })),
     };
     if req.method() == Method::POST && url.pathname.starts_with("/hook/") {
-        // The hook handler arrives in Task 5.
-        return StatusCode::NOT_FOUND.into_response();
+        return crate::hook::handle(st, req, url).await;
     }
     if url.pathname.starts_with("/api/") {
         return routes::dispatch(st, req, url).await;

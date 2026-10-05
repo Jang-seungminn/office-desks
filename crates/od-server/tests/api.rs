@@ -116,21 +116,104 @@ async fn unknown_post_api_is_404_not_found() {
     assert_security_headers(&r);
 }
 
+async fn hook_post(s: &support::TestServer, path: &str, body: Vec<u8>) -> support::Resp {
+    // No content-type on purpose: /hook does not need one.
+    s.client.request("POST", path, &[], Some(body)).await
+}
+
 #[tokio::test]
-async fn hook_post_is_bare_404_with_security_headers() {
-    let s = start_fake().await;
+async fn hook_true_is_204_and_refreshes() {
+    let fake = Arc::new(FakeBackend::default());
+    *fake.hook.lock().unwrap() = true;
+    let s = start_cfg(&fake, |_| {}).await;
+    let before = fake.calls_of("snapshot").len();
+    let r = hook_post(&s, "/hook/a%2Fb%3Amain?token=tok", br#"{"x":1}"#.to_vec()).await;
+    assert_eq!(r.status, 204);
+    assert!(r.body.is_empty());
+    assert_security_headers(&r);
+    assert_eq!(fake.calls_of("hook"), vec![r#"hook a/b:main tok {"x":1}"#]);
+    wait_until("a refresh after the hook", Duration::from_secs(3), || {
+        fake.calls_of("snapshot").len() > before
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn hook_false_is_bare_404_and_a_missing_token_is_empty() {
+    let fake = Arc::new(FakeBackend::default());
+    let s = start_cfg(&fake, |_| {}).await;
+    let r = hook_post(&s, "/hook/x", b"null".to_vec()).await;
+    assert_eq!(r.status, 404);
+    assert!(r.body.is_empty());
+    assert_security_headers(&r);
+    assert_eq!(fake.calls_of("hook"), vec!["hook x  null"]);
+}
+
+#[tokio::test]
+async fn hook_bad_bodies_and_ids_are_bare_400() {
+    let fake = Arc::new(FakeBackend::default());
+    *fake.hook.lock().unwrap() = true;
+    let s = start_cfg(&fake, |_| {}).await;
+    for (path, body) in [
+        ("/hook/x", b"{".to_vec()),
+        ("/hook/x", Vec::new()),
+        ("/hook/%E0%A4%A", b"{}".to_vec()),
+    ] {
+        let r = hook_post(&s, path, body).await;
+        assert_eq!(r.status, 400, "{path}");
+        assert!(r.body.is_empty());
+        assert_security_headers(&r);
+    }
+    // Exactly at the 2 MiB cap passes; one byte over is 400.
+    let cap = 2 * 1024 * 1024;
+    let pad = |n: usize| {
+        let mut b = b"[".to_vec();
+        b.extend(std::iter::repeat_n(b' ', n - 2));
+        b.push(b']');
+        b
+    };
+    assert_eq!(hook_post(&s, "/hook/x", pad(cap)).await.status, 204);
+    let r = hook_post(&s, "/hook/x", pad(cap + 1)).await;
+    assert_eq!(r.status, 400);
+    assert!(r.body.is_empty());
+    assert_eq!(fake.calls_of("hook").len(), 1);
+}
+
+#[tokio::test]
+async fn hook_skips_the_api_gate_chain_but_not_the_origin_guard() {
+    let fake = Arc::new(FakeBackend::default());
+    *fake.hook.lock().unwrap() = true;
+    let s = start_cfg(&fake, |_| {}).await;
+    // A non-JSON content-type is fine.
     let r = s
         .client
         .request(
             "POST",
-            "/hook/a%3Amain?token=t",
-            &[("content-type", "application/json")],
+            "/hook/x",
+            &[("content-type", "text/plain")],
             Some(b"{}".to_vec()),
         )
         .await;
-    assert_eq!(r.status, 404);
-    assert!(r.body.is_empty());
-    assert_security_headers(&r);
+    assert_eq!(r.status, 204);
+    // The guard still applies.
+    let host = format!("evil.example:{}", s.handle.port);
+    let r = s
+        .client
+        .request("POST", "/hook/x", &[("host", &host)], Some(b"{}".to_vec()))
+        .await;
+    assert_eq!(r.status, 403);
+    assert_eq!(fake.calls_of("hook").len(), 1);
+}
+
+#[tokio::test]
+async fn get_hook_is_static_not_the_hook() {
+    let fake = Arc::new(FakeBackend::default());
+    *fake.hook.lock().unwrap() = true;
+    let s = start_cfg(&fake, |_| {}).await;
+    let r = s.client.get("/hook/x").await;
+    assert_eq!(r.status, 200);
+    assert!(String::from_utf8_lossy(&r.body).contains("Office Desks bridge is running"));
+    assert!(fake.calls_of("hook").is_empty());
 }
 
 #[tokio::test]

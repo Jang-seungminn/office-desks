@@ -7,6 +7,7 @@
 mod app;
 pub mod assets;
 mod enrich;
+mod hook;
 pub mod hub;
 pub mod js;
 pub mod poller;
