@@ -2642,6 +2642,7 @@ dependencies = [
  "libtest-mimic",
  "od-core",
  "od-server",
+ "regex",
  "rust-embed",
  "serde",
  "serde_json",

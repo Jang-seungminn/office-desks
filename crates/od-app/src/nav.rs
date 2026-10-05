@@ -50,9 +50,23 @@ fn is_app_path(p: &str) -> bool {
     p == "/app" || p.starts_with("/app/")
 }
 
-/// A loopback host (`url::Url` keeps IPv6 hosts bracketed: `[::1]`).
+/// A host that reaches this machine: loopback or unspecified IPs (`127.0.0.0/8`, `0.0.0.0`,
+/// `::1`, `::`, `::ffff:127.x.y.z`), and `localhost` / `*.localhost` (any case, with or without
+/// the trailing root dot). Such URLs never go to the OS browser.
 fn loopback(url: &Url) -> bool {
-    matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"))
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback() || ip.is_unspecified(),
+        Some(url::Host::Ipv6(ip)) => {
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
+        }
+        Some(url::Host::Domain(d)) => {
+            let d = d.strip_suffix('.').unwrap_or(d).to_ascii_lowercase();
+            d == "localhost" || d.ends_with(".localhost")
+        }
+        None => false,
+    }
 }
 
 /// The main window (the app UI, the only one with IPC) may only navigate inside `/app/`.
@@ -119,6 +133,14 @@ mod tests {
             ("http://127.0.0.1:51234/app/../", Deny, Allow),
             ("http://127.0.0.1:51234@evil.com/app/", External, External),
             ("https://127.0.0.1:51234/app/", Deny, Deny),
+            // Every way to name this machine is loopback: denied, never the OS browser.
+            ("http://0.0.0.0:51234/", Deny, Deny),
+            ("http://127.0.0.2:51234/app/", Deny, Deny),
+            ("http://localhost.:51234/app/", Deny, Deny),
+            ("http://LocalHost:51234/", Deny, Deny),
+            ("http://foo.localhost/", Deny, Deny),
+            ("http://[::ffff:7f00:1]:51234/", Deny, Deny),
+            ("http://[::]:51234/", Deny, Deny),
         ];
         for (raw, main, office) in rows {
             let url = Url::parse(raw).expect(raw);

@@ -41,8 +41,12 @@ pub const PERMISSIONS: [&str; 3] = [
 /// The IPC capability: our commands, for window `main`, from `http://127.0.0.1:<port>` only.
 ///
 /// The pattern is origin-wide because Tauri matches the request's `Origin` (no path); see
-/// [`nav::app_remote_pattern`]. `main` never leaves `/app/` ([`nav::main_nav`]), and both server
-/// CSPs send `frame-ancestors 'none'`, so the office page cannot run inside `main` either.
+/// [`nav::app_remote_pattern`]. `main` never leaves `/app/` ([`nav::main_nav`]).
+///
+/// The office page (same origin) cannot run inside `main` as a frame either. That rests on all
+/// three of od-server's framing defenses, so none may be dropped: the R2 guard rejects requests
+/// with a framed `Sec-Fetch-Dest` (`iframe`, `frame`, ...), every response sends
+/// `X-Frame-Options: DENY`, and both CSPs (web and `/app/`) send `frame-ancestors 'none'`.
 pub fn capability(port: u16) -> CapabilityBuilder {
     PERMISSIONS.iter().fold(
         CapabilityBuilder::new("app-ui")
@@ -105,17 +109,63 @@ fn show_office<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         return w.set_focus();
     }
     let port = app.state::<Arc<Core>>().port;
+    let builder =
+        WebviewWindowBuilder::new(app, OFFICE, WebviewUrl::External(nav::office_url(port)))
+            .title("🏢 사무실 — Gongbang")
+            .inner_size(1280.0, 820.0);
+    guard(builder, app, office_policy(port)).build()?;
+    Ok(())
+}
+
+/// A window's navigation policy: where it may navigate, for its own port.
+#[derive(Debug, Clone, Copy)]
+pub struct Policy {
+    port: u16,
+    nav: fn(&Url, u16) -> Nav,
+}
+
+impl Policy {
+    /// A navigation in this window (link, `location`, form, redirect).
+    pub fn navigate(&self, url: &Url) -> Nav {
+        (self.nav)(url, self.port)
+    }
+
+    /// `window.open` / `target=_blank` from this window: never a new webview.
+    pub fn new_window(&self, url: &Url) -> Nav {
+        nav::new_window(url)
+    }
+}
+
+/// The main window's policy: inside `/app/` only ([`nav::main_nav`]).
+pub fn main_policy(port: u16) -> Policy {
+    Policy {
+        port,
+        nav: nav::main_nav,
+    }
+}
+
+/// The office window's policy: our origin outside `/app/` only ([`nav::office_nav`]).
+pub fn office_policy(port: u16) -> Policy {
+    Policy {
+        port,
+        nav: nav::office_nav,
+    }
+}
+
+/// Attach `policy` to a window: navigations go through [`route`]; new windows are always
+/// denied (an external URL opens in the OS browser instead).
+fn guard<'a, R: Runtime, M: Manager<R>>(
+    builder: WebviewWindowBuilder<'a, R, M>,
+    app: &AppHandle<R>,
+    policy: Policy,
+) -> WebviewWindowBuilder<'a, R, M> {
     let (nav_handle, new_handle) = (app.clone(), app.clone());
-    WebviewWindowBuilder::new(app, OFFICE, WebviewUrl::External(nav::office_url(port)))
-        .title("🏢 사무실 — Gongbang")
-        .inner_size(1280.0, 820.0)
-        .on_navigation(move |u| route(&nav_handle, nav::office_nav(u, port), u))
+    builder
+        .on_navigation(move |u| route(&nav_handle, policy.navigate(u), u))
         .on_new_window(move |u, _| {
-            route(&new_handle, nav::new_window(&u), &u);
+            route(&new_handle, policy.new_window(&u), &u);
             NewWindowResponse::Deny
         })
-        .build()?;
-    Ok(())
 }
 
 /// Carry out a [`Nav`] decision: `true` lets the webview load the URL. `External` hands it to
@@ -162,17 +212,11 @@ pub fn setup_main<R: Runtime, M: Manager<R>>(
     port: u16,
 ) -> tauri::Result<WebviewWindow<R>> {
     app.add_capability(capability(port))?;
-    let (nav_handle, new_handle) = (app.app_handle().clone(), app.app_handle().clone());
-    WebviewWindowBuilder::new(app, MAIN, WebviewUrl::External(nav::app_url(port)))
+    let builder = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::External(nav::app_url(port)))
         .title("Gongbang")
         .inner_size(1280.0, 820.0)
-        .min_inner_size(720.0, 480.0)
-        .on_navigation(move |u| route(&nav_handle, nav::main_nav(u, port), u))
-        .on_new_window(move |u, _| {
-            route(&new_handle, nav::new_window(&u), &u);
-            NewWindowResponse::Deny
-        })
-        .build()
+        .min_inner_size(720.0, 480.0);
+    guard(builder, app.app_handle(), main_policy(port)).build()
 }
 
 /// The macOS menu, replacing Tauri's default so ⌘W reaches the page (no Close Window item).
@@ -333,52 +377,82 @@ mod tests {
     /// would pass. No page may rely on them.
     #[test]
     fn no_page_uses_alert_or_confirm() {
-        fn scan(dir: &std::path::Path, hits: &mut Vec<String>) {
+        use std::path::{Path, PathBuf};
+        fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
             let Ok(entries) = std::fs::read_dir(dir) else {
-                return; // app/src arrives in Task 5
+                return; // app/ arrives in Task 5
             };
             for e in entries.flatten() {
                 let path = e.path();
                 let name = e.file_name().to_string_lossy().into_owned();
                 if path.is_dir() {
                     if name != "node_modules" && name != "dist" {
-                        scan(&path, hits);
+                        sources(&path, out);
                     }
-                    continue;
-                }
-                let code = [".ts", ".tsx", ".js", ".mjs", ".html"]
+                } else if [".ts", ".tsx", ".js", ".mjs", ".html"]
                     .iter()
-                    .any(|x| name.ends_with(x));
-                if !code {
-                    continue;
-                }
-                let text = std::fs::read_to_string(&path).unwrap_or_default();
-                for f in ["alert(", "confirm("] {
-                    let mut rest = text.as_str();
-                    while let Some(i) = rest.find(f) {
-                        // A bare call or `window.` / `globalThis.` / `self.`; not `x.confirm(`.
-                        let head = &rest[..i];
-                        let global = ["window.", "globalThis.", "self."]
-                            .iter()
-                            .any(|g| head.ends_with(g));
-                        let bare = !head
-                            .chars()
-                            .next_back()
-                            .is_some_and(|c| c.is_alphanumeric() || "_$.".contains(c));
-                        if global || bare {
-                            hits.push(format!("{}: {f}", path.display()));
-                        }
-                        rest = &rest[i + f.len()..];
-                    }
+                    .any(|x| name.ends_with(x))
+                {
+                    out.push(path);
                 }
             }
         }
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let mut hits = Vec::new();
-        scan(&root.join("web/src"), &mut hits);
-        scan(&root.join("app/src"), &mut hits);
+        let call = regex::Regex::new(
+            r"(?m)(^|[^\w$.]|(window|globalThis|self|top|parent)\??\.)(alert|confirm)\s*\(",
+        )
+        .expect("regex");
+        for (text, hit) in [
+            ("alert(1)", true),
+            ("x = confirm ('a')", true),
+            ("if (!window.confirm('a'))", true),
+            ("top?.alert(1)", true),
+            ("parent.confirm(1)", true),
+            ("modal.confirm(1)", false),
+            ("onConfirm(1)", false),
+            ("confirmModal({})", false),
+            ("$alert(1)", false),
+        ] {
+            assert_eq!(call.is_match(text), hit, "{text}");
+        }
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         assert!(root.join("web/src").is_dir(), "web/src not found");
-        assert!(hits.is_empty(), "native dialogs: {hits:?}");
+        let mut files = Vec::new();
+        sources(&root.join("web/src"), &mut files);
+        sources(&root.join("app/src"), &mut files);
+        for html in ["web/index.html", "app/index.html"] {
+            if root.join(html).is_file() {
+                files.push(root.join(html));
+            }
+        }
+        let hits: Vec<String> = files
+            .iter()
+            .filter(|f| call.is_match(&std::fs::read_to_string(f).unwrap_or_default()))
+            .map(|f| f.display().to_string())
+            .collect();
+        assert!(hits.is_empty(), "native dialogs in {hits:?}");
+    }
+
+    /// Each window carries its own policy, and its own start page passes it (an initial load
+    /// that `on_navigation` sees must not be blocked).
+    #[test]
+    fn each_window_gets_its_policy() {
+        let port = 51234;
+        let (main, office) = (main_policy(port), office_policy(port));
+        let (app, web) = (nav::app_url(port), nav::office_url(port));
+        assert_eq!(main.navigate(&app), Nav::Allow);
+        assert_eq!(main.navigate(&web), Nav::Deny);
+        assert_eq!(office.navigate(&web), Nav::Allow);
+        assert_eq!(office.navigate(&app), Nav::Deny);
+        let other = nav::app_url(port + 1);
+        assert_eq!(main.navigate(&other), Nav::Deny);
+        let gh = Url::parse("https://github.com/o/r/pull/1").expect("url");
+        for p in [main, office] {
+            assert_eq!(p.navigate(&gh), Nav::External);
+            assert_eq!(p.new_window(&gh), Nav::External);
+            assert_eq!(p.new_window(&app), Nav::Deny);
+            assert_eq!(p.new_window(&web), Nav::Deny);
+        }
     }
 
     #[test]
