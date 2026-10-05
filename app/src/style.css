@@ -26,6 +26,8 @@ body.sidebar-hidden .sidebar { display: none; }
 .sidebar-head { display: flex; align-items: center; gap: 6px; padding: 10px; border-bottom: 1px solid var(--line); }
 .sidebar-head h1 { font-size: 15px; margin: 0 auto 0 0; }
 .workspace { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; color: var(--muted); }
+/* With terminals: tab bar on top, panes fill the rest (a centered flex would measure them at 0). */
+.workspace.has-tabs { flex-direction: column; align-items: stretch; justify-content: flex-start; }
 button {
   background: var(--bg); color: var(--text); border: 1px solid var(--line);
   border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer;
@@ -65,3 +67,28 @@ button.modal-ok.danger { background: var(--danger); color: var(--text); border-c
 #toast-root { position: fixed; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 200; pointer-events: none; }
 .toast { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; max-width: 360px; overflow-wrap: anywhere; }
 .toast.error { border-color: var(--danger); color: var(--danger); }
+
+/* Terminal tabs (Task 7). */
+.tabbar { display: flex; gap: 2px; padding: 4px 6px 0; border-bottom: 1px solid var(--line); background: var(--panel); overflow-x: auto; flex: none; }
+.tabbar:empty { display: none; }
+.tab { display: flex; align-items: center; border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; background: var(--bg); color: var(--muted); max-width: 240px; min-width: 0; }
+.tab button { border: 0; background: transparent; color: inherit; border-radius: 6px 6px 0 0; }
+.tab .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tab .tab-close { padding: 4px 6px; }
+.tab .tab-close:hover { color: var(--danger); }
+.tab.visible { color: var(--text); }
+.tab.active { border-color: var(--accent); }
+.tab.in-split { border-color: var(--muted); }
+.tab.gone .tab-title { color: var(--muted); text-decoration: line-through; }
+.panes { flex: 1; display: flex; min-height: 0; min-width: 0; background: #151210; }
+.panes[hidden] { display: none; }
+.pane { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden; }
+.pane[hidden] { display: none; }
+.pane-left { order: 0; }
+.pane-right { order: 1; border-left: 1px solid var(--line); }
+.term-screen { position: absolute; inset: 4px 0 0 6px; }
+.term-banner { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 5; padding: 6px 10px; border-radius: 6px; background: var(--panel); border: 1px solid var(--accent); color: var(--text); pointer-events: none; }
+.term-banner[hidden] { display: none; }
+.pane.term-ended .term-banner { border-color: var(--danger); }
+.workspace-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.workspace-empty[hidden] { display: none; }
