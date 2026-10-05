@@ -11,11 +11,18 @@ use od_core::native::env::process_env;
 use od_server::{bind, native_backend, serve, ServerConfig};
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
     // The default agent hook command is `<this exe> hook-relay`: nothing else may start first.
-    if args.first().map(String::as_str) == Some("hook-relay") {
+    // `args_os` so a non-UTF-8 argument can't panic.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|a| a == "hook-relay")
+    {
         exit(od_core::native::hook_relay::run());
     }
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     let env = process_env();
     let cli = match cli::parse(&args, &env) {
         Ok(c) => c,
@@ -52,32 +59,74 @@ async fn run(cli: cli::Cli, env: od_core::native::env::EnvMap) -> i32 {
     let bound = match bind(cli.port).await {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("[office-desks] {e}");
+            eprintln!(
+                "[office-desks] cannot listen on 127.0.0.1:{}: {e}",
+                cli.port
+            );
             return 1;
         }
     };
     let port = bound.port;
+    // Installed before the backend exists, so an early signal is not lost to the default action.
+    let signals = Signals::install();
     let backend = Arc::new(native_backend(&env, port).await);
     let handle = serve(bound, backend, ServerConfig::from_env(&env)).await;
     println!("[office-desks] bridge on http://127.0.0.1:{port} (native backend)");
-    wait_for_signal().await;
+    signals.wait().await;
     // Later signals are ignored: the handlers stay installed but nobody listens.
     handle.shutdown().await;
     0
 }
 
+/// Handlers stay installed for the process lifetime, so later signals are ignored.
 #[cfg(unix)]
-async fn wait_for_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
-    let mut int = signal(SignalKind::interrupt()).expect("SIGINT handler");
-    let mut term = signal(SignalKind::terminate()).expect("SIGTERM handler");
-    tokio::select! {
-        _ = int.recv() => {}
-        _ = term.recv() => {}
+struct Signals {
+    int: tokio::signal::unix::Signal,
+    term: tokio::signal::unix::Signal,
+}
+
+#[cfg(unix)]
+impl Signals {
+    fn install() -> Self {
+        use tokio::signal::unix::{signal, SignalKind};
+        Signals {
+            int: signal(SignalKind::interrupt()).expect("SIGINT handler"),
+            term: signal(SignalKind::terminate()).expect("SIGTERM handler"),
+        }
+    }
+    async fn wait(mut self) {
+        tokio::select! {
+            _ = self.int.recv() => {}
+            _ = self.term.recv() => {}
+        }
     }
 }
 
-#[cfg(not(unix))]
-async fn wait_for_signal() {
-    let _ = tokio::signal::ctrl_c().await;
+#[cfg(windows)]
+struct Signals {
+    c: tokio::signal::windows::CtrlC,
+    brk: tokio::signal::windows::CtrlBreak,
+    close: tokio::signal::windows::CtrlClose,
+    shutdown: tokio::signal::windows::CtrlShutdown,
+}
+
+#[cfg(windows)]
+impl Signals {
+    fn install() -> Self {
+        use tokio::signal::windows as w;
+        Signals {
+            c: w::ctrl_c().expect("ctrl_c handler"),
+            brk: w::ctrl_break().expect("ctrl_break handler"),
+            close: w::ctrl_close().expect("ctrl_close handler"),
+            shutdown: w::ctrl_shutdown().expect("ctrl_shutdown handler"),
+        }
+    }
+    async fn wait(mut self) {
+        tokio::select! {
+            _ = self.c.recv() => {}
+            _ = self.brk.recv() => {}
+            _ = self.close.recv() => {}
+            _ = self.shutdown.recv() => {}
+        }
+    }
 }

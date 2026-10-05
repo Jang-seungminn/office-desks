@@ -84,17 +84,17 @@ pub fn parse(args: &[String], env: &EnvMap) -> Result<Cli, String> {
         "demo" => Some(BackendKind::Demo),
         _ => None,
     };
-    let backend = if let Some(v) = value_of("--backend") {
-        v.and_then(kind).ok_or(BACKEND_ERROR)?
-    } else if args.iter().any(|a| a == "--demo") {
-        BackendKind::Demo
-    } else if let Some(v) = env
+    let env_backend = env
         .get("OFFICE_DESKS_BACKEND")
         .map(|v| v.trim())
-        .filter(|v| !v.is_empty())
-    {
+        .filter(|v| !v.is_empty());
+    let backend = if let Some(v) = value_of("--backend") {
+        v.and_then(kind).ok_or(BACKEND_ERROR)?
+    } else if let Some(v) = env_backend {
         kind(v).ok_or(BACKEND_ERROR)?
-    } else if env.get("OFFICE_DESKS_DEMO").is_some_and(|v| !v.is_empty()) {
+    } else if args.iter().any(|a| a == "--demo")
+        || env.get("OFFICE_DESKS_DEMO").is_some_and(|v| !v.is_empty())
+    {
         BackendKind::Demo
     } else {
         BackendKind::Native
@@ -156,6 +156,17 @@ mod tests {
             BackendKind::Orca
         );
         assert_eq!(p(&["--demo"], &[]).unwrap().backend, BackendKind::Demo);
+        // Node order: --backend > OFFICE_DESKS_BACKEND > demo flag/env > native.
+        assert_eq!(
+            p(&["--demo"], &[("OFFICE_DESKS_BACKEND", "native")])
+                .unwrap()
+                .backend,
+            BackendKind::Native
+        );
+        assert_eq!(
+            p(&["--backend", "native", "--demo"], &[]).unwrap().backend,
+            BackendKind::Native
+        );
         assert_eq!(
             p(&[], &[("OFFICE_DESKS_BACKEND", "demo")]).unwrap().backend,
             BackendKind::Demo

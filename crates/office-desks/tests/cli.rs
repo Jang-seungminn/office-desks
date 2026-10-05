@@ -119,7 +119,9 @@ fn demo_and_orca_are_not_in_the_rust_build() {
         (vec!["--demo"], "demo"),
         (vec!["--backend", "orca"], "orca"),
     ] {
-        let out = run(command(dir.path()).args(&args));
+        let out = run(command(dir.path())
+            .env_remove("OFFICE_DESKS_BACKEND")
+            .args(&args));
         assert_eq!(out.code, Some(1), "{args:?}");
         assert_eq!(
             out.stderr.trim(),
@@ -263,5 +265,11 @@ fn busy_port_exits_one() {
     assert_ne!(port, 4317);
     let out = run(command(dir.path()).args(["--port", &port.to_string()]));
     assert_eq!(out.code, Some(1));
-    assert!(out.stderr.starts_with("[office-desks] "), "{}", out.stderr);
+    assert!(
+        out.stderr.starts_with(&format!(
+            "[office-desks] cannot listen on 127.0.0.1:{port}: "
+        )),
+        "{}",
+        out.stderr
+    );
 }
