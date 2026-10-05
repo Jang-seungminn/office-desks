@@ -5,13 +5,18 @@ use std::path::PathBuf;
 
 use crate::jsstr;
 
-/// The user's home directory, as Node's `os.homedir()` finds it: `HOME` on Unix, `USERPROFILE` on Windows.
+/// The user's home directory: `HOME` on Unix / `USERPROFILE` on Windows when set to an
+/// absolute path, else the platform's home lookup. If neither yields an absolute path (a
+/// stripped-down environment), falls back to the system temp dir so the result is never empty
+/// or relative.
 fn os_home() -> PathBuf {
     let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    std::env::var_os(key)
-        .filter(|v| !v.is_empty())
+    let from_env = std::env::var_os(key)
         .map(PathBuf::from)
-        .unwrap_or_default()
+        .filter(|p| p.is_absolute());
+    #[allow(deprecated)] // fine on rustc >= 1.85; deprecation was lifted
+    let home = from_env.or_else(|| std::env::home_dir().filter(|p| p.is_absolute()));
+    home.unwrap_or_else(std::env::temp_dir)
 }
 
 /// `OFFICE_DESKS_HOME` (trimmed) lets tests and trials use a fresh home; else `~/.office-desks`.

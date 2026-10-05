@@ -18,6 +18,9 @@ pub struct RepoRecord {
     /// The repo's main checkout.
     pub path: String,
     pub name: String,
+    /// Unknown fields survive a load/save round-trip (TS keeps them via spread).
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 /// Fields absent from the JSON are `None`; as a patch, `None` means "leave as is".
@@ -28,6 +31,9 @@ pub struct DeskMeta {
     pub workspace_status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+    /// Unknown fields survive a load/save round-trip, written after the known ones.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 /// A JSON object that keeps insertion order, like a JS object with non-integer keys.
@@ -68,13 +74,19 @@ impl<'de> Deserialize<'de> for Desks {
             fn visit_map<A: MapAccess<'de>>(self, mut m: A) -> Result<Desks, A::Error> {
                 let mut desks = Desks::default();
                 while let Some((k, v)) = m.next_entry::<String, Value>()? {
-                    if let Value::Object(o) = v {
-                        let s = |key: &str| o.get(key).and_then(Value::as_str).map(str::to_string);
+                    if let Value::Object(mut o) = v {
+                        let mut take = |key: &str| match o.remove(key) {
+                            Some(Value::String(s)) => Some(s),
+                            _ => None,
+                        };
+                        let workspace_status = take("workspaceStatus");
+                        let comment = take("comment");
                         desks.set(
                             &k,
                             DeskMeta {
-                                workspace_status: s("workspaceStatus"),
-                                comment: s("comment"),
+                                workspace_status,
+                                comment,
+                                extra: o,
                             },
                         );
                     }
@@ -184,6 +196,7 @@ impl Registry {
         if patch.comment.is_some() {
             next.comment = patch.comment;
         }
+        next.extra.extend(patch.extra);
         if next.comment.as_deref() == Some("") {
             next.comment = None;
         }
@@ -230,7 +243,10 @@ fn write(file: &Path, data: &RegistryData) -> io::Result<()> {
     tmp.push(format!(".{}.tmp", std::process::id()));
     let tmp = PathBuf::from(tmp);
     let json = serde_json::to_string_pretty(data).map_err(io::Error::other)?;
-    std::fs::write(&tmp, json)?;
+    if let Err(e) = std::fs::write(&tmp, json) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
     retry_io(
         || std::fs::rename(&tmp, file),
         |e| cfg!(windows) && is_transient_rename_error(e),
@@ -252,20 +268,21 @@ mod tests {
             id: "abc".into(),
             path: "/p/app".into(),
             name: "app".into(),
+            extra: Default::default(),
         }
     }
 
     fn status(s: &str) -> DeskMeta {
         DeskMeta {
             workspace_status: Some(s.into()),
-            comment: None,
+            ..Default::default()
         }
     }
 
     fn comment(s: &str) -> DeskMeta {
         DeskMeta {
-            workspace_status: None,
             comment: Some(s.into()),
+            ..Default::default()
         }
     }
 
@@ -283,6 +300,7 @@ mod tests {
             DeskMeta {
                 workspace_status: Some("in-review".into()),
                 comment: Some("hi".into()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -402,7 +420,35 @@ mod tests {
         let r = Registry::new(&file);
         r.load();
         assert_eq!(r.repos().len(), 1);
-        assert_eq!(r.meta("d"), comment("c"));
+        assert_eq!(r.meta("d").comment.as_deref(), Some("c"));
+        assert!(r.meta("e") == DeskMeta::default()); // wrong type: dropped
+    }
+
+    #[test]
+    fn unknown_fields_survive_a_load_save_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("state.json");
+        std::fs::write(
+            &file,
+            r#"{"version":1,"repos":[{"id":"a","path":"/a","name":"a","color":"red"}],"desks":{"d":{"comment":"c","pinned":true,"workspaceStatus":"todo"}}}"#,
+        )
+        .unwrap();
+        let r = Registry::new(&file);
+        r.load();
+        r.set_meta("d", comment("new")).unwrap();
+        r.add_repo(RepoRecord {
+            id: "b".into(),
+            ..repo()
+        })
+        .unwrap();
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(v["repos"][0]["color"], "red");
+        assert_eq!(v["desks"]["d"]["pinned"], true);
+        assert_eq!(v["desks"]["d"]["comment"], "new");
+        // Known fields first, extras after.
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.find("\"workspaceStatus\"").unwrap() < text.find("\"pinned\"").unwrap());
+        assert!(text.find("\"name\"").unwrap() < text.find("\"color\"").unwrap());
     }
 
     #[test]
@@ -415,7 +461,8 @@ mod tests {
             r.meta("d"),
             DeskMeta {
                 workspace_status: Some("todo".into()),
-                comment: Some("hi".into())
+                comment: Some("hi".into()),
+                ..Default::default()
             }
         );
         r.set_meta("d", comment("")).unwrap();
