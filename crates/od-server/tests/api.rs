@@ -2318,3 +2318,73 @@ async fn a_dropped_client_does_not_cut_the_queue_short() {
         .await
         .expect("closed");
 }
+
+/// POST `body` to `path` from a task the test can abort (a client that goes away).
+fn post_in_task(
+    s: &support::TestServer,
+    path: &'static str,
+    body: &'static str,
+) -> tokio::task::JoinHandle<support::Resp> {
+    let client = support::Client::new(s.handle.port);
+    tokio::spawn(async move {
+        client
+            .request("POST", path, &JSON_CT, Some(body.as_bytes().to_vec()))
+            .await
+    })
+}
+
+#[tokio::test]
+async fn a_dropped_client_does_not_cut_the_send_short() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    set_screen(&fake, idle_composer());
+    let gate = Arc::new(tokio::sync::Notify::new());
+    fake.gates
+        .lock()
+        .unwrap()
+        .insert("send_prompt", gate.clone());
+    let first = post_in_task(&s, "/api/send", r#"{"terminalHandle":"pty_1","text":"hi"}"#);
+    wait_until("the paste starts", Duration::from_secs(5), || {
+        !fake.calls_of("send_prompt").is_empty()
+    })
+    .await;
+    // The client goes away between the text and its Enter.
+    first.abort();
+    let _ = first.await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    gate.notify_one();
+    wait_until("the Enter still goes out", Duration::from_secs(5), || {
+        !fake.calls_of("send_prompt_done").is_empty()
+    })
+    .await;
+    assert_eq!(fake.calls_of("send_prompt"), ["send_prompt pty_1 hi"]);
+    assert_eq!(
+        fake.calls_of("send_prompt_done"),
+        ["send_prompt_done pty_1"]
+    );
+    s.handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_dropped_client_does_not_cut_the_hire_short() {
+    let caps = BackendCapabilities {
+        hire: true,
+        ..no_capabilities()
+    };
+    let (fake, s) = with_desk(caps).await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    fake.gates.lock().unwrap().insert("hire", gate.clone());
+    let first = post_in_task(&s, "/api/hire", r#"{"agent":"claude","deskId":"d1"}"#);
+    wait_until("the hire starts", Duration::from_secs(5), || {
+        !fake.calls_of("hire").is_empty()
+    })
+    .await;
+    first.abort();
+    let _ = first.await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    gate.notify_one();
+    wait_until("the hire completes", Duration::from_secs(5), || {
+        !fake.calls_of("hire_done").is_empty()
+    })
+    .await;
+    s.handle.shutdown().await;
+}

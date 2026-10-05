@@ -20,13 +20,13 @@ Legend: **Group** is the fixture file. "api" means `tests/api.rs`, "unit" means 
 | `GET /api/search` | `routes::read::search` | api `search_*` | `read` |
 | `GET /api/commands` | `routes::read::commands` | api `commands_route` | `read` |
 | `GET /api/terminal` | `routes::read::terminal` | api `terminal_route` | `read` |
-| `POST /api/send` | `routes::input::send` (`deliver`) | api `send_*` | `input` |
+| `POST /api/send` | `routes::input::send` (`deliver`) | api `send_*`, `a_dropped_client_does_not_cut_the_send_short` | `input` |
 | `POST /api/send/retry` | `routes::input::retry` | api `retry_needs_a_blocked_prompt_on_a_known_terminal` | `input` |
 | `POST /api/keys` | `routes::input::keys` | api `keys_*` | `input` |
 | `POST /api/answer` | `routes::input::answer` | api `answer_*`, `a_second_answer_on_the_same_terminal_is_409` | `input` |
 | `POST /api/queue` | `routes::input::queue` | api `queue_*` | `input` |
 | `POST /api/focus` | `routes::input::focus` | api `focus_a_known_terminal` | `input` |
-| `POST /api/hire` | `routes::manage::hire` | api `hire_*` | `manage`, `input` |
+| `POST /api/hire` | `routes::manage::hire` | api `hire_*`, `a_dropped_client_does_not_cut_the_hire_short` | `manage`, `input` |
 | `POST /api/worktree` | `routes::manage::worktree` | api `worktree_*` | `manage` |
 | `POST /api/repos` | `routes::manage::repos` | api `repos_*` | `manage` |
 | `/api/*` gates (405, 415, 404) | `routes::dispatch` | api `api_gates`, `unknown_post_api_is_404_not_found` | `empty` |
@@ -73,7 +73,7 @@ Server behaviour:
 - **`POST /hook` waits for the refresh.** The handler awaits the poller refresh for at most 500 ms before it answers 204. TS is fire-and-forget. Reason: on the Rust blocking pool the next `GET /api/snapshot` would otherwise often read the state from before the hook (found by the `hook-snapshot` contract step).
 - **`Poller::refresh` is stricter.** A caller waits for a poll that started after the call; TS callers may share a poll that is already in flight and so read older data. Reason: avoids a stale join.
 - **Extra poll after `set_idle(false)`.** If a poll is in flight, the loop polls once more at once (a `Notify` permit). TS only restarts a pending timer.
-- **Key sequences survive a client abort.** `/api/queue` and `/api/answer` run their key sequence in a spawned task, so a client that disconnects does not stop it partway.
+- **Key sequences survive a client abort.** `/api/queue`, `/api/answer`, `/api/send`, `/api/send/retry` and `/api/hire` run their backend call in a spawned task, so a client that disconnects does not stop it partway (the native paste writes the text, waits 400 ms, then writes Enter; a hire makes a worktree, then starts the agent). Node keeps running a handler whose client is gone, so this is the same outcome.
 - **`/api/send` with `images` as an object or a string.** If its length is over 6, the answer is 400 (the MAX text). For an object otherwise, the upload folder is created first, then the answer is 502 `images is not iterable`. For a string, its UTF-16 length is compared first, before the string is rejected as an unsupported type.
 - **`/api/answer` driver errors** are always 409 `{error}` with no `code`, as TS (`catch (err)`), unlike the catch-all's 409 with `code` for `terminal_not_writable`.
 - **Key order.** `serde_json` has `preserve_order` on (workspace-wide) and the busy and terminal bodies are built in TS key order. The contract compares parsed JSON, so it does not check key order.

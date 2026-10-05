@@ -56,7 +56,10 @@ pub(crate) async fn hire(st: &AppState, req: Request) -> Result<Response, ApiErr
         Ok(s) => s,
         Err(msg) => return Ok(json(StatusCode::BAD_REQUEST, &json!({ "error": msg }))),
     };
-    let result = match st.backend.hire(spec).await {
+    // Its own task: a client that goes away must not stop a hire halfway (a worktree without
+    // its agent, or an agent without its prompt).
+    let backend = std::sync::Arc::clone(&st.backend);
+    let result = match tokio::spawn(async move { backend.hire(spec).await }).await? {
         Ok(r) => r,
         Err(e) => {
             return Ok(json(

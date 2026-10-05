@@ -42,6 +42,9 @@ pub struct FakeBackend {
     pub hire_warning: Mutex<Option<String>>,
     /// Each successful `send_keys` moves the next of these into `screen` (a terminal reacting).
     pub screens_after_keys: Mutex<VecDeque<Vec<String>>>,
+    /// A gate per method name (`send_prompt`, `hire`): the method logs its call, waits for one
+    /// `notify_one`, then logs `"<method>_done <first arg>"` (the native paste's Enter).
+    pub gates: Mutex<HashMap<&'static str, Arc<Notify>>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -120,6 +123,7 @@ impl Default for FakeBackend {
             hook: Mutex::new(false),
             hire_warning: Mutex::new(None),
             screens_after_keys: Mutex::new(VecDeque::new()),
+            gates: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -146,6 +150,15 @@ impl FakeBackend {
             .filter(|c| c.split(' ').next() == Some(method))
             .cloned()
             .collect()
+    }
+
+    /// Wait on the gate of `method`, if one is set, then log `"<method>_done <arg>"`.
+    async fn gate(&self, method: &'static str, arg: &str) {
+        let gate = lock(&self.gates).get(method).cloned();
+        if let Some(g) = gate {
+            g.notified().await;
+            lock(&self.calls).push(format!("{method}_done {arg}"));
+        }
     }
 
     pub fn set_snapshot(&self, s: Result<OfficeSnapshot, BackendError>) {
@@ -185,7 +198,9 @@ impl OfficeBackend for FakeBackend {
         Ok(lock(&self.screen).clone())
     }
     async fn send_prompt(&self, handle: &str, text: &str) -> Result<(), BackendError> {
-        self.call("send_prompt", &[handle, text])
+        self.call("send_prompt", &[handle, text])?;
+        self.gate("send_prompt", handle).await;
+        Ok(())
     }
     async fn retry_prompt(&self, request_id: &str) -> Result<(), BackendError> {
         self.call("retry_prompt", &[request_id])
@@ -211,6 +226,7 @@ impl OfficeBackend for FakeBackend {
     async fn hire(&self, spec: HireSpec) -> Result<HireResult, BackendError> {
         let spec = serde_json::to_string(&spec).expect("spec");
         self.call("hire", &[&spec])?;
+        self.gate("hire", "").await;
         Ok(HireResult {
             warning: lock(&self.hire_warning).clone(),
         })

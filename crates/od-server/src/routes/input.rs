@@ -45,11 +45,14 @@ fn unknown_terminal() -> Response {
 
 /// `deliver()`: submit a prompt; a busy agent becomes a 409 the panel can retry by request id.
 /// Any other error goes to the catch-all.
+///
+/// `send` runs in its own task: a client that goes away must not stop a paste between its text
+/// and its Enter.
 pub(crate) async fn deliver(
     st: &AppState,
-    send: impl Future<Output = Result<(), BackendError>>,
+    send: impl Future<Output = Result<(), BackendError>> + Send + 'static,
 ) -> Result<Response, ApiError> {
-    if let Err(e) = send.await {
+    if let Err(e) = tokio::spawn(send).await? {
         if !e.is_busy() {
             return Err(e.into());
         }
@@ -145,7 +148,12 @@ pub(crate) async fn send(st: &AppState, req: Request) -> Result<Response, ApiErr
     let imgs = parse_images(images.unwrap_or(&Value::Null))?;
     let paths = tokio::task::spawn_blocking(move || save_images(&imgs, &dir)).await??;
     let prompt = compose_prompt(&text, &paths);
-    deliver(st, st.backend.send_prompt(&handle, &prompt)).await
+    let backend = Arc::clone(&st.backend);
+    deliver(
+        st,
+        async move { backend.send_prompt(&handle, &prompt).await },
+    )
+    .await
 }
 
 /// `POST /api/send/retry`: re-issue a prompt the backend blocked, by its request id, so it
@@ -163,7 +171,8 @@ pub(crate) async fn retry(st: &AppState, req: Request) -> Result<Response, ApiEr
             "다시 보낼 메시지를 찾지 못했습니다. 새로 보내주세요",
         ));
     }
-    deliver(st, st.backend.retry_prompt(&request_id)).await
+    let backend = Arc::clone(&st.backend);
+    deliver(st, async move { backend.retry_prompt(&request_id).await }).await
 }
 
 /// `POST /api/keys`.
