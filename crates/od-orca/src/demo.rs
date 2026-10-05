@@ -218,7 +218,9 @@ fn os_tmpdir_for(env: &EnvMap, windows: bool) -> PathBuf {
             .cloned()
     };
     if windows {
+        // Node: TEMP, TMP, then `<SystemRoot or windir>\temp`.
         let mut p = first(&["TEMP", "TMP"])
+            .or_else(|| first(&["SystemRoot", "windir"]).map(|r| format!("{r}\\temp")))
             .unwrap_or_else(|| std::env::temp_dir().to_string_lossy().into_owned());
         if p.len() > 1 && p.ends_with('\\') && !p.ends_with(":\\") {
             p.pop();
@@ -690,7 +692,8 @@ impl DemoBackend {
             Arc::new(runner),
             OrcaOptions {
                 verify: opts.verify,
-                now: None,
+                // Under a fixed epoch the cache TTLs never expire; harmless for a static demo.
+                now: Some(Arc::new(move || clock.now())),
                 windows: opts.windows,
             },
         );
@@ -994,6 +997,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn updated_at_follows_the_fixed_epoch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let b = demo_in(tmp.path());
+        assert_eq!(b.snapshot().await.unwrap().updated_at, EPOCH);
+        assert_eq!(b.usage().await.unwrap().unwrap().updated_at, EPOCH);
+    }
+
+    #[tokio::test]
     async fn tick_zero_states() {
         let tmp = tempfile::tempdir().unwrap();
         let b = demo_in(tmp.path());
@@ -1106,6 +1117,14 @@ mod tests {
         assert_eq!(win(&env(&[("TEMP", "C:\\t\\")])), PathBuf::from("C:\\t"));
         assert_eq!(win(&env(&[("TEMP", "C:\\")])), PathBuf::from("C:\\"));
         assert_eq!(win(&env(&[("TMP", "D:\\x")])), PathBuf::from("D:\\x"));
+        assert_eq!(
+            win(&env(&[("SystemRoot", "C:\\Windows")])),
+            PathBuf::from("C:\\Windows\\temp")
+        );
+        assert_eq!(
+            win(&env(&[("windir", "D:\\W")])),
+            PathBuf::from("D:\\W\\temp")
+        );
         assert_eq!(win(&env(&[])), std::env::temp_dir());
     }
 
