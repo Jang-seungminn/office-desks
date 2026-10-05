@@ -42,6 +42,7 @@
     "test": "npm test -w bridge && npm test -w web",
     "typecheck": "npm run typecheck -w bridge && npm run typecheck -w web",
     "demo": "npm run build && npm run demo -w bridge",
+    "golden": "tsx bridge/scripts/golden.ts",
     "prepack": "npm run build"
   },
   "dependencies": {

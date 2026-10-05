@@ -1,0 +1,31 @@
+{
+  "type": "usage",
+  "usage": {
+    "providers": [
+      {
+        "provider": "claude",
+        "windows": [
+          {
+            "key": "session",
+            "label": "5시간",
+            "usedPercent": 37.5,
+            "resetsAt": 1700003600000,
+            "resetDescription": "in 1h"
+          },
+          {
+            "key": "weekly",
+            "label": "주간",
+            "usedPercent": 12,
+            "resetsAt": null,
+            "resetDescription": null
+          }
+        ]
+      },
+      {
+        "provider": "codex",
+        "windows": []
+      }
+    ],
+    "updatedAt": 1700000000000
+  }
+}

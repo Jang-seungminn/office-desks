@@ -1,0 +1,42 @@
+{
+  "type": "org",
+  "org": {
+    "departments": [
+      {
+        "id": "dept-1",
+        "name": "개발팀",
+        "theme": "dev",
+        "repoIds": [
+          "repoA",
+          "repoB"
+        ]
+      },
+      {
+        "id": "dept-2",
+        "name": "디자인",
+        "theme": "design",
+        "repoIds": []
+      },
+      {
+        "id": "dept-3",
+        "name": "리서치",
+        "theme": "research",
+        "repoIds": [
+          "repoC"
+        ]
+      },
+      {
+        "id": "dept-4",
+        "name": "운영",
+        "theme": "ops",
+        "repoIds": []
+      },
+      {
+        "id": "dept-5",
+        "name": "기타",
+        "theme": "etc",
+        "repoIds": []
+      }
+    ]
+  }
+}
