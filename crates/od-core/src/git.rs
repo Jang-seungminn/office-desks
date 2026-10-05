@@ -1,6 +1,7 @@
 //! Running `git` with a timeout. Port of `runGit` / `GitRunner` in `bridge/src/gitInfo.ts`.
 //!
-//! Sync on purpose: od-core has no async runtime, async callers wrap calls in `spawn_blocking`.
+//! Sync on purpose: it blocks on a child process, so async callers (like `NativeBackend`) wrap
+//! calls in `spawn_blocking`.
 
 use std::io::Read;
 use std::process::{Command, Stdio};

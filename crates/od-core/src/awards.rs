@@ -13,6 +13,7 @@ use serde_json::Value;
 
 use crate::fsio;
 use crate::home::office_home;
+use crate::jsval::truthy;
 use crate::model::{Award, AwardBoard, OfficeDesk};
 
 const HALL_MAX: usize = 90;
@@ -91,16 +92,6 @@ impl RawBoard {
                 .map(|h| serde_json::from_value(h.clone()).ok())
                 .collect::<Option<_>>()?,
         })
-    }
-}
-
-/// JS truthiness of a leader value.
-fn truthy(v: &Value) -> bool {
-    match v {
-        Value::Null | Value::Bool(false) => false,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
-        Value::String(s) => !s.is_empty(),
-        _ => true,
     }
 }
 

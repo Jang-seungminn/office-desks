@@ -1,10 +1,39 @@
-//! Small file helpers shared by org.json and awards.json (the TS `saveOrg` / `AwardBook.save`).
+//! Small file helpers: private folders and files, the atomic save of org.json and awards.json
+//! (the TS `saveOrg` / `AwardBook.save`), and the Windows rename retry the registry shares.
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
-use crate::native::registry::{is_transient_rename_error, retry_io};
+fn retry_delay(attempt: u32) -> Duration {
+    Duration::from_millis(50 * (u64::from(attempt) + 1))
+}
+
+/// Windows: a virus scanner or indexer can hold the target for a moment (EPERM/EBUSY).
+pub(crate) fn is_transient_rename_error(e: &io::Error) -> bool {
+    // 5 ACCESS_DENIED, 32 SHARING_VIOLATION, 33 LOCK_VIOLATION
+    e.kind() == io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(5 | 32 | 33))
+}
+
+/// Run `op`, retrying up to 4 more times (50 ms, 100 ms, ...) while `retryable` says so.
+pub(crate) fn retry_io(
+    mut op: impl FnMut() -> io::Result<()>,
+    retryable: impl Fn(&io::Error) -> bool,
+    sleep: impl Fn(Duration),
+) -> io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match op() {
+            Ok(()) => return Ok(()),
+            Err(e) if retryable(&e) && attempt < 4 => {
+                sleep(retry_delay(attempt));
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
 
 /// `mkdir -p` with mode 0700 on Unix.
 pub(crate) fn create_private_dir_all(dir: &Path) -> io::Result<()> {
@@ -64,6 +93,56 @@ pub(crate) fn save_atomic(file: &Path, body: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn rename_retries_transient_errors_with_backoff_then_gives_up() {
+        let slept = RefCell::new(Vec::new());
+        let calls = Cell::new(0);
+        let busy = || io::Error::from(io::ErrorKind::PermissionDenied);
+        let ok = retry_io(
+            || {
+                calls.set(calls.get() + 1);
+                if calls.get() < 3 {
+                    Err(busy())
+                } else {
+                    Ok(())
+                }
+            },
+            is_transient_rename_error,
+            |d| slept.borrow_mut().push(d),
+        );
+        assert!(ok.is_ok());
+        assert_eq!(calls.get(), 3);
+        assert_eq!(
+            *slept.borrow(),
+            vec![Duration::from_millis(50), Duration::from_millis(100)]
+        );
+
+        calls.set(0);
+        let err = retry_io(
+            || {
+                calls.set(calls.get() + 1);
+                Err(busy())
+            },
+            is_transient_rename_error,
+            |_| {},
+        );
+        assert!(err.is_err());
+        assert_eq!(calls.get(), 5); // first try + 4 retries
+
+        calls.set(0);
+        let err = retry_io(
+            || {
+                calls.set(calls.get() + 1);
+                Err(io::Error::from(io::ErrorKind::NotFound))
+            },
+            is_transient_rename_error,
+            |_| {},
+        );
+        assert!(err.is_err());
+        assert_eq!(calls.get(), 1);
+    }
 
     #[test]
     fn saves_into_new_folders_and_replaces_without_leftovers() {

@@ -1,11 +1,11 @@
 //! Projects the user registered and the board fields Orca would otherwise keep (status,
 //! comment). Port of `bridge/src/native/registry.ts`; `state.json` has the same shape.
 
+use crate::fsio::{is_transient_rename_error, retry_io};
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Duration;
 
 use serde::de::{MapAccess, Visitor};
 use serde::ser::SerializeMap;
@@ -205,35 +205,6 @@ impl Registry {
     }
 }
 
-fn retry_delay(attempt: u32) -> Duration {
-    Duration::from_millis(50 * (u64::from(attempt) + 1))
-}
-
-/// Windows: a virus scanner or indexer can hold the target for a moment (EPERM/EBUSY).
-pub(crate) fn is_transient_rename_error(e: &io::Error) -> bool {
-    // 5 ACCESS_DENIED, 32 SHARING_VIOLATION, 33 LOCK_VIOLATION
-    e.kind() == io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(5 | 32 | 33))
-}
-
-/// Run `op`, retrying up to 4 more times (50 ms, 100 ms, ...) while `retryable` says so.
-pub(crate) fn retry_io(
-    mut op: impl FnMut() -> io::Result<()>,
-    retryable: impl Fn(&io::Error) -> bool,
-    sleep: impl Fn(Duration),
-) -> io::Result<()> {
-    let mut attempt = 0;
-    loop {
-        match op() {
-            Ok(()) => return Ok(()),
-            Err(e) if retryable(&e) && attempt < 4 => {
-                sleep(retry_delay(attempt));
-                attempt += 1;
-            }
-            Err(e) => return Err(e),
-        }
-    }
-}
-
 /// Write a temp file and rename it, so a crash never leaves half a file behind.
 fn write(file: &Path, data: &RegistryData) -> io::Result<()> {
     if let Some(dir) = file.parent().filter(|d| !d.as_os_str().is_empty()) {
@@ -260,7 +231,6 @@ fn write(file: &Path, data: &RegistryData) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::{Cell, RefCell};
     use std::sync::Arc;
 
     fn repo() -> RepoRecord {
@@ -467,54 +437,5 @@ mod tests {
         );
         r.set_meta("d", comment("")).unwrap();
         assert_eq!(r.meta("d"), status("todo"));
-    }
-
-    #[test]
-    fn rename_retries_transient_errors_with_backoff_then_gives_up() {
-        let slept = RefCell::new(Vec::new());
-        let calls = Cell::new(0);
-        let busy = || io::Error::from(io::ErrorKind::PermissionDenied);
-        let ok = retry_io(
-            || {
-                calls.set(calls.get() + 1);
-                if calls.get() < 3 {
-                    Err(busy())
-                } else {
-                    Ok(())
-                }
-            },
-            is_transient_rename_error,
-            |d| slept.borrow_mut().push(d),
-        );
-        assert!(ok.is_ok());
-        assert_eq!(calls.get(), 3);
-        assert_eq!(
-            *slept.borrow(),
-            vec![Duration::from_millis(50), Duration::from_millis(100)]
-        );
-
-        calls.set(0);
-        let err = retry_io(
-            || {
-                calls.set(calls.get() + 1);
-                Err(busy())
-            },
-            is_transient_rename_error,
-            |_| {},
-        );
-        assert!(err.is_err());
-        assert_eq!(calls.get(), 5); // first try + 4 retries
-
-        calls.set(0);
-        let err = retry_io(
-            || {
-                calls.set(calls.get() + 1);
-                Err(io::Error::from(io::ErrorKind::NotFound))
-            },
-            is_transient_rename_error,
-            |_| {},
-        );
-        assert!(err.is_err());
-        assert_eq!(calls.get(), 1);
     }
 }

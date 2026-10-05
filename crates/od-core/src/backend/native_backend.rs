@@ -3,9 +3,9 @@
 //!
 //! Concurrency: all mutable state (agents, the worktree cache) lives in one `std::sync::Mutex`
 //! that is never held across an `.await` or a call into the PTY host (a host may fire `on_exit`
-//! synchronously from `kill`, and the exit callback takes the same lock). Git runs on tokio's
-//! blocking pool; registry writes, settings files and transcript lookups are short and run
-//! inline.
+//! synchronously from `kill`, and the exit callback takes the same lock). Git, registry writes,
+//! settings files, transcript lookups and spawns run on tokio's blocking pool
+//! (`spawn_blocking`); only `hook`, settings-file cleanup and existence checks run inline.
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -35,6 +35,7 @@ use crate::native::worktrees::{
     WorktreeInfo,
 };
 use crate::screen::composer_state;
+use crate::security::same_token;
 use crate::state_mapper::{
     native_desk_name, to_snapshot, OrcaAgentRow, OrcaTerminalRow, OrcaWorktreeRow,
 };
@@ -245,16 +246,6 @@ fn random_uuid() -> Result<String, BackendError> {
         &h[16..20],
         &h[20..32]
     ))
-}
-
-/// Constant-time for equal lengths (like `timingSafeEqual`; a length mismatch returns early,
-/// as in TS, and only says the length is wrong).
-fn same_token(want: &[u8], got: &[u8]) -> bool {
-    if want.len() != got.len() {
-        return false;
-    }
-    let diff = want.iter().zip(got).fold(0u8, |acc, (a, b)| acc | (a ^ b));
-    std::hint::black_box(diff) == 0
 }
 
 /// `/^[0-9a-f-]{8,64}$/i`
@@ -951,7 +942,7 @@ impl<P: PtyLike> OfficeBackend for NativeBackend<P> {
             let Some(a) = s.agent_mut(id) else {
                 return false;
             };
-            if !same_token(a.token.as_bytes(), token.as_bytes()) {
+            if !same_token(&a.token, token) {
                 return false;
             }
             a.hooked = true;

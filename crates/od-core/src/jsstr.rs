@@ -57,6 +57,17 @@ pub(crate) fn slice_utf16(s: &str, units: usize) -> &str {
     s
 }
 
+/// The TS `oneLine(s, max)` of transcript.ts and stateMapper.ts: whitespace collapsed and
+/// trimmed, then cut to `max` UTF-16 units with `…` as the last one.
+pub(crate) fn one_line(s: &str, max: usize) -> String {
+    let flat = collapse_ws(s);
+    if utf16_len(&flat) > max {
+        format!("{}…", slice_utf16(&flat, max.saturating_sub(1)))
+    } else {
+        flat
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::slice_utf16;

@@ -3,7 +3,7 @@
 //! The Orca rows are deliberately forgiving: every field is optional and a field of the wrong
 //! type reads as absent, so a newer or older Orca degrades instead of failing.
 
-use crate::jsstr::{collapse_ws, slice_utf16, trim};
+use crate::jsstr::trim;
 use crate::model::{CharacterState, DeskPr, OfficeAgent, OfficeDesk, OfficeSnapshot};
 use regex::Regex;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer};
@@ -24,13 +24,7 @@ where
 
 /// JS `Boolean(value)` for the flags Orca may send as anything.
 fn truthy<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
-    Ok(match Value::deserialize(d)? {
-        Value::Null => false,
-        Value::Bool(b) => b,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
-        Value::String(s) => !s.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
-    })
+    Ok(crate::jsval::truthy(&Value::deserialize(d)?))
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -134,12 +128,7 @@ pub fn clean_title(title: Option<&str>) -> Option<String> {
 }
 
 fn one_line(s: Option<&str>, max: usize) -> String {
-    let flat = collapse_ws(s.unwrap_or(""));
-    if crate::jsstr::utf16_len(&flat) > max {
-        format!("{}…", slice_utf16(&flat, max - 1))
-    } else {
-        flat
-    }
+    crate::jsstr::one_line(s.unwrap_or(""), max)
 }
 
 fn nonempty(s: &Option<String>) -> Option<&str> {

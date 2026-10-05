@@ -9,7 +9,8 @@
 //! what this port does; a rotated file that is at least as large as the old offset is not
 //! detected, in TS and here alike.
 
-use crate::jsstr::{self, collapse_ws, slice_utf16};
+use crate::jsstr;
+use crate::jsval;
 use crate::model::{
     AskedQuestion, ConversationMessage, MessageRole, PendingMessage, QuestionOption, QuestionState,
     QuestionStatus, SubagentStatus,
@@ -188,13 +189,7 @@ fn nn(v: Option<&Value>) -> Option<&Value> {
 }
 
 fn truthy(v: Option<&Value>) -> bool {
-    match v {
-        None | Some(Value::Null) => false,
-        Some(Value::Bool(b)) => *b,
-        Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
-        Some(Value::String(s)) => !s.is_empty(),
-        Some(_) => true,
-    }
+    v.is_some_and(jsval::truthy)
 }
 
 /// JS `String(v)` for a defined value.
@@ -242,17 +237,8 @@ fn at<'a>(v: &'a Value, path: &[&str]) -> Option<&'a Value> {
     Some(cur)
 }
 
-fn one_line_max(s: &str, max: usize) -> String {
-    let flat = collapse_ws(s);
-    if jsstr::utf16_len(&flat) > max {
-        format!("{}…", slice_utf16(&flat, max - 1))
-    } else {
-        flat
-    }
-}
-
 fn one_line(s: &str) -> String {
-    one_line_max(s, TOOL_SUMMARY)
+    jsstr::one_line(s, TOOL_SUMMARY)
 }
 
 /// Harness-injected user text that is not something the human typed.
@@ -685,7 +671,7 @@ fn add_claude(r: &Value, st: &mut ParseState) {
                 .find_map(|k| nn(at(b, &["input", k])))
                 .map(js_string)
                 .unwrap_or_else(|| "subagent".into());
-            let description = one_line_max(&desc_src, 120);
+            let description = jsstr::one_line(&desc_src, 120);
             st.calls.insert(
                 id.clone(),
                 SubagentCall {
