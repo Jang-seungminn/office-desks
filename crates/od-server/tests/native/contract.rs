@@ -23,11 +23,11 @@ use crate::support::{Client, Resp};
 
 /// Groups not replayed yet. Each later task removes its group once its routes exist; removing
 /// a group whose earlier groups are still skipped fails on the first missing capture.
-pub const SKIP: &[&str] = &["empty", "manage", "hook", "read", "media", "input"];
+pub const SKIP: &[&str] = &["manage", "hook", "read", "media", "input"];
 
-/// `wsReject` steps also require the natively observed handshake answer to be 403. Off until the
-/// `/ws` arm exists (Task 3): until then a rejected upgrade is reported NOT VERIFIED, never passed.
-pub const ASSERT_WS_403: bool = false;
+/// `wsReject` steps also require the natively observed handshake answer to be 403 (on since the
+/// `/ws` arm exists, Task 3). When off, a rejected upgrade is reported NOT VERIFIED, never passed.
+pub const ASSERT_WS_403: bool = true;
 
 const GROUPS: [&str; 7] = ["guard", "empty", "manage", "hook", "read", "media", "input"];
 const HEADER_ALLOWLIST: [&str; 7] = [

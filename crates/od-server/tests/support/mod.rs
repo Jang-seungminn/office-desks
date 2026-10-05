@@ -159,3 +159,83 @@ pub async fn start_with(
 pub async fn start_fake() -> TestServer {
     start(Arc::new(FakeBackend::default())).await
 }
+
+/// A `/ws` client.
+pub type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// Open `ws://127.0.0.1:<port><path>`; the handshake's HTTP error on refusal.
+pub async fn ws_connect(
+    port: u16,
+    path: &str,
+) -> Result<Ws, tokio_tungstenite::tungstenite::Error> {
+    let url = format!("ws://127.0.0.1:{port}{path}");
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio_tungstenite::connect_async(url),
+    )
+    .await
+    .expect("ws connect timed out")
+    .map(|(ws, _)| ws)
+}
+
+/// What a `/ws` client saw next.
+#[derive(Debug)]
+pub enum WsEvent {
+    Json(serde_json::Value),
+    /// A close frame, EOF or an error: the connection is over.
+    Ended,
+    /// Nothing within the wait.
+    Quiet,
+}
+
+/// The next text message as JSON (pings and pongs are skipped).
+pub async fn ws_next(ws: &mut Ws, wait: Duration) -> WsEvent {
+    use futures_util::StreamExt;
+    use tokio_tungstenite::tungstenite::Message;
+    let deadline = tokio::time::Instant::now() + wait;
+    loop {
+        match tokio::time::timeout_at(deadline, ws.next()).await {
+            Err(_) => return WsEvent::Quiet,
+            Ok(None) | Ok(Some(Err(_))) | Ok(Some(Ok(Message::Close(_)))) => return WsEvent::Ended,
+            Ok(Some(Ok(Message::Text(t)))) => {
+                return WsEvent::Json(serde_json::from_str(&t).expect("JSON message"))
+            }
+            Ok(Some(Ok(_))) => {}
+        }
+    }
+}
+
+/// The next message, which must arrive within 5 s.
+pub async fn ws_json(ws: &mut Ws) -> serde_json::Value {
+    match ws_next(ws, Duration::from_secs(5)).await {
+        WsEvent::Json(v) => v,
+        other => panic!("expected a message, got {other:?}"),
+    }
+}
+
+/// Read messages until none arrives for `quiet`; returns them.
+pub async fn ws_drain(ws: &mut Ws, quiet: Duration) -> Vec<serde_json::Value> {
+    let mut seen = Vec::new();
+    loop {
+        match ws_next(ws, quiet).await {
+            WsEvent::Json(v) => seen.push(v),
+            WsEvent::Quiet => return seen,
+            WsEvent::Ended => panic!("connection ended while draining"),
+        }
+    }
+}
+
+/// Poll `cond` every 10 ms until it holds; panic with `what` after `wait`.
+pub async fn wait_until(what: &str, wait: Duration, mut cond: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + wait;
+    while !cond() {
+        assert!(tokio::time::Instant::now() < deadline, "timed out: {what}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// The `type` of a `/ws` message.
+pub fn msg_type(v: &serde_json::Value) -> &str {
+    v["type"].as_str().unwrap_or("")
+}
