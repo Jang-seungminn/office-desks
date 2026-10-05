@@ -251,6 +251,26 @@ test('errors show in Korean', async ({}, testInfo) => {
   await stopAgent(agent, pid);
 });
 
+test('an agent that exits on its own shows the banner', async ({}, testInfo) => {
+  const name = `e2e-${testInfo.project.name}-3`;
+  await newWork(name);
+  await expect(page.locator('.tab.active .tab-title')).toHaveText(`${name} · claude`, { timeout: 15_000 });
+  const agent = (await active())!;
+  const pid = newestPid();
+  await expect.poll(() => term(agent), POLL).toContain('FAKE AGENT READY');
+  await terminalFocused();
+  // The fake agent answers `exit` with `bye` and exit code 3.
+  await page.keyboard.type('exit');
+  await page.keyboard.press('Enter');
+  await expect(page.locator(`.pane[data-agent="${agent}"] .term-banner`)).toHaveText(
+    '에이전트가 종료됐어요 (코드 3) — 탭을 닫아 주세요',
+    POLL,
+  );
+  await expect.poll(() => alive(pid), POLL).toBe(false);
+  await expect(page.locator(`.agent-open[data-agent="${agent}"]`)).toHaveCount(0, POLL);
+  await expect(page.locator(`.tab[data-agent="${agent}"]`)).toHaveClass(/\bgone\b/, POLL);
+});
+
 test('nothing served during the run carried the token', async () => {
   await noLeaks();
 });

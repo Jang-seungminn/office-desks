@@ -45,5 +45,21 @@ fn main() {
                 );
             }
         }
+        // The E2E build (fake-IPC hook) must never ship. It goes to app/dist-e2e, but a
+        // `vite build --mode e2e` by hand would put it here.
+        let assets = dir.join("../../app/dist/assets");
+        for entry in std::fs::read_dir(&assets).expect("app/dist/assets") {
+            let path = entry.expect("app/dist/assets entry").path();
+            if path.extension().is_some_and(|e| e == "js")
+                && std::fs::read_to_string(&path)
+                    .expect("app/dist script")
+                    .contains("__gongbangE2E")
+            {
+                panic!(
+                    "Gongbang release build: {} is an E2E build (it contains __gongbangE2E); run `npm run build -w app`",
+                    path.display()
+                );
+            }
+        }
     }
 }

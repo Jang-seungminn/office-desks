@@ -7,3 +7,4 @@ bridge/dist/
 /target
 app/test-results/
 app/playwright-report/
+app/dist-e2e/

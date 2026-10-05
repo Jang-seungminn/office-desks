@@ -68,13 +68,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
       - run: npm run build -w web
-      - run: npm run build -w app
       - run: cargo build -p od-app --example e2e_harness
+      # Playwright's default browser folder per OS; the lockfile pins the Playwright version.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/ms-playwright
+            ~/AppData/Local/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - name: Playwright browsers
         shell: bash
         run: |
           if [ "$RUNNER_OS" = macOS ]; then npx -w app playwright install chromium webkit; else npx -w app playwright install chromium; fi
+      # Builds app/dist-e2e (--mode e2e) first; app/dist is never touched.
       - run: npm run e2e -w app
+      # Task 10's tauri build goes after these two: the production UI, and no E2E hook in it.
+      - run: npm run build -w app
+      - name: app/dist has no E2E hook
+        shell: bash
+        run: "! grep -r __gongbangE2E app/dist"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
