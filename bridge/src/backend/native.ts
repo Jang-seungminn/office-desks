@@ -11,7 +11,7 @@ import type { PtyHost } from '../native/ptyHost.js';
 import type { Registry } from '../native/registry.js';
 import { addWorktree, listWorktrees, resolveRepo, worktreeDest, type WorktreeInfo } from '../native/worktrees.js';
 import { composerState } from '../screen.js';
-import { toSnapshot, type OrcaTerminalRow, type OrcaWorktreeRow } from '../stateMapper.js';
+import { orcaDeskName, toSnapshot, type OrcaTerminalRow, type OrcaWorktreeRow } from '../stateMapper.js';
 import {
   BackendError,
   type BackendCapabilities,
@@ -23,7 +23,7 @@ import {
   type OfficeBackend,
 } from './types.js';
 
-export type PtyLike = Pick<PtyHost, 'spawn' | 'has' | 'write' | 'screenLines' | 'onExit' | 'kill' | 'dispose'>;
+export type PtyLike = Pick<PtyHost, 'spawn' | 'has' | 'write' | 'screenLines' | 'onExit' | 'kill' | 'dispose' | 'onData' | 'resize' | 'serialize' | 'setReplies' | 'size'>;
 
 export interface NativeDeps {
   pty: PtyLike;
@@ -81,6 +81,17 @@ export class NativeBackend implements OfficeBackend {
   };
 
   private agents = new Map<string, Agent>();
+
+  /** The PTY host, for the TUI's attach view. */
+  get pty(): PtyLike {
+    return this.deps.pty;
+  }
+
+  /** The PTY id of a live agent (`<id>:main` → `<id>`), or null when it is gone. */
+  terminalOf(agentId: string): string | null {
+    const id = agentId.replace(/:main$/, '');
+    return this.agents.has(id) && this.deps.pty.has(id) ? id : null;
+  }
   private worktrees = new Map<string, { at: number; list: WorktreeInfo[] }>();
   private readonly git: GitRunner;
   private readonly now: () => number;
@@ -137,7 +148,8 @@ export class NativeBackend implements OfficeBackend {
         });
       }
     }
-    return toSnapshot(rows, terminals, this.now());
+    // A native worktree's folder is its name (it usually equals the branch, which Orca's rule would hide).
+    return toSnapshot(rows, terminals, this.now(), { deskName: (w) => path.basename(w.path ?? '') || orcaDeskName(w) });
   }
 
   /**

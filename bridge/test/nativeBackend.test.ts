@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { NativeBackend, type PtyLike } from '../src/backend/native.js';
 import type { PtyOptions } from '../src/native/ptyHost.js';
 import { Registry } from '../src/native/registry.js';
+import { validateHire } from '../src/hire.js';
 
 const READY = ['', '─'.repeat(40), '❯ ', '─'.repeat(40), '  ⏵⏵ auto mode on'];
 const TRUST = [' Quick safety check: Is this a project you created or one you trust?', ' ❯ No, exit', '   Yes, I trust this folder', ' Enter to confirm · Esc to cancel'];
@@ -13,6 +14,27 @@ class FakePty implements PtyLike {
   spawned: { id: string; opts: PtyOptions }[] = [];
   writes: [string, string][] = [];
   screens = new Map<string, string[]>();
+  data = new Map<string, Set<(d: string) => void>>();
+  sizes = new Map<string, { cols: number; rows: number }>();
+  replies = new Map<string, boolean>();
+  onData(id: string, fn: (d: string) => void): () => void {
+    const set = this.data.get(id) ?? new Set();
+    set.add(fn);
+    this.data.set(id, set);
+    return () => set.delete(fn);
+  }
+  resize(id: string, cols: number, rows: number): void {
+    this.sizes.set(id, { cols, rows });
+  }
+  serialize(id: string): string {
+    return (this.screens.get(id) ?? []).join('\r\n');
+  }
+  setReplies(id: string, on: boolean): void {
+    this.replies.set(id, on);
+  }
+  size(id: string): { cols: number; rows: number } | null {
+    return this.screens.has(id) ? (this.sizes.get(id) ?? { cols: 120, rows: 40 }) : null;
+  }
   private exits = new Set<(id: string, code: number) => void>();
   spawn(id: string, opts: PtyOptions): void {
     this.spawned.push({ id, opts });
@@ -87,6 +109,25 @@ describe('NativeBackend snapshot', () => {
       ['abcdef123456::/h/worktrees/app/feat', false, 'feat', 'app', 'in-review', 'look'],
       ['abcdef123456::/p/app', true, 'main', 'app', null, ''],
     ]);
+  });
+});
+
+describe('NativeBackend desk names', () => {
+  const FIX = 'worktree /p/app\nHEAD a\nbranch refs/heads/main\n\nworktree /h/worktrees/app/fix-login\nHEAD b\nbranch refs/heads/fix-login\n\n';
+
+  it('names a worktree desk after its folder, the main checkout after its folder too', async () => {
+    const { backend } = await setup(async () => FIX);
+    const s = await backend.snapshot();
+    expect(s.desks.map((d) => [d.id, d.name])).toEqual([
+      ['abcdef123456::/h/worktrees/app/fix-login', 'fix-login'],
+      ['abcdef123456::/p/app', 'app'],
+    ]);
+  });
+
+  it('refuses to hire a second worktree with the same name', async () => {
+    const { backend } = await setup(async () => FIX);
+    const desks = (await backend.snapshot()).desks;
+    expect(validateHire({ repoId: 'abcdef123456', name: 'fix-login', agent: 'claude' }, desks)).toEqual({ error: '같은 이름의 워크트리가 이미 있어요' });
   });
 });
 
@@ -365,6 +406,17 @@ describe('NativeBackend input, board, sessions, repos', () => {
     await backend.addRepo('/q/other/src');
     expect(registry.repos.map((r) => r.path)).toContain(path.normalize('/q/other'));
     await expect(backend.addRepo('relative/path')).rejects.toMatchObject({ code: 'not_absolute' });
+  });
+
+  it('exposes the live terminal of an agent for attaching', async () => {
+    const { backend, pty } = await setup();
+    await backend.hire({ kind: 'agent', deskId: 'abcdef123456::/p/app', agent: 'claude', prompt: null });
+    const id = pty.spawned[0].id;
+    expect(backend.terminalOf(`${id}:main`)).toBe(id);
+    expect(backend.pty).toBe(pty);
+    pty.kill(id);
+    expect(backend.terminalOf(`${id}:main`)).toBeNull();
+    expect(backend.terminalOf('nope:main')).toBeNull();
   });
 
   it('kills every agent on dispose and removes settings files', async () => {

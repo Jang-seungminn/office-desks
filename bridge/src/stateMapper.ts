@@ -91,11 +91,19 @@ function describe(state: CharacterState, a: OrcaAgentRow): string {
   }
 }
 
+/** Orca defaults displayName to the branch; a repo name is more telling than "main" twice. */
+export function orcaDeskName(w: OrcaWorktreeRow): string {
+  const branch = (w.branch ?? '').replace(/^refs\/heads\//, '');
+  return w.displayName && w.displayName !== branch ? w.displayName : w.repo || branch || 'worktree';
+}
+
 export function toSnapshot(
   worktrees: OrcaWorktreeRow[],
   terminals: OrcaTerminalRow[],
   now: number = Date.now(),
+  opts: { deskName?: (w: OrcaWorktreeRow) => string } = {},
 ): OfficeSnapshot {
+  const deskName = opts.deskName ?? orcaDeskName;
   const termByPane = new Map<string, OrcaTerminalRow>();
   for (const t of terminals) {
     if (t.handle && t.tabId && t.leafId) termByPane.set(`${t.tabId}:${t.leafId}`, t);
@@ -127,8 +135,7 @@ export function toSnapshot(
         };
       });
       const branch = (w.branch ?? '').replace(/^refs\/heads\//, '');
-      // Orca defaults displayName to the branch; a repo name is more telling than "main" twice.
-      const name = w.displayName && w.displayName !== branch ? w.displayName : w.repo || branch || 'worktree';
+      const name = deskName(w);
       return {
         id: w.worktreeId!,
         repoId: w.repoId ?? w.worktreeId!.split('::')[0],

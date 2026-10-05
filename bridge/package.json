@@ -5,12 +5,14 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "tui": "tsx src/tui/cli.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "demo": "cross-env OFFICE_DESKS_DEMO=1 tsx src/server.ts",
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
+    "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "^6.0.0",
     "cross-spawn": "^7.0.6",
     "node-pty": "1.1.0",

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // `npx office-desks` — start the bridge and serve the office UI.
+// In a terminal it also opens the terminal app (TUI); --no-tui runs the server only.
 //   --port <n>   listen on another port (default 4317)
 //   --backend <orca|native|demo>   pick the backend (default: orca if running, else native)
 //   --demo       same as --backend demo
+//   --no-tui     server only (web), no terminal app
 //   --help
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -17,7 +19,7 @@ const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
   console.log(`office-desks — a pixel-art office for your coding agents
 
-Usage: npx office-desks [--port <n>] [--backend orca|native|demo] [--demo]
+Usage: npx office-desks [--port <n>] [--backend orca|native|demo] [--demo] [--no-tui]
 
   --port <n>        port to listen on (default 4317, or OFFICE_DESKS_PORT)
   --backend <kind>  orca: on top of a running Orca app
@@ -25,6 +27,8 @@ Usage: npx office-desks [--port <n>] [--backend orca|native|demo] [--demo]
                     demo: fake office
                     default: orca if Orca is running, otherwise native
   --demo            same as --backend demo
+  --no-tui          server only (web), no terminal app
+In a terminal, office-desks opens its terminal app (agents list; Enter attaches, Ctrl+] returns).
 
 Then open http://127.0.0.1:<port>.`);
   process.exit(0);
@@ -49,5 +53,13 @@ if (backendIdx >= 0) {
 }
 if (args.includes('--demo')) process.env.OFFICE_DESKS_DEMO = '1';
 
+const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+const backendArg = process.env.OFFICE_DESKS_BACKEND;
+const tui = tty && !args.includes('--no-tui') && !args.includes('--demo') && !process.env.OFFICE_DESKS_DEMO && (!backendArg || backendArg === 'native');
 const here = path.dirname(fileURLToPath(import.meta.url));
-await import(pathToFileURL(path.join(here, '..', 'bridge', 'dist', 'server.js')).href);
+if (tui) {
+  const { runTui } = await import(pathToFileURL(path.join(here, '..', 'bridge', 'dist', 'tui', 'main.js')).href);
+  await runTui();
+} else {
+  await import(pathToFileURL(path.join(here, '..', 'bridge', 'dist', 'server.js')).href);
+}

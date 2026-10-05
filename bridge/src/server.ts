@@ -31,6 +31,8 @@ const DEV_WEB_PORT = 5173;
 const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 
 // Only accept a session whose transcript actually contains what we searched for.
+/** The terminal app is the live viewer: the poller must not idle without web clients. */
+const tuiActive = Boolean(process.env.OFFICE_DESKS_TUI);
 const backend: OfficeBackend = await createBackend(
   process.env,
   async (filePath, key) => {
@@ -548,7 +550,7 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 
 wss.on('connection', (ws) => {
   poller.setIdle(false);
-  ws.on('close', () => poller.setIdle(wss.clients.size === 0));
+  ws.on('close', () => poller.setIdle(!tuiActive && wss.clients.size === 0));
   send(ws, { type: 'backend', backend: { name: backend.name, capabilities: backend.capabilities } });
   send(ws, { type: 'snapshot', snapshot: poller.current });
   if (usage) send(ws, { type: 'usage', usage });
@@ -584,19 +586,47 @@ poller.onChange((snapshot) => {
   for (const ws of wss.clients) if (ws.readyState === ws.OPEN) send(ws, { type: 'snapshot', snapshot });
 });
 
-poller.setIdle(true); // until a browser connects
+poller.setIdle(!tuiActive); // until a browser connects (the TUI lobby is a live viewer)
 poller.start();
 void cleanOldUploads();
+/** Resolves once the HTTP server listens (the TUI waits for it); rejects if the port is taken. */
+export const ready = new Promise<void>((resolve, reject) => {
+  // Only for startup: once listening, later server errors must not vanish into a settled promise.
+  const onListening = () => {
+    server.off('error', onError);
+    resolve();
+  };
+  const onError = (err: Error) => {
+    server.off('listening', onListening);
+    reject(err);
+  };
+  server.once('listening', onListening);
+  server.once('error', onError);
+});
+// Server-only mode keeps failing loudly; the TUI handles the rejection itself.
+if (!tuiActive) {
+  ready.catch((err) => {
+    console.error(`[office-desks] ${err.message}`);
+    process.exit(1);
+  });
+} else {
+  ready.catch(() => {}); // the TUI awaits `ready` itself and reports the error
+}
 server.listen(PORT, HOST, () => {
   console.log(`[office-desks] bridge on http://${HOST}:${PORT} (${DEMO ? 'DEMO data' : backend.name === 'orca' ? `orca backend, orca cli: ${resolveOrcaCommand()}` : `${backend.name} backend`})`);
 });
 
-// Native agents live in this process: stop them with it.
+// Native agents live in this process: stop them with it. The TUI handles signals itself
+// (it restores the terminal first, and also handles SIGHUP).
 let stopping = false;
-for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(sig, () => {
-    if (stopping) return;
-    stopping = true;
-    void backend.dispose().finally(() => process.exit(0));
-  });
+if (!tuiActive) {
+  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(sig, () => {
+      if (stopping) return;
+      stopping = true;
+      void backend.dispose().finally(() => process.exit(0));
+    });
+  }
 }
+
+export { backend, poller, PORT };

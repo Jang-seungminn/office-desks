@@ -38,12 +38,14 @@
     "dev": "concurrently -n bridge,web -c blue,magenta \"npm run dev -w bridge\" \"npm run dev -w web\"",
     "build": "npm run build -w web && npm run build -w bridge",
     "start": "npm run build -w web && npm run start -w bridge",
+    "tui": "npm run build -w web && npm run tui -w bridge",
     "test": "npm test -w bridge && npm test -w web",
     "typecheck": "npm run typecheck -w bridge && npm run typecheck -w web",
     "demo": "npm run build && npm run demo -w bridge",
     "prepack": "npm run build"
   },
   "dependencies": {
+    "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "^6.0.0",
     "cross-spawn": "^7.0.6",
     "node-pty": "1.1.0",
