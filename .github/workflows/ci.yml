@@ -51,3 +51,35 @@ jobs:
           cargo test -p od-server --test native -- --list | grep -x 'contract: test'
           cargo test -p od-server --test native -- --list | grep -x 'contract_demo: test'
           cargo test -p od-orca --test cli -- --list | grep -x 'cmd_shim_round_trip: test'
+  # The Gongbang app UI against the in-process server (Playwright, Rust harness, fake agent).
+  # Task 10 extends this job with the tauri build and the bundle upload.
+  app:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - run: npm run build -w web
+      - run: npm run build -w app
+      - run: cargo build -p od-app --example e2e_harness
+      - name: Playwright browsers
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then npx -w app playwright install chromium webkit; else npx -w app playwright install chromium; fi
+      - run: npm run e2e -w app
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-report-${{ runner.os }}
+          path: |
+            app/playwright-report
+            app/test-results
+          if-no-files-found: ignore

@@ -1,7 +1,9 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 // Served by od-server under /app/ (same origin as /api, /ws and /term).
 export default defineConfig({
   base: '/app/',
+  // Playwright's specs live in e2e/ (npm run e2e); vitest runs test/ only.
+  test: { include: ['test/**/*.test.ts'] },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

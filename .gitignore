@@ -5,3 +5,5 @@ dist/
 .gstack/
 bridge/dist/
 /target
+app/test-results/
+app/playwright-report/
