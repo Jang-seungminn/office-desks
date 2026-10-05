@@ -32,6 +32,9 @@ describe('appAction', () => {
     ['win ctrl shift V', 'win', 'KeyV', cs, { kind: 'paste' }],
     ['win ctrl shift alt T', 'win', 'KeyT', { ...cs, altKey: true }, null],
     ['win meta ctrl shift T', 'win', 'KeyT', { ...cs, metaKey: true }, null],
+    ['win ctrl shift IntlYen', 'win', 'IntlYen', cs, { kind: 'split' }],
+    ['mac cmd IntlYen', 'mac', 'IntlYen', cmd, { kind: 'split' }],
+    ['win ctrl shift IntlBackslash', 'win', 'IntlBackslash', cs, null],
     ['win unbound key', 'win', 'KeyQ', cs, null],
   ];
   it.each(rows)('%s', (_n, p, code, mods, want) => {
@@ -139,6 +142,13 @@ describe('installKeys', () => {
     }
     expect(w.bubbled).toHaveBeenCalledTimes(3);
     expect(w.run).not.toHaveBeenCalled();
+  });
+
+  it('mac: Ctrl+R passes through untouched (shell reverse search)', () => {
+    const { run, bubbled, press } = setup('mac');
+    expect(press({ code: 'KeyR', ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+    expect(bubbled).toHaveBeenCalledTimes(1);
   });
 
   it('the remover detaches the listener', () => {

@@ -71,6 +71,10 @@ export class Workspace {
     this.targetView()?.paste(text);
   }
 
+  focusActive(): void {
+    this.activeView()?.focus();
+  }
+
   /** Refits the visible panes (after the sidebar toggles). */
   fit(): void {
     for (const id of [this.st.active, this.st.split]) if (id) this.slots.get(id)?.view.fit();

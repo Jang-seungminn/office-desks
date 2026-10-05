@@ -71,15 +71,22 @@ installKeys(window, platform(), (a) => {
     case 'newWork': {
       const repo = sidebar.selectedRepoId ?? feed.snapshot?.desks[0]?.repoId;
       if (repo) void newWorkFlow(repo);
+      else toast('먼저 프로젝트를 추가해 주세요', 'error');
       break;
     }
     case 'closeTab': workspace?.close(); break; // never closes the window
     case 'switchTab': workspace?.switchTo(a.index); break;
     case 'split': workspace?.toggleSplit(); break;
-    case 'sidebar': sidebar.toggle(); workspace?.fit(); break;
+    case 'sidebar': {
+      const had = aside.contains(document.activeElement);
+      sidebar.toggle();
+      if (had && sidebar.hidden) workspace?.focusActive();
+      workspace?.fit();
+      break;
+    }
     case 'copy': {
       const t = workspace?.copy() ?? '';
-      if (t) void navigator.clipboard.writeText(t).catch(() => {});
+      if (t) navigator.clipboard.writeText(t).catch(() => toast('⚠️ 클립보드에 복사하지 못했어요', 'error'));
       break;
     }
     case 'paste':

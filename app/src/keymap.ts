@@ -25,7 +25,8 @@ export function appAction(e: Mods, p: Platform): AppAction | null {
     case 'KeyT': return { kind: 'newWork' };
     case 'KeyW': return { kind: 'closeTab' };
     case 'KeyB': return { kind: 'sidebar' };
-    case 'Backslash': return { kind: 'split' };
+    case 'Backslash':
+    case 'IntlYen': return { kind: 'split' }; // IntlYen: JIS backslash key. IntlBackslash stays unbound.
     case 'KeyC': return p === 'win' ? { kind: 'copy' } : null; // macOS: the Edit menu
     case 'KeyV': return p === 'win' ? { kind: 'paste' } : null;
   }
