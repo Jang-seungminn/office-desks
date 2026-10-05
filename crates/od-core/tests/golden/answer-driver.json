@@ -1,0 +1,1180 @@
+{
+  "questions": [
+    {
+      "header": "Color",
+      "question": "Which color?",
+      "multiSelect": false,
+      "options": [
+        {
+          "label": "Red",
+          "description": ""
+        },
+        {
+          "label": "Blue",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "header": "Sizes",
+      "question": "Which sizes?",
+      "multiSelect": true,
+      "options": [
+        {
+          "label": "Small",
+          "description": ""
+        },
+        {
+          "label": "Medium",
+          "description": ""
+        },
+        {
+          "label": "Large",
+          "description": ""
+        }
+      ]
+    }
+  ],
+  "screens": [
+    {
+      "name": "q1",
+      "lines": [
+        "❯ Use AskUserQuestion: Which color? Which sizes?",
+        "────────────────────────────────────────",
+        "←  ☐ Color  ☐ Sizes  ✔ Submit  →",
+        "Which color?",
+        "❯ 1. Red",
+        "     warm",
+        "  2. Blue",
+        "  3. Type something.",
+        "────────────────────────────────────────",
+        "  4. Chat about this"
+      ],
+      "currentQuestion": "Which color?",
+      "isReview": false
+    },
+    {
+      "name": "q2",
+      "lines": [
+        "────────────────────────────────────────",
+        "←  ☒ Color  ☐ Sizes  ✔ Submit  →",
+        "Which sizes?",
+        "❯ 1. [ ] Small",
+        "  2. [ ] Medium",
+        "  3. [ ] Large",
+        "     Submit",
+        "────────────────────────────────────────"
+      ],
+      "currentQuestion": "Which sizes?",
+      "isReview": false
+    },
+    {
+      "name": "review",
+      "lines": [
+        "←  ☒ Color  ☒ Sizes  ✔ Submit  →",
+        "Review your answers",
+        " ● Which color?",
+        "   → Blue",
+        "Ready to submit your answers?",
+        "❯ 1. Submit answers",
+        "  2. Cancel"
+      ],
+      "currentQuestion": "Review your answers ● Which color? → Blue Ready to submit your answers?",
+      "isReview": true
+    },
+    {
+      "name": "done",
+      "lines": [
+        "⏺ Blue; Small, Large",
+        "────────────────────────────────────────",
+        "❯ ",
+        "────────────────────────────────────────"
+      ],
+      "currentQuestion": null,
+      "isReview": false
+    },
+    {
+      "name": "single",
+      "lines": [
+        "──────────────────────────────     +— they stay on the top floor. */",
+        " ☐ 캡처 테스트                                                  37 +export function zoneOf(desk",
+        "│ [화면 캡처용 테스트] 질문이 하나일 때의 터미널 화면을 저장하는 중입니다. 30초 뒤에       38 +  if (desk.agents",
+        "│ 터미널에서 아무거나 골라 주세요.                                  +d))) return",
+        "                                                                   39    return desk",
+        "❯ 1. 확인                                                          40  }",
+        "  2. 다시                                                          39 -export function recency",
+        "  3. Type something."
+      ],
+      "currentQuestion": "[화면 캡처용 테스트] 질문이 하나일 때의 터미널 화면을 저장하는 중입니다. 30초 뒤에 38 + if (desk.agents 터미널에서 아무거나 골라 주세요. +d))) return",
+      "isReview": false
+    },
+    {
+      "name": "header without options",
+      "lines": [
+        " ☐ Header",
+        "Question?"
+      ],
+      "currentQuestion": null,
+      "isReview": false
+    },
+    {
+      "name": "header with option",
+      "lines": [
+        " ☐ Header",
+        "Question?",
+        "  1. Yes"
+      ],
+      "currentQuestion": "Question?",
+      "isReview": false
+    },
+    {
+      "name": "wrapped and indented",
+      "lines": [
+        "←  ☐ A  →",
+        "│ first  line",
+        "      other pane",
+        "second",
+        "1. x"
+      ],
+      "currentQuestion": "first line second",
+      "isReview": false
+    },
+    {
+      "name": "review half",
+      "lines": [
+        "Ready to submit your answers?"
+      ],
+      "currentQuestion": null,
+      "isReview": false
+    },
+    {
+      "name": "review spaced",
+      "lines": [
+        "Ready to submit your answers?",
+        "  12.Submit answers"
+      ],
+      "currentQuestion": null,
+      "isReview": true
+    },
+    {
+      "name": "empty",
+      "lines": [],
+      "currentQuestion": null,
+      "isReview": false
+    }
+  ],
+  "validate": [
+    {
+      "name": "ok",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          1
+        ],
+        [
+          0,
+          2
+        ]
+      ],
+      "expected": null
+    },
+    {
+      "name": "short",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          1
+        ]
+      ],
+      "expected": "모든 질문에 답해 주세요"
+    },
+    {
+      "name": "two on single",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          0,
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "expected": "\"Color\"에 답해 주세요"
+    },
+    {
+      "name": "empty multi",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          1
+        ],
+        []
+      ],
+      "expected": "\"Sizes\"에 답해 주세요"
+    },
+    {
+      "name": "out of range",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          5
+        ],
+        [
+          0
+        ]
+      ],
+      "expected": "잘못된 선택입니다"
+    },
+    {
+      "name": "duplicate",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          1
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "expected": "잘못된 선택입니다"
+    },
+    {
+      "name": "not a list",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": "x",
+      "expected": "모든 질문에 답해 주세요"
+    },
+    {
+      "name": "null",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": null,
+      "expected": "모든 질문에 답해 주세요"
+    },
+    {
+      "name": "entry not a list",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        1,
+        [
+          0
+        ]
+      ],
+      "expected": "잘못된 선택입니다"
+    },
+    {
+      "name": "string index",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          "0"
+        ],
+        [
+          0
+        ]
+      ],
+      "expected": "잘못된 선택입니다"
+    },
+    {
+      "name": "negative",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          -1
+        ],
+        [
+          0
+        ]
+      ],
+      "expected": "잘못된 선택입니다"
+    },
+    {
+      "name": "fraction",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          0.5
+        ],
+        [
+          0
+        ]
+      ],
+      "expected": "잘못된 선택입니다"
+    },
+    {
+      "name": "null index",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          null
+        ],
+        [
+          0
+        ]
+      ],
+      "expected": "잘못된 선택입니다"
+    },
+    {
+      "name": "whole float",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          1
+        ],
+        [
+          0,
+          2
+        ]
+      ],
+      "expected": null
+    },
+    {
+      "name": "empty single",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [],
+        [
+          0
+        ]
+      ],
+      "expected": "\"Color\"에 답해 주세요"
+    },
+    {
+      "name": "wide empty",
+      "questions": [
+        {
+          "header": "",
+          "question": "Pick?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "0",
+              "description": ""
+            },
+            {
+              "label": "1",
+              "description": ""
+            },
+            {
+              "label": "2",
+              "description": ""
+            },
+            {
+              "label": "3",
+              "description": ""
+            },
+            {
+              "label": "4",
+              "description": ""
+            },
+            {
+              "label": "5",
+              "description": ""
+            },
+            {
+              "label": "6",
+              "description": ""
+            },
+            {
+              "label": "7",
+              "description": ""
+            },
+            {
+              "label": "8",
+              "description": ""
+            },
+            {
+              "label": "9",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        []
+      ],
+      "expected": "\"Pick?\"에 답해 주세요"
+    },
+    {
+      "name": "wide",
+      "questions": [
+        {
+          "header": "",
+          "question": "Pick?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "0",
+              "description": ""
+            },
+            {
+              "label": "1",
+              "description": ""
+            },
+            {
+              "label": "2",
+              "description": ""
+            },
+            {
+              "label": "3",
+              "description": ""
+            },
+            {
+              "label": "4",
+              "description": ""
+            },
+            {
+              "label": "5",
+              "description": ""
+            },
+            {
+              "label": "6",
+              "description": ""
+            },
+            {
+              "label": "7",
+              "description": ""
+            },
+            {
+              "label": "8",
+              "description": ""
+            },
+            {
+              "label": "9",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          0
+        ]
+      ],
+      "expected": "선택지가 너무 많아 웹에서 답할 수 없습니다. 터미널에서 답해 주세요"
+    }
+  ],
+  "runs": [
+    {
+      "name": "full walk",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          1
+        ],
+        [
+          0,
+          2
+        ]
+      ],
+      "first": "q1",
+      "result": {
+        "pressed": [
+          "2",
+          "1",
+          "3",
+          "right",
+          "1"
+        ],
+        "slept": [
+          250,
+          120,
+          120,
+          250
+        ],
+        "error": null
+      }
+    },
+    {
+      "name": "question not on screen",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        },
+        {
+          "header": "Sizes",
+          "question": "Which sizes?",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Small",
+              "description": ""
+            },
+            {
+              "label": "Medium",
+              "description": ""
+            },
+            {
+              "label": "Large",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "first": "done",
+      "result": {
+        "pressed": [],
+        "slept": [
+          200,
+          200,
+          200
+        ],
+        "error": "터미널에 \"Color\" 질문이 보이지 않아 멈췄습니다. 터미널 탭에서 확인해 주세요"
+      }
+    },
+    {
+      "name": "never reaches review",
+      "questions": [
+        {
+          "header": "Color",
+          "question": "Which color?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Red",
+              "description": ""
+            },
+            {
+              "label": "Blue",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          0
+        ]
+      ],
+      "first": "q1",
+      "result": {
+        "pressed": [
+          "1"
+        ],
+        "slept": [
+          250,
+          200,
+          200,
+          200
+        ],
+        "error": "답을 입력했지만 제출 화면을 확인하지 못했습니다. 터미널 탭에서 확인해 주세요"
+      }
+    },
+    {
+      "name": "single question submits at once",
+      "questions": [
+        {
+          "header": "캡처 테스트",
+          "question": "[화면 캡처용 테스트] 질문이 하나일 때의 터미널 화면을 저장하는 중입니다. 30초 뒤에 터미널에서 아무거나 골라 주세요.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "확인",
+              "description": ""
+            },
+            {
+              "label": "다시",
+              "description": ""
+            }
+          ]
+        }
+      ],
+      "choices": [
+        [
+          1
+        ]
+      ],
+      "first": "single",
+      "result": {
+        "pressed": [
+          "2"
+        ],
+        "slept": [
+          250
+        ],
+        "error": null
+      }
+    }
+  ]
+}

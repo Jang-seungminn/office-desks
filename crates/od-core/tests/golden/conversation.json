@@ -1,0 +1,1210 @@
+[
+  {
+    "name": "not found",
+    "kind": "empty",
+    "reason": "이 에이전트는 더 이상 사무실에 없습니다.",
+    "expected": {
+      "found": false,
+      "reason": "이 에이전트는 더 이상 사무실에 없습니다.",
+      "fileId": null,
+      "title": null,
+      "total": 0,
+      "after": 0,
+      "messages": [],
+      "subagents": [],
+      "questions": [],
+      "pending": [],
+      "claudeVersion": null,
+      "screenSupport": "unknown"
+    }
+  },
+  {
+    "name": "subagent missing",
+    "kind": "empty-subagents",
+    "reason": "서브에이전트 기록을 찾지 못했습니다.",
+    "expected": {
+      "found": false,
+      "reason": "서브에이전트 기록을 찾지 못했습니다.",
+      "fileId": null,
+      "title": null,
+      "total": 0,
+      "after": 0,
+      "messages": [],
+      "subagents": [
+        {
+          "toolUseId": "s1",
+          "description": "Security review",
+          "agentType": "Explore",
+          "status": "done",
+          "agentId": "abc123"
+        },
+        {
+          "toolUseId": "s2",
+          "description": "Find the files please",
+          "agentType": "general-purpose",
+          "status": "done",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s3",
+          "description": "subagent",
+          "agentType": "general-purpose",
+          "status": "running",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s4",
+          "description": "Will fail",
+          "agentType": "general-purpose",
+          "status": "failed",
+          "agentId": null
+        }
+      ],
+      "questions": [],
+      "pending": [],
+      "claudeVersion": null,
+      "screenSupport": "unknown"
+    }
+  },
+  {
+    "name": "main, from start",
+    "kind": "found",
+    "main": "claude-rich",
+    "agentType": "claude",
+    "after": 0,
+    "expected": {
+      "found": true,
+      "fileId": "<fileId>",
+      "title": "Fallback summary",
+      "total": 19,
+      "after": 0,
+      "messages": [
+        {
+          "role": "user",
+          "text": "안녕 — 첫 요청",
+          "ts": "2026-10-03T10:00:00.000Z",
+          "images": [
+            0
+          ]
+        },
+        {
+          "role": "assistant",
+          "text": "Working on it.",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Read: /a/b.ts",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Grep: a b",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Bash: echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Weird: not json",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Skill: review",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Empty",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "question",
+          "text": "Which mode?\nPick many",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q1"
+        },
+        {
+          "role": "question",
+          "text": "Cancelled one?",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q2"
+        },
+        {
+          "role": "question",
+          "text": "Still waiting?",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q3"
+        },
+        {
+          "role": "subagent",
+          "text": "Security review",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s1"
+        },
+        {
+          "role": "subagent",
+          "text": "Find the files please",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s2"
+        },
+        {
+          "role": "subagent",
+          "text": "subagent",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s3"
+        },
+        {
+          "role": "subagent",
+          "text": "Will fail",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s4"
+        },
+        {
+          "role": "user",
+          "text": "also do this",
+          "ts": "2026-10-03T10:00:10.000Z",
+          "queued": true
+        },
+        {
+          "role": "user",
+          "text": "with image",
+          "ts": "2026-10-03T10:00:10.200Z",
+          "queued": true,
+          "images": [
+            1
+          ]
+        },
+        {
+          "role": "user",
+          "text": "한 줄\n더",
+          "ts": "2026-10-04T09:00:13.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Bash: ls",
+          "ts": "2026-10-04T09:00:14.000Z"
+        }
+      ],
+      "subagents": [
+        {
+          "toolUseId": "s1",
+          "description": "Security review",
+          "agentType": "Explore",
+          "status": "done",
+          "agentId": "abc123"
+        },
+        {
+          "toolUseId": "s2",
+          "description": "Find the files please",
+          "agentType": "general-purpose",
+          "status": "done",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s3",
+          "description": "subagent",
+          "agentType": "general-purpose",
+          "status": "running",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s4",
+          "description": "Will fail",
+          "agentType": "general-purpose",
+          "status": "failed",
+          "agentId": null
+        }
+      ],
+      "questions": [
+        {
+          "toolUseId": "q1",
+          "questions": [
+            {
+              "header": "Mode",
+              "question": "Which mode?",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Fast",
+                  "description": "quick"
+                },
+                {
+                  "label": "Slow",
+                  "description": ""
+                }
+              ]
+            },
+            {
+              "header": "",
+              "question": "Pick many",
+              "multiSelect": true,
+              "options": []
+            }
+          ],
+          "status": "answered",
+          "answers": {
+            "Which mode?": "Fast",
+            "Pick many": "a, b"
+          }
+        },
+        {
+          "toolUseId": "q2",
+          "questions": [
+            {
+              "header": "H",
+              "question": "Cancelled one?",
+              "multiSelect": false,
+              "options": []
+            }
+          ],
+          "status": "cancelled",
+          "answers": {}
+        },
+        {
+          "toolUseId": "q3",
+          "questions": [
+            {
+              "header": "H",
+              "question": "Still waiting?",
+              "multiSelect": false,
+              "options": []
+            }
+          ],
+          "status": "pending",
+          "answers": {}
+        }
+      ],
+      "pending": [
+        {
+          "text": "queued B",
+          "ts": "2026-10-03T10:00:09.500Z"
+        }
+      ],
+      "claudeVersion": "2.1.5",
+      "screenSupport": "tested"
+    }
+  },
+  {
+    "name": "main, after 3",
+    "kind": "found",
+    "main": "claude-rich",
+    "agentType": "claude",
+    "after": 3,
+    "expected": {
+      "found": true,
+      "fileId": "<fileId>",
+      "title": "Fallback summary",
+      "total": 19,
+      "after": 3,
+      "messages": [
+        {
+          "role": "tool",
+          "text": "Grep: a b",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Bash: echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Weird: not json",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Skill: review",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Empty",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "question",
+          "text": "Which mode?\nPick many",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q1"
+        },
+        {
+          "role": "question",
+          "text": "Cancelled one?",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q2"
+        },
+        {
+          "role": "question",
+          "text": "Still waiting?",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q3"
+        },
+        {
+          "role": "subagent",
+          "text": "Security review",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s1"
+        },
+        {
+          "role": "subagent",
+          "text": "Find the files please",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s2"
+        },
+        {
+          "role": "subagent",
+          "text": "subagent",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s3"
+        },
+        {
+          "role": "subagent",
+          "text": "Will fail",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s4"
+        },
+        {
+          "role": "user",
+          "text": "also do this",
+          "ts": "2026-10-03T10:00:10.000Z",
+          "queued": true
+        },
+        {
+          "role": "user",
+          "text": "with image",
+          "ts": "2026-10-03T10:00:10.200Z",
+          "queued": true,
+          "images": [
+            1
+          ]
+        },
+        {
+          "role": "user",
+          "text": "한 줄\n더",
+          "ts": "2026-10-04T09:00:13.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Bash: ls",
+          "ts": "2026-10-04T09:00:14.000Z"
+        }
+      ],
+      "subagents": [
+        {
+          "toolUseId": "s1",
+          "description": "Security review",
+          "agentType": "Explore",
+          "status": "done",
+          "agentId": "abc123"
+        },
+        {
+          "toolUseId": "s2",
+          "description": "Find the files please",
+          "agentType": "general-purpose",
+          "status": "done",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s3",
+          "description": "subagent",
+          "agentType": "general-purpose",
+          "status": "running",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s4",
+          "description": "Will fail",
+          "agentType": "general-purpose",
+          "status": "failed",
+          "agentId": null
+        }
+      ],
+      "questions": [
+        {
+          "toolUseId": "q1",
+          "questions": [
+            {
+              "header": "Mode",
+              "question": "Which mode?",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Fast",
+                  "description": "quick"
+                },
+                {
+                  "label": "Slow",
+                  "description": ""
+                }
+              ]
+            },
+            {
+              "header": "",
+              "question": "Pick many",
+              "multiSelect": true,
+              "options": []
+            }
+          ],
+          "status": "answered",
+          "answers": {
+            "Which mode?": "Fast",
+            "Pick many": "a, b"
+          }
+        },
+        {
+          "toolUseId": "q2",
+          "questions": [
+            {
+              "header": "H",
+              "question": "Cancelled one?",
+              "multiSelect": false,
+              "options": []
+            }
+          ],
+          "status": "cancelled",
+          "answers": {}
+        },
+        {
+          "toolUseId": "q3",
+          "questions": [
+            {
+              "header": "H",
+              "question": "Still waiting?",
+              "multiSelect": false,
+              "options": []
+            }
+          ],
+          "status": "pending",
+          "answers": {}
+        }
+      ],
+      "pending": [
+        {
+          "text": "queued B",
+          "ts": "2026-10-03T10:00:09.500Z"
+        }
+      ],
+      "claudeVersion": "2.1.5",
+      "screenSupport": "tested"
+    }
+  },
+  {
+    "name": "after out of range",
+    "kind": "found",
+    "main": "claude-rich",
+    "agentType": "claude",
+    "after": 9999,
+    "expected": {
+      "found": true,
+      "fileId": "<fileId>",
+      "title": "Fallback summary",
+      "total": 19,
+      "after": 0,
+      "messages": [
+        {
+          "role": "user",
+          "text": "안녕 — 첫 요청",
+          "ts": "2026-10-03T10:00:00.000Z",
+          "images": [
+            0
+          ]
+        },
+        {
+          "role": "assistant",
+          "text": "Working on it.",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Read: /a/b.ts",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Grep: a b",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Bash: echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Weird: not json",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Skill: review",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Empty",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "question",
+          "text": "Which mode?\nPick many",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q1"
+        },
+        {
+          "role": "question",
+          "text": "Cancelled one?",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q2"
+        },
+        {
+          "role": "question",
+          "text": "Still waiting?",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q3"
+        },
+        {
+          "role": "subagent",
+          "text": "Security review",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s1"
+        },
+        {
+          "role": "subagent",
+          "text": "Find the files please",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s2"
+        },
+        {
+          "role": "subagent",
+          "text": "subagent",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s3"
+        },
+        {
+          "role": "subagent",
+          "text": "Will fail",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s4"
+        },
+        {
+          "role": "user",
+          "text": "also do this",
+          "ts": "2026-10-03T10:00:10.000Z",
+          "queued": true
+        },
+        {
+          "role": "user",
+          "text": "with image",
+          "ts": "2026-10-03T10:00:10.200Z",
+          "queued": true,
+          "images": [
+            1
+          ]
+        },
+        {
+          "role": "user",
+          "text": "한 줄\n더",
+          "ts": "2026-10-04T09:00:13.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Bash: ls",
+          "ts": "2026-10-04T09:00:14.000Z"
+        }
+      ],
+      "subagents": [
+        {
+          "toolUseId": "s1",
+          "description": "Security review",
+          "agentType": "Explore",
+          "status": "done",
+          "agentId": "abc123"
+        },
+        {
+          "toolUseId": "s2",
+          "description": "Find the files please",
+          "agentType": "general-purpose",
+          "status": "done",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s3",
+          "description": "subagent",
+          "agentType": "general-purpose",
+          "status": "running",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s4",
+          "description": "Will fail",
+          "agentType": "general-purpose",
+          "status": "failed",
+          "agentId": null
+        }
+      ],
+      "questions": [
+        {
+          "toolUseId": "q1",
+          "questions": [
+            {
+              "header": "Mode",
+              "question": "Which mode?",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Fast",
+                  "description": "quick"
+                },
+                {
+                  "label": "Slow",
+                  "description": ""
+                }
+              ]
+            },
+            {
+              "header": "",
+              "question": "Pick many",
+              "multiSelect": true,
+              "options": []
+            }
+          ],
+          "status": "answered",
+          "answers": {
+            "Which mode?": "Fast",
+            "Pick many": "a, b"
+          }
+        },
+        {
+          "toolUseId": "q2",
+          "questions": [
+            {
+              "header": "H",
+              "question": "Cancelled one?",
+              "multiSelect": false,
+              "options": []
+            }
+          ],
+          "status": "cancelled",
+          "answers": {}
+        },
+        {
+          "toolUseId": "q3",
+          "questions": [
+            {
+              "header": "H",
+              "question": "Still waiting?",
+              "multiSelect": false,
+              "options": []
+            }
+          ],
+          "status": "pending",
+          "answers": {}
+        }
+      ],
+      "pending": [
+        {
+          "text": "queued B",
+          "ts": "2026-10-03T10:00:09.500Z"
+        }
+      ],
+      "claudeVersion": "2.1.5",
+      "screenSupport": "tested"
+    }
+  },
+  {
+    "name": "negative after",
+    "kind": "found",
+    "main": "claude-rich",
+    "agentType": "codex",
+    "after": -1,
+    "expected": {
+      "found": true,
+      "fileId": "<fileId>",
+      "title": "Fallback summary",
+      "total": 19,
+      "after": 0,
+      "messages": [
+        {
+          "role": "user",
+          "text": "안녕 — 첫 요청",
+          "ts": "2026-10-03T10:00:00.000Z",
+          "images": [
+            0
+          ]
+        },
+        {
+          "role": "assistant",
+          "text": "Working on it.",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Read: /a/b.ts",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Grep: a b",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Bash: echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Weird: not json",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Skill: review",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Empty",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "question",
+          "text": "Which mode?\nPick many",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q1"
+        },
+        {
+          "role": "question",
+          "text": "Cancelled one?",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q2"
+        },
+        {
+          "role": "question",
+          "text": "Still waiting?",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q3"
+        },
+        {
+          "role": "subagent",
+          "text": "Security review",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s1"
+        },
+        {
+          "role": "subagent",
+          "text": "Find the files please",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s2"
+        },
+        {
+          "role": "subagent",
+          "text": "subagent",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s3"
+        },
+        {
+          "role": "subagent",
+          "text": "Will fail",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s4"
+        },
+        {
+          "role": "user",
+          "text": "also do this",
+          "ts": "2026-10-03T10:00:10.000Z",
+          "queued": true
+        },
+        {
+          "role": "user",
+          "text": "with image",
+          "ts": "2026-10-03T10:00:10.200Z",
+          "queued": true,
+          "images": [
+            1
+          ]
+        },
+        {
+          "role": "user",
+          "text": "한 줄\n더",
+          "ts": "2026-10-04T09:00:13.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Bash: ls",
+          "ts": "2026-10-04T09:00:14.000Z"
+        }
+      ],
+      "subagents": [
+        {
+          "toolUseId": "s1",
+          "description": "Security review",
+          "agentType": "Explore",
+          "status": "done",
+          "agentId": "abc123"
+        },
+        {
+          "toolUseId": "s2",
+          "description": "Find the files please",
+          "agentType": "general-purpose",
+          "status": "done",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s3",
+          "description": "subagent",
+          "agentType": "general-purpose",
+          "status": "running",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s4",
+          "description": "Will fail",
+          "agentType": "general-purpose",
+          "status": "failed",
+          "agentId": null
+        }
+      ],
+      "questions": [
+        {
+          "toolUseId": "q1",
+          "questions": [
+            {
+              "header": "Mode",
+              "question": "Which mode?",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Fast",
+                  "description": "quick"
+                },
+                {
+                  "label": "Slow",
+                  "description": ""
+                }
+              ]
+            },
+            {
+              "header": "",
+              "question": "Pick many",
+              "multiSelect": true,
+              "options": []
+            }
+          ],
+          "status": "answered",
+          "answers": {
+            "Which mode?": "Fast",
+            "Pick many": "a, b"
+          }
+        },
+        {
+          "toolUseId": "q2",
+          "questions": [
+            {
+              "header": "H",
+              "question": "Cancelled one?",
+              "multiSelect": false,
+              "options": []
+            }
+          ],
+          "status": "cancelled",
+          "answers": {}
+        },
+        {
+          "toolUseId": "q3",
+          "questions": [
+            {
+              "header": "H",
+              "question": "Still waiting?",
+              "multiSelect": false,
+              "options": []
+            }
+          ],
+          "status": "pending",
+          "answers": {}
+        }
+      ],
+      "pending": [
+        {
+          "text": "queued B",
+          "ts": "2026-10-03T10:00:09.500Z"
+        }
+      ],
+      "claudeVersion": "2.1.5",
+      "screenSupport": "unknown"
+    }
+  },
+  {
+    "name": "subagent view",
+    "kind": "found",
+    "main": "claude-rich",
+    "sub": "claude-rich-sidechain",
+    "agentType": "claude",
+    "after": 1,
+    "expected": {
+      "found": true,
+      "fileId": "<fileId>",
+      "title": null,
+      "total": 21,
+      "after": 1,
+      "messages": [
+        {
+          "role": "assistant",
+          "text": "Working on it.",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Read: /a/b.ts",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Grep: a b",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Bash: echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Weird: not json",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Skill: review",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Empty",
+          "ts": "2026-10-03T10:00:01.000Z"
+        },
+        {
+          "role": "question",
+          "text": "Which mode?\nPick many",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q1"
+        },
+        {
+          "role": "question",
+          "text": "Cancelled one?",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q2"
+        },
+        {
+          "role": "question",
+          "text": "Still waiting?",
+          "ts": "2026-10-03T10:00:03.000Z",
+          "toolUseId": "q3"
+        },
+        {
+          "role": "subagent",
+          "text": "Security review",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s1"
+        },
+        {
+          "role": "subagent",
+          "text": "Find the files please",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s2"
+        },
+        {
+          "role": "subagent",
+          "text": "subagent",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s3"
+        },
+        {
+          "role": "subagent",
+          "text": "Will fail",
+          "ts": "2026-10-03T10:00:06.000Z",
+          "toolUseId": "s4"
+        },
+        {
+          "role": "user",
+          "text": "also do this",
+          "ts": "2026-10-03T10:00:10.000Z",
+          "queued": true
+        },
+        {
+          "role": "user",
+          "text": "with image",
+          "ts": "2026-10-03T10:00:10.200Z",
+          "queued": true,
+          "images": [
+            1
+          ]
+        },
+        {
+          "role": "user",
+          "text": "sidechain, skipped",
+          "ts": "2026-10-03T10:00:11.000Z"
+        },
+        {
+          "role": "assistant",
+          "text": "## Report",
+          "ts": "2026-10-04T10:00:12.000Z"
+        },
+        {
+          "role": "user",
+          "text": "한 줄\n더",
+          "ts": "2026-10-04T09:00:13.000Z"
+        },
+        {
+          "role": "tool",
+          "text": "Bash: ls",
+          "ts": "2026-10-04T09:00:14.000Z"
+        }
+      ],
+      "subagents": [
+        {
+          "toolUseId": "s1",
+          "description": "Security review",
+          "agentType": "Explore",
+          "status": "done",
+          "agentId": "abc123"
+        },
+        {
+          "toolUseId": "s2",
+          "description": "Find the files please",
+          "agentType": "general-purpose",
+          "status": "done",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s3",
+          "description": "subagent",
+          "agentType": "general-purpose",
+          "status": "running",
+          "agentId": null
+        },
+        {
+          "toolUseId": "s4",
+          "description": "Will fail",
+          "agentType": "general-purpose",
+          "status": "failed",
+          "agentId": null
+        }
+      ],
+      "questions": [
+        {
+          "toolUseId": "q1",
+          "questions": [
+            {
+              "header": "Mode",
+              "question": "Which mode?",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Fast",
+                  "description": "quick"
+                },
+                {
+                  "label": "Slow",
+                  "description": ""
+                }
+              ]
+            },
+            {
+              "header": "",
+              "question": "Pick many",
+              "multiSelect": true,
+              "options": []
+            }
+          ],
+          "status": "answered",
+          "answers": {
+            "Which mode?": "Fast",
+            "Pick many": "a, b"
+          }
+        },
+        {
+          "toolUseId": "q2",
+          "questions": [
+            {
+              "header": "H",
+              "question": "Cancelled one?",
+              "multiSelect": false,
+              "options": []
+            }
+          ],
+          "status": "cancelled",
+          "answers": {}
+        },
+        {
+          "toolUseId": "q3",
+          "questions": [
+            {
+              "header": "H",
+              "question": "Still waiting?",
+              "multiSelect": false,
+              "options": []
+            }
+          ],
+          "status": "pending",
+          "answers": {}
+        }
+      ],
+      "pending": [],
+      "claudeVersion": "2.1.5",
+      "screenSupport": "tested"
+    }
+  },
+  {
+    "name": "codex session",
+    "kind": "found",
+    "main": "codex-session",
+    "agentType": "codex",
+    "after": 0,
+    "expected": {
+      "found": true,
+      "fileId": "<fileId>",
+      "title": null,
+      "total": 5,
+      "after": 0,
+      "messages": [
+        {
+          "role": "user",
+          "text": "Make a terminal usage monitor",
+          "ts": "2026-03-29T06:38:20.563Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Checking the repo first.",
+          "ts": "2026-03-29T06:38:30.623Z"
+        },
+        {
+          "role": "tool",
+          "text": "exec_command: pwd && rg --files",
+          "ts": "2026-03-29T06:38:30.624Z"
+        },
+        {
+          "role": "tool",
+          "text": "web_search: claude code otel",
+          "ts": "2026-03-29T06:38:47.722Z"
+        },
+        {
+          "role": "tool",
+          "text": "apply_patch: *** Begin Patch *** Add File: docs/plan.md +# Plan",
+          "ts": "2026-03-29T06:42:54.940Z"
+        }
+      ],
+      "subagents": [],
+      "questions": [],
+      "pending": [],
+      "claudeVersion": null,
+      "screenSupport": "unknown"
+    }
+  }
+]

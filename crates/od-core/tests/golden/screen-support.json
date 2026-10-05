@@ -1,0 +1,52 @@
+[
+  {
+    "agentType": "claude",
+    "version": "2.1.288",
+    "expected": "tested"
+  },
+  {
+    "agentType": "claude",
+    "version": "2.2.0",
+    "expected": "untested"
+  },
+  {
+    "agentType": "claude",
+    "version": "2.10",
+    "expected": "untested"
+  },
+  {
+    "agentType": "claude",
+    "version": "2.1",
+    "expected": "tested"
+  },
+  {
+    "agentType": "claude",
+    "version": "2",
+    "expected": "untested"
+  },
+  {
+    "agentType": "claude",
+    "version": "v2.1.0",
+    "expected": "untested"
+  },
+  {
+    "agentType": "claude",
+    "version": "",
+    "expected": "unknown"
+  },
+  {
+    "agentType": "claude",
+    "version": null,
+    "expected": "unknown"
+  },
+  {
+    "agentType": "codex",
+    "version": "0.118.0",
+    "expected": "unknown"
+  },
+  {
+    "agentType": "codex",
+    "version": null,
+    "expected": "unknown"
+  }
+]

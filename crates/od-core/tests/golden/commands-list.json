@@ -1,0 +1,934 @@
+{
+  "files": {
+    "home/.claude/commands/git/push.md": "---\ndescription: Push it\n---",
+    "home/.claude/commands/git/deep/nested.md": "# Nested heading\n\nbody",
+    "home/.claude/commands/plain.md": "Just a first line",
+    "home/.claude/commands/quoted.md": "---\r\ndescription: 'single \"quoted\"'\r\n---\r\n",
+    "home/.claude/commands/folded.md": "---\ndescription: >-\n  line one\n  line two\nother: 1\n---",
+    "home/.claude/commands/empty.md": "",
+    "home/.claude/commands/Zeta.md": "upper case",
+    "home/.claude/commands/alpha_beta.md": "underscore",
+    "home/.claude/commands/alpha-beta.md": "dash",
+    "home/.claude/commands/help.md": "shadowed by the built-in",
+    "home/.claude/commands/notes.txt": "not a command",
+    "home/.claude/commands/한글.md": "한글 설명",
+    "home/.claude/commands/éclair.md": "accent",
+    "home/.claude/commands/eclair.md": "plain e",
+    "home/.claude/commands/10-ten.md": "ten",
+    "home/.claude/commands/2-two.md": "two",
+    "home/.claude/skills/browse/SKILL.md": "---\nname: browse\ndescription: Browser\n---",
+    "home/.claude/skills/dirname-only/SKILL.md": "---\ndescription: uses the dir name\n---",
+    "home/.claude/skills/empty-skill/SKILL.md": "",
+    "home/.claude/skills/no-skill-file/README.md": "x",
+    "proj/.claude/commands/same.md": "from project",
+    "home/.claude/commands/same.md": "from user",
+    "proj/.claude/skills/deploy/SKILL.md": "---\nname: deploy\ndescription: Ship\n---",
+    "home/plugins/sp/skills/brainstorming/SKILL.md": "---\nname: brainstorming\ndescription: Think\n---",
+    "home/plugins/sp/commands/go.md": "---\ndescription: Go plugin\n---",
+    "home/plugins/off/skills/hidden/SKILL.md": "---\nname: hidden\n---",
+    "home/.codex/prompts/fix.md": "Fix the failing test",
+    "home/.codex/prompts/review/deep.md": "---\ndescription: nested prompt\n---"
+  },
+  "installedPlugins": {
+    "plugins": {
+      "superpowers@x": [
+        {
+          "installPath": "<HOME>/plugins/sp"
+        }
+      ],
+      "off@x": [
+        {
+          "installPath": "<HOME>/plugins/off"
+        }
+      ]
+    }
+  },
+  "settings": {
+    "enabledPlugins": {
+      "off@x": false
+    }
+  },
+  "cases": [
+    {
+      "agentType": "claude",
+      "project": "proj",
+      "expected": [
+        {
+          "name": "10-ten",
+          "description": "ten",
+          "source": "user"
+        },
+        {
+          "name": "2-two",
+          "description": "two",
+          "source": "user"
+        },
+        {
+          "name": "add-dir",
+          "description": "Add a working directory",
+          "source": "builtin"
+        },
+        {
+          "name": "agents",
+          "description": "Manage subagents",
+          "source": "builtin"
+        },
+        {
+          "name": "alpha_beta",
+          "description": "underscore",
+          "source": "user"
+        },
+        {
+          "name": "alpha-beta",
+          "description": "dash",
+          "source": "user"
+        },
+        {
+          "name": "browse",
+          "description": "Browser",
+          "source": "user"
+        },
+        {
+          "name": "clear",
+          "description": "Clear conversation history",
+          "source": "builtin"
+        },
+        {
+          "name": "compact",
+          "description": "Compact the conversation",
+          "source": "builtin"
+        },
+        {
+          "name": "config",
+          "description": "Open settings",
+          "source": "builtin"
+        },
+        {
+          "name": "context",
+          "description": "Show context usage",
+          "source": "builtin"
+        },
+        {
+          "name": "cost",
+          "description": "Show token cost",
+          "source": "builtin"
+        },
+        {
+          "name": "deploy",
+          "description": "Ship",
+          "source": "project"
+        },
+        {
+          "name": "dirname-only",
+          "description": "uses the dir name",
+          "source": "user"
+        },
+        {
+          "name": "doctor",
+          "description": "Check installation health",
+          "source": "builtin"
+        },
+        {
+          "name": "eclair",
+          "description": "plain e",
+          "source": "user"
+        },
+        {
+          "name": "éclair",
+          "description": "accent",
+          "source": "user"
+        },
+        {
+          "name": "empty",
+          "description": "",
+          "source": "user"
+        },
+        {
+          "name": "exit",
+          "description": "Exit Claude Code",
+          "source": "builtin"
+        },
+        {
+          "name": "export",
+          "description": "Export the conversation",
+          "source": "builtin"
+        },
+        {
+          "name": "folded",
+          "description": "line one line two",
+          "source": "user"
+        },
+        {
+          "name": "git:deep:nested",
+          "description": "Nested heading",
+          "source": "user"
+        },
+        {
+          "name": "git:push",
+          "description": "Push it",
+          "source": "user"
+        },
+        {
+          "name": "help",
+          "description": "Show help",
+          "source": "builtin"
+        },
+        {
+          "name": "hooks",
+          "description": "Manage hooks",
+          "source": "builtin"
+        },
+        {
+          "name": "init",
+          "description": "Create a CLAUDE.md for this project",
+          "source": "builtin"
+        },
+        {
+          "name": "mcp",
+          "description": "Manage MCP servers",
+          "source": "builtin"
+        },
+        {
+          "name": "memory",
+          "description": "Edit memory files",
+          "source": "builtin"
+        },
+        {
+          "name": "model",
+          "description": "Choose the model",
+          "source": "builtin"
+        },
+        {
+          "name": "permissions",
+          "description": "Manage tool permissions",
+          "source": "builtin"
+        },
+        {
+          "name": "plain",
+          "description": "Just a first line",
+          "source": "user"
+        },
+        {
+          "name": "plugin",
+          "description": "Manage plugins",
+          "source": "builtin"
+        },
+        {
+          "name": "quoted",
+          "description": "single \"quoted\"",
+          "source": "user"
+        },
+        {
+          "name": "resume",
+          "description": "Resume a previous conversation",
+          "source": "builtin"
+        },
+        {
+          "name": "review",
+          "description": "Review a pull request",
+          "source": "builtin"
+        },
+        {
+          "name": "rewind",
+          "description": "Rewind the conversation or code",
+          "source": "builtin"
+        },
+        {
+          "name": "same",
+          "description": "from project",
+          "source": "project"
+        },
+        {
+          "name": "status",
+          "description": "Show status",
+          "source": "builtin"
+        },
+        {
+          "name": "superpowers:brainstorming",
+          "description": "Think",
+          "source": "plugin"
+        },
+        {
+          "name": "superpowers:go",
+          "description": "Go plugin",
+          "source": "plugin"
+        },
+        {
+          "name": "usage",
+          "description": "Show plan usage limits",
+          "source": "builtin"
+        },
+        {
+          "name": "vim",
+          "description": "Toggle vim mode",
+          "source": "builtin"
+        },
+        {
+          "name": "Zeta",
+          "description": "upper case",
+          "source": "user"
+        },
+        {
+          "name": "한글",
+          "description": "한글 설명",
+          "source": "user"
+        }
+      ]
+    },
+    {
+      "agentType": "codex",
+      "project": "proj",
+      "expected": [
+        {
+          "name": "approvals",
+          "description": "Choose what Codex can do without asking",
+          "source": "builtin"
+        },
+        {
+          "name": "compact",
+          "description": "Summarize the conversation",
+          "source": "builtin"
+        },
+        {
+          "name": "diff",
+          "description": "Show git diff",
+          "source": "builtin"
+        },
+        {
+          "name": "init",
+          "description": "Create an AGENTS.md",
+          "source": "builtin"
+        },
+        {
+          "name": "logout",
+          "description": "Log out",
+          "source": "builtin"
+        },
+        {
+          "name": "mcp",
+          "description": "List MCP tools",
+          "source": "builtin"
+        },
+        {
+          "name": "mention",
+          "description": "Mention a file",
+          "source": "builtin"
+        },
+        {
+          "name": "model",
+          "description": "Choose model and reasoning effort",
+          "source": "builtin"
+        },
+        {
+          "name": "new",
+          "description": "Start a new chat",
+          "source": "builtin"
+        },
+        {
+          "name": "prompts:fix",
+          "description": "Fix the failing test",
+          "source": "user"
+        },
+        {
+          "name": "prompts:review:deep",
+          "description": "nested prompt",
+          "source": "user"
+        },
+        {
+          "name": "quit",
+          "description": "Exit Codex",
+          "source": "builtin"
+        },
+        {
+          "name": "review",
+          "description": "Review current changes",
+          "source": "builtin"
+        },
+        {
+          "name": "status",
+          "description": "Show session status",
+          "source": "builtin"
+        }
+      ]
+    },
+    {
+      "agentType": "gemini",
+      "project": "proj",
+      "expected": []
+    },
+    {
+      "agentType": "claude",
+      "project": "nowhere",
+      "expected": [
+        {
+          "name": "10-ten",
+          "description": "ten",
+          "source": "user"
+        },
+        {
+          "name": "2-two",
+          "description": "two",
+          "source": "user"
+        },
+        {
+          "name": "add-dir",
+          "description": "Add a working directory",
+          "source": "builtin"
+        },
+        {
+          "name": "agents",
+          "description": "Manage subagents",
+          "source": "builtin"
+        },
+        {
+          "name": "alpha_beta",
+          "description": "underscore",
+          "source": "user"
+        },
+        {
+          "name": "alpha-beta",
+          "description": "dash",
+          "source": "user"
+        },
+        {
+          "name": "browse",
+          "description": "Browser",
+          "source": "user"
+        },
+        {
+          "name": "clear",
+          "description": "Clear conversation history",
+          "source": "builtin"
+        },
+        {
+          "name": "compact",
+          "description": "Compact the conversation",
+          "source": "builtin"
+        },
+        {
+          "name": "config",
+          "description": "Open settings",
+          "source": "builtin"
+        },
+        {
+          "name": "context",
+          "description": "Show context usage",
+          "source": "builtin"
+        },
+        {
+          "name": "cost",
+          "description": "Show token cost",
+          "source": "builtin"
+        },
+        {
+          "name": "dirname-only",
+          "description": "uses the dir name",
+          "source": "user"
+        },
+        {
+          "name": "doctor",
+          "description": "Check installation health",
+          "source": "builtin"
+        },
+        {
+          "name": "eclair",
+          "description": "plain e",
+          "source": "user"
+        },
+        {
+          "name": "éclair",
+          "description": "accent",
+          "source": "user"
+        },
+        {
+          "name": "empty",
+          "description": "",
+          "source": "user"
+        },
+        {
+          "name": "exit",
+          "description": "Exit Claude Code",
+          "source": "builtin"
+        },
+        {
+          "name": "export",
+          "description": "Export the conversation",
+          "source": "builtin"
+        },
+        {
+          "name": "folded",
+          "description": "line one line two",
+          "source": "user"
+        },
+        {
+          "name": "git:deep:nested",
+          "description": "Nested heading",
+          "source": "user"
+        },
+        {
+          "name": "git:push",
+          "description": "Push it",
+          "source": "user"
+        },
+        {
+          "name": "help",
+          "description": "Show help",
+          "source": "builtin"
+        },
+        {
+          "name": "hooks",
+          "description": "Manage hooks",
+          "source": "builtin"
+        },
+        {
+          "name": "init",
+          "description": "Create a CLAUDE.md for this project",
+          "source": "builtin"
+        },
+        {
+          "name": "mcp",
+          "description": "Manage MCP servers",
+          "source": "builtin"
+        },
+        {
+          "name": "memory",
+          "description": "Edit memory files",
+          "source": "builtin"
+        },
+        {
+          "name": "model",
+          "description": "Choose the model",
+          "source": "builtin"
+        },
+        {
+          "name": "permissions",
+          "description": "Manage tool permissions",
+          "source": "builtin"
+        },
+        {
+          "name": "plain",
+          "description": "Just a first line",
+          "source": "user"
+        },
+        {
+          "name": "plugin",
+          "description": "Manage plugins",
+          "source": "builtin"
+        },
+        {
+          "name": "quoted",
+          "description": "single \"quoted\"",
+          "source": "user"
+        },
+        {
+          "name": "resume",
+          "description": "Resume a previous conversation",
+          "source": "builtin"
+        },
+        {
+          "name": "review",
+          "description": "Review a pull request",
+          "source": "builtin"
+        },
+        {
+          "name": "rewind",
+          "description": "Rewind the conversation or code",
+          "source": "builtin"
+        },
+        {
+          "name": "same",
+          "description": "from user",
+          "source": "user"
+        },
+        {
+          "name": "status",
+          "description": "Show status",
+          "source": "builtin"
+        },
+        {
+          "name": "superpowers:brainstorming",
+          "description": "Think",
+          "source": "plugin"
+        },
+        {
+          "name": "superpowers:go",
+          "description": "Go plugin",
+          "source": "plugin"
+        },
+        {
+          "name": "usage",
+          "description": "Show plan usage limits",
+          "source": "builtin"
+        },
+        {
+          "name": "vim",
+          "description": "Toggle vim mode",
+          "source": "builtin"
+        },
+        {
+          "name": "Zeta",
+          "description": "upper case",
+          "source": "user"
+        },
+        {
+          "name": "한글",
+          "description": "한글 설명",
+          "source": "user"
+        }
+      ]
+    },
+    {
+      "agentType": "codex",
+      "project": "nowhere",
+      "expected": [
+        {
+          "name": "approvals",
+          "description": "Choose what Codex can do without asking",
+          "source": "builtin"
+        },
+        {
+          "name": "compact",
+          "description": "Summarize the conversation",
+          "source": "builtin"
+        },
+        {
+          "name": "diff",
+          "description": "Show git diff",
+          "source": "builtin"
+        },
+        {
+          "name": "init",
+          "description": "Create an AGENTS.md",
+          "source": "builtin"
+        },
+        {
+          "name": "logout",
+          "description": "Log out",
+          "source": "builtin"
+        },
+        {
+          "name": "mcp",
+          "description": "List MCP tools",
+          "source": "builtin"
+        },
+        {
+          "name": "mention",
+          "description": "Mention a file",
+          "source": "builtin"
+        },
+        {
+          "name": "model",
+          "description": "Choose model and reasoning effort",
+          "source": "builtin"
+        },
+        {
+          "name": "new",
+          "description": "Start a new chat",
+          "source": "builtin"
+        },
+        {
+          "name": "prompts:fix",
+          "description": "Fix the failing test",
+          "source": "user"
+        },
+        {
+          "name": "prompts:review:deep",
+          "description": "nested prompt",
+          "source": "user"
+        },
+        {
+          "name": "quit",
+          "description": "Exit Codex",
+          "source": "builtin"
+        },
+        {
+          "name": "review",
+          "description": "Review current changes",
+          "source": "builtin"
+        },
+        {
+          "name": "status",
+          "description": "Show session status",
+          "source": "builtin"
+        }
+      ]
+    }
+  ],
+  "emptyHome": {
+    "claude": [
+      {
+        "name": "add-dir",
+        "description": "Add a working directory",
+        "source": "builtin"
+      },
+      {
+        "name": "agents",
+        "description": "Manage subagents",
+        "source": "builtin"
+      },
+      {
+        "name": "clear",
+        "description": "Clear conversation history",
+        "source": "builtin"
+      },
+      {
+        "name": "compact",
+        "description": "Compact the conversation",
+        "source": "builtin"
+      },
+      {
+        "name": "config",
+        "description": "Open settings",
+        "source": "builtin"
+      },
+      {
+        "name": "context",
+        "description": "Show context usage",
+        "source": "builtin"
+      },
+      {
+        "name": "cost",
+        "description": "Show token cost",
+        "source": "builtin"
+      },
+      {
+        "name": "doctor",
+        "description": "Check installation health",
+        "source": "builtin"
+      },
+      {
+        "name": "exit",
+        "description": "Exit Claude Code",
+        "source": "builtin"
+      },
+      {
+        "name": "export",
+        "description": "Export the conversation",
+        "source": "builtin"
+      },
+      {
+        "name": "help",
+        "description": "Show help",
+        "source": "builtin"
+      },
+      {
+        "name": "hooks",
+        "description": "Manage hooks",
+        "source": "builtin"
+      },
+      {
+        "name": "init",
+        "description": "Create a CLAUDE.md for this project",
+        "source": "builtin"
+      },
+      {
+        "name": "mcp",
+        "description": "Manage MCP servers",
+        "source": "builtin"
+      },
+      {
+        "name": "memory",
+        "description": "Edit memory files",
+        "source": "builtin"
+      },
+      {
+        "name": "model",
+        "description": "Choose the model",
+        "source": "builtin"
+      },
+      {
+        "name": "permissions",
+        "description": "Manage tool permissions",
+        "source": "builtin"
+      },
+      {
+        "name": "plugin",
+        "description": "Manage plugins",
+        "source": "builtin"
+      },
+      {
+        "name": "resume",
+        "description": "Resume a previous conversation",
+        "source": "builtin"
+      },
+      {
+        "name": "review",
+        "description": "Review a pull request",
+        "source": "builtin"
+      },
+      {
+        "name": "rewind",
+        "description": "Rewind the conversation or code",
+        "source": "builtin"
+      },
+      {
+        "name": "status",
+        "description": "Show status",
+        "source": "builtin"
+      },
+      {
+        "name": "usage",
+        "description": "Show plan usage limits",
+        "source": "builtin"
+      },
+      {
+        "name": "vim",
+        "description": "Toggle vim mode",
+        "source": "builtin"
+      }
+    ],
+    "codex": [
+      {
+        "name": "approvals",
+        "description": "Choose what Codex can do without asking",
+        "source": "builtin"
+      },
+      {
+        "name": "compact",
+        "description": "Summarize the conversation",
+        "source": "builtin"
+      },
+      {
+        "name": "diff",
+        "description": "Show git diff",
+        "source": "builtin"
+      },
+      {
+        "name": "init",
+        "description": "Create an AGENTS.md",
+        "source": "builtin"
+      },
+      {
+        "name": "logout",
+        "description": "Log out",
+        "source": "builtin"
+      },
+      {
+        "name": "mcp",
+        "description": "List MCP tools",
+        "source": "builtin"
+      },
+      {
+        "name": "mention",
+        "description": "Mention a file",
+        "source": "builtin"
+      },
+      {
+        "name": "model",
+        "description": "Choose model and reasoning effort",
+        "source": "builtin"
+      },
+      {
+        "name": "new",
+        "description": "Start a new chat",
+        "source": "builtin"
+      },
+      {
+        "name": "quit",
+        "description": "Exit Codex",
+        "source": "builtin"
+      },
+      {
+        "name": "review",
+        "description": "Review current changes",
+        "source": "builtin"
+      },
+      {
+        "name": "status",
+        "description": "Show session status",
+        "source": "builtin"
+      }
+    ]
+  },
+  "frontMatter": [
+    {
+      "text": "---\nname: browse\ndescription: \"Fast browser\"\n---\n",
+      "expected": {
+        "name": "browse",
+        "description": "Fast browser"
+      }
+    },
+    {
+      "text": "---\nname: x\ndescription: >-\n  line one\n  line two\nother: 1\n---",
+      "expected": {
+        "name": "x",
+        "description": "line one line two"
+      }
+    },
+    {
+      "text": "# Deploy the app\n\nsteps",
+      "expected": {
+        "description": "Deploy the app"
+      }
+    },
+    {
+      "text": "---\r\nname: 'a b'\r\ndescription: |\r\n  x\r\n  y\r\n---\r\n",
+      "expected": {
+        "name": "a b",
+        "description": "x y"
+      }
+    },
+    {
+      "text": "---\nname: a\nname: b\n---",
+      "expected": {
+        "name": "b"
+      }
+    },
+    {
+      "text": "---\nname:\n---",
+      "expected": {
+        "name": ""
+      }
+    },
+    {
+      "text": "---\nname: \"a'\n---",
+      "expected": {
+        "name": "\"a'"
+      }
+    },
+    {
+      "text": "---\nname: \"\n---",
+      "expected": {
+        "name": "\""
+      }
+    },
+    {
+      "text": "---\n---\nx",
+      "expected": {
+        "description": "---"
+      }
+    },
+    {
+      "text": "\n  \n##   Title  \nbody",
+      "expected": {
+        "description": "Title"
+      }
+    },
+    {
+      "text": "",
+      "expected": {}
+    },
+    {
+      "text": "   \n\n",
+      "expected": {}
+    },
+    {
+      "text": "---\n  name: no\nother: 1\n---",
+      "expected": {}
+    },
+    {
+      "text": "---\ndescription: >\nname: n\n---",
+      "expected": {
+        "description": "",
+        "name": "n"
+      }
+    },
+    {
+      "text": "---\nname: a # comment\ndescription:   spaced   \n---",
+      "expected": {
+        "name": "a # comment",
+        "description": "spaced"
+      }
+    }
+  ]
+}

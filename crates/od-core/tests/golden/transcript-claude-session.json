@@ -1,0 +1,47 @@
+{
+  "fileId": "<fileId>",
+  "title": "Office desks project",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Build an **office** view",
+      "ts": "2026-10-03T03:00:00.000Z",
+      "images": [
+        0
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Sure.\n\n```ts\nconst a = 1;\n```",
+      "ts": "2026-10-03T03:00:02.000Z"
+    },
+    {
+      "role": "tool",
+      "text": "Bash: npm test --run",
+      "ts": "2026-10-03T03:00:03.000Z"
+    },
+    {
+      "role": "user",
+      "text": "next: add pixel assets",
+      "ts": "2026-10-03T03:00:07.000Z"
+    },
+    {
+      "role": "user",
+      "text": "also check usage",
+      "ts": "2026-10-03T03:00:08.000Z",
+      "queued": true
+    }
+  ],
+  "images": [
+    {
+      "mediaType": "image/png",
+      "data": "xx"
+    }
+  ],
+  "calls": [],
+  "questions": [],
+  "pending": [],
+  "model": null,
+  "effort": null,
+  "claudeVersion": null
+}

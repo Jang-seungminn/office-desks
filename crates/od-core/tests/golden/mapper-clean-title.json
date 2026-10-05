@@ -1,0 +1,46 @@
+[
+  {
+    "input": null,
+    "expected": null
+  },
+  {
+    "input": "",
+    "expected": null
+  },
+  {
+    "input": "✳ command context logging",
+    "expected": "command context logging"
+  },
+  {
+    "input": "◑ Orca 터미널 대시보드 프로젝트",
+    "expected": "Orca 터미널 대시보드 프로젝트"
+  },
+  {
+    "input": "⠂ ",
+    "expected": null
+  },
+  {
+    "input": "  plain  ",
+    "expected": "plain"
+  },
+  {
+    "input": "123 numbers",
+    "expected": "123 numbers"
+  },
+  {
+    "input": "…",
+    "expected": null
+  },
+  {
+    "input": "ⓐ circled",
+    "expected": "circled"
+  },
+  {
+    "input": "́ mark first",
+    "expected": "mark first"
+  },
+  {
+    "input": "😀 emoji",
+    "expected": "emoji"
+  }
+]

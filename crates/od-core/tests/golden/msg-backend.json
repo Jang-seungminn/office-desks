@@ -1,0 +1,18 @@
+{
+  "type": "backend",
+  "backend": {
+    "name": "native",
+    "capabilities": {
+      "usage": true,
+      "search": true,
+      "board": false,
+      "hire": true,
+      "changes": true,
+      "transcripts": true,
+      "focus": false,
+      "repos": true,
+      "stop": true,
+      "remove": false
+    }
+  }
+}

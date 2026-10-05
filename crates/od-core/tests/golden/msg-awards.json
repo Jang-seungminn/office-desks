@@ -1,0 +1,43 @@
+{
+  "type": "awards",
+  "awards": {
+    "leader": {
+      "date": "2026-10-05",
+      "agentId": "tab1:leaf1",
+      "deskId": "repoA::/Users/me/proj/office_desks",
+      "name": "office_desks",
+      "repo": "office_desks",
+      "repoId": "repoA",
+      "agentType": "claude",
+      "instructions": 5,
+      "toolCalls": 70,
+      "score": 120
+    },
+    "hall": [
+      {
+        "date": "2026-10-04",
+        "agentId": "tab1:leaf1",
+        "deskId": "repoA::/Users/me/proj/office_desks",
+        "name": "office_desks",
+        "repo": "office_desks",
+        "repoId": "repoA",
+        "agentType": "claude",
+        "instructions": 5,
+        "toolCalls": 150,
+        "score": 200
+      },
+      {
+        "date": "2026-10-03",
+        "agentId": "tab1:leaf1",
+        "deskId": "repoA::/Users/me/proj/office_desks",
+        "name": "office_desks",
+        "repo": "office_desks",
+        "repoId": "repoA",
+        "agentType": "claude",
+        "instructions": 5,
+        "toolCalls": 40,
+        "score": 90
+      }
+    ]
+  }
+}

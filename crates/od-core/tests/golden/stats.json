@@ -1,0 +1,194 @@
+[
+  {
+    "transcript": "claude-session",
+    "now": "2026-10-03T12:00:00Z",
+    "expected": {
+      "instructions": 3,
+      "instructionsToday": 3,
+      "toolCalls": 1,
+      "toolCallsToday": 1,
+      "subagents": 0,
+      "hiredAt": "2026-10-03T03:00:00.000Z"
+    }
+  },
+  {
+    "transcript": "claude-session",
+    "now": "2026-10-04T23:59:59Z",
+    "expected": {
+      "instructions": 3,
+      "instructionsToday": 0,
+      "toolCalls": 1,
+      "toolCallsToday": 0,
+      "subagents": 0,
+      "hiredAt": "2026-10-03T03:00:00.000Z"
+    }
+  },
+  {
+    "transcript": "claude-session",
+    "now": "2026-03-29T00:00:00Z",
+    "expected": {
+      "instructions": 3,
+      "instructionsToday": 0,
+      "toolCalls": 1,
+      "toolCallsToday": 0,
+      "subagents": 0,
+      "hiredAt": "2026-10-03T03:00:00.000Z"
+    }
+  },
+  {
+    "transcript": "claude-session",
+    "now": "2027-01-01T00:00:00Z",
+    "expected": {
+      "instructions": 3,
+      "instructionsToday": 0,
+      "toolCalls": 1,
+      "toolCallsToday": 0,
+      "subagents": 0,
+      "hiredAt": "2026-10-03T03:00:00.000Z"
+    }
+  },
+  {
+    "transcript": "codex-session",
+    "now": "2026-10-03T12:00:00Z",
+    "expected": {
+      "instructions": 1,
+      "instructionsToday": 0,
+      "toolCalls": 3,
+      "toolCallsToday": 0,
+      "subagents": 0,
+      "hiredAt": "2026-03-29T06:38:20.563Z"
+    }
+  },
+  {
+    "transcript": "codex-session",
+    "now": "2026-10-04T23:59:59Z",
+    "expected": {
+      "instructions": 1,
+      "instructionsToday": 0,
+      "toolCalls": 3,
+      "toolCallsToday": 0,
+      "subagents": 0,
+      "hiredAt": "2026-03-29T06:38:20.563Z"
+    }
+  },
+  {
+    "transcript": "codex-session",
+    "now": "2026-03-29T00:00:00Z",
+    "expected": {
+      "instructions": 1,
+      "instructionsToday": 1,
+      "toolCalls": 3,
+      "toolCallsToday": 3,
+      "subagents": 0,
+      "hiredAt": "2026-03-29T06:38:20.563Z"
+    }
+  },
+  {
+    "transcript": "codex-session",
+    "now": "2027-01-01T00:00:00Z",
+    "expected": {
+      "instructions": 1,
+      "instructionsToday": 0,
+      "toolCalls": 3,
+      "toolCallsToday": 0,
+      "subagents": 0,
+      "hiredAt": "2026-03-29T06:38:20.563Z"
+    }
+  },
+  {
+    "transcript": "claude-rich",
+    "now": "2026-10-03T12:00:00Z",
+    "expected": {
+      "instructions": 4,
+      "instructionsToday": 3,
+      "toolCalls": 7,
+      "toolCallsToday": 6,
+      "subagents": 4,
+      "hiredAt": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "transcript": "claude-rich",
+    "now": "2026-10-04T23:59:59Z",
+    "expected": {
+      "instructions": 4,
+      "instructionsToday": 1,
+      "toolCalls": 7,
+      "toolCallsToday": 1,
+      "subagents": 4,
+      "hiredAt": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "transcript": "claude-rich",
+    "now": "2026-03-29T00:00:00Z",
+    "expected": {
+      "instructions": 4,
+      "instructionsToday": 0,
+      "toolCalls": 7,
+      "toolCallsToday": 0,
+      "subagents": 4,
+      "hiredAt": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "transcript": "claude-rich",
+    "now": "2027-01-01T00:00:00Z",
+    "expected": {
+      "instructions": 4,
+      "instructionsToday": 0,
+      "toolCalls": 7,
+      "toolCallsToday": 0,
+      "subagents": 4,
+      "hiredAt": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "transcript": "claude-rich-sidechain",
+    "now": "2026-10-03T12:00:00Z",
+    "expected": {
+      "instructions": 5,
+      "instructionsToday": 4,
+      "toolCalls": 7,
+      "toolCallsToday": 6,
+      "subagents": 4,
+      "hiredAt": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "transcript": "claude-rich-sidechain",
+    "now": "2026-10-04T23:59:59Z",
+    "expected": {
+      "instructions": 5,
+      "instructionsToday": 1,
+      "toolCalls": 7,
+      "toolCallsToday": 1,
+      "subagents": 4,
+      "hiredAt": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "transcript": "claude-rich-sidechain",
+    "now": "2026-03-29T00:00:00Z",
+    "expected": {
+      "instructions": 5,
+      "instructionsToday": 0,
+      "toolCalls": 7,
+      "toolCallsToday": 0,
+      "subagents": 4,
+      "hiredAt": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "transcript": "claude-rich-sidechain",
+    "now": "2027-01-01T00:00:00Z",
+    "expected": {
+      "instructions": 5,
+      "instructionsToday": 0,
+      "toolCalls": 7,
+      "toolCallsToday": 0,
+      "subagents": 4,
+      "hiredAt": "2026-10-03T10:00:00.000Z"
+    }
+  }
+]

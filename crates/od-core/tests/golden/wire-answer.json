@@ -1,0 +1,45 @@
+{
+  "request": {
+    "agentId": "tab1:leaf1",
+    "toolUseId": "toolu_1",
+    "choices": [
+      [
+        1
+      ],
+      [
+        0,
+        2
+      ]
+    ]
+  },
+  "ok": {
+    "ok": true
+  },
+  "errors": [
+    {
+      "error": "질문을 찾지 못했습니다"
+    },
+    {
+      "error": "이미 답했거나 취소된 질문입니다"
+    },
+    {
+      "error": "답을 입력하는 중입니다"
+    },
+    {
+      "error": "unknown agent"
+    },
+    {
+      "error": "에이전트가 지금 새 메시지를 받을 수 없는 상태예요 (질문·권한 확인 중이거나 화면 전환 중). 잠시 후 다시 보내기를 눌러 주세요",
+      "code": "agent_busy",
+      "requestId": "req-1"
+    },
+    {
+      "error": "에이전트 터미널에 메뉴가 열려 있어 메시지가 전달되지 않습니다",
+      "code": "menu_open"
+    }
+  ],
+  "hireOk": {
+    "ok": true,
+    "warning": "worktree 생성 후 시작 지연"
+  }
+}

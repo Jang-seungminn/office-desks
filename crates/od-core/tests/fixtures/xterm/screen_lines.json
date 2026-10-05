@@ -1,0 +1,156 @@
+{
+ "glyphs": {
+  "data": "❯ hi\r\n⏺ Done\r\n✻ Thinking…\r\n  ⎿  out\r\n────────\r\n╭──╮\r\n│x │\r\n╰──╯",
+  "lines": [
+   "…",
+   "  ⎿  out",
+   "────────",
+   "╭──╮",
+   "│x │",
+   "╰──╯"
+  ]
+ },
+ "emoji_cjk": {
+  "data": "✅ ok 🚀 go\r\n한글 테스트\r\n日本語",
+  "lines": [
+   "✅ ok 🚀 g",
+   "o",
+   "한글 테스",
+   "트",
+   "日本語",
+   ""
+  ]
+ },
+ "wide_last_col": {
+  "data": "abcdefghi한x",
+  "lines": [
+   "abcdefghi",
+   "한x",
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ "wide_exact_fit": {
+  "data": "abcdefgh한",
+  "lines": [
+   "abcdefgh한",
+   "",
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ "combining": {
+  "data": "é café x",
+  "lines": [
+   "é café x",
+   "",
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ "zwj": {
+  "data": "👨‍👩‍👧 fam",
+  "lines": [
+   "👨‍👩‍👧 fam",
+   "",
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ "cuf_gaps": {
+  "data": "\u001b[5Cz\u001b[3Cq",
+  "lines": [
+   "     z   q",
+   "",
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ "el_tail": {
+  "data": "hello world\u001b[1;6H\u001b[K",
+  "lines": [
+   "hello",
+   "d",
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ "ed_tail": {
+  "data": "line1\r\nline2\r\nline3\u001b[2;3H\u001b[J",
+  "lines": [
+   "line1",
+   "li",
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ "trailing_spaces": {
+  "data": "ab   \r\ncd",
+  "lines": [
+   "ab   ",
+   "cd",
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ "tabs": {
+  "data": "a\tb\tc",
+  "lines": [
+   "a       bc",
+   "",
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ "overwrite_wide": {
+  "data": "한글\u001b[1;2Hx",
+  "lines": [
+   " x글",
+   "",
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ "vs16": {
+  "data": "❤️ heart ☺️",
+  "lines": [
+   "❤️ heart ☺️",
+   "",
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ "wrap_long": {
+  "data": "xxxxxxxxxxxxxxxxxxxxxxxxx",
+  "lines": [
+   "xxxxxxxxxx",
+   "xxxxxxxxxx",
+   "xxxxx",
+   "",
+   "",
+   ""
+  ]
+ }
+}

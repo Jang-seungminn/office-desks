@@ -1,0 +1,172 @@
+{
+  "type": "snapshot",
+  "snapshot": {
+    "desks": [
+      {
+        "id": "repoA::/Users/me/proj/office_desks",
+        "repoId": "repoA",
+        "isMain": false,
+        "parentId": null,
+        "name": "office_desks",
+        "repo": "office_desks",
+        "branch": "",
+        "path": "/Users/me/proj/office_desks",
+        "status": "permission",
+        "workspaceStatus": "in-progress",
+        "comment": "",
+        "preview": "Honking… 8",
+        "isActive": true,
+        "unread": false,
+        "lastActivityAt": null,
+        "changes": {
+          "files": 3,
+          "added": 42,
+          "deleted": 7
+        },
+        "pr": {
+          "number": 17,
+          "url": "https://github.com/o/r/pull/17",
+          "title": "Add office",
+          "state": "open"
+        },
+        "agents": [
+          {
+            "id": "tab1:leaf1",
+            "terminalHandle": "term_1",
+            "agentType": "claude",
+            "terminalTitle": "Fix login",
+            "subagentsRunning": 2,
+            "model": "claude-opus-4-5",
+            "effort": "high",
+            "stats": {
+              "instructions": 12,
+              "instructionsToday": 4,
+              "toolCalls": 230,
+              "toolCallsToday": 51,
+              "subagents": 3,
+              "hiredAt": "2026-10-01T09:30:00.000Z"
+            },
+            "state": "waiting",
+            "rawState": "waiting",
+            "activity": "확인 필요: ExitPlanMode",
+            "prompt": "build an office view",
+            "lastMessage": null,
+            "since": 1790997660310
+          }
+        ]
+      },
+      {
+        "id": "repoB::C:\\Users\\me\\secretary",
+        "repoId": "repoB",
+        "isMain": false,
+        "parentId": null,
+        "name": "secretary",
+        "repo": "secretary",
+        "branch": "knowledge-graph",
+        "path": "C:\\Users\\me\\secretary",
+        "status": "working",
+        "workspaceStatus": "in-progress",
+        "comment": "running tests",
+        "preview": "",
+        "isActive": false,
+        "unread": false,
+        "lastActivityAt": null,
+        "changes": null,
+        "pr": {
+          "number": null,
+          "url": null,
+          "title": null,
+          "state": null
+        },
+        "agents": [
+          {
+            "id": "tab2:leaf2",
+            "terminalHandle": "term_2",
+            "agentType": "codex",
+            "terminalTitle": null,
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": null,
+            "state": "running",
+            "rawState": "working",
+            "activity": "Bash: npm test --watch=false",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          },
+          {
+            "id": "tab3:leaf3",
+            "terminalHandle": "term_3",
+            "agentType": "claude",
+            "terminalTitle": null,
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": null,
+            "state": "reading",
+            "rawState": "working",
+            "activity": "Grep: TODO",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          },
+          {
+            "id": "tab4:leaf4",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": null,
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": null,
+            "state": "typing",
+            "rawState": "working",
+            "activity": "생각 중…",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          },
+          {
+            "id": "tab5:leaf5",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": null,
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": null,
+            "state": "done",
+            "rawState": "done",
+            "activity": "완료 · 다음 지시 대기",
+            "prompt": null,
+            "lastMessage": "All green.",
+            "since": null
+          }
+        ]
+      },
+      {
+        "id": "repoD::/Users/me/empty",
+        "repoId": "repoD",
+        "isMain": false,
+        "parentId": null,
+        "name": "empty",
+        "repo": "empty",
+        "branch": "",
+        "path": "",
+        "status": "inactive",
+        "workspaceStatus": null,
+        "comment": "",
+        "preview": "",
+        "isActive": false,
+        "unread": false,
+        "lastActivityAt": null,
+        "changes": null,
+        "pr": null,
+        "agents": []
+      }
+    ],
+    "updatedAt": 1700000000000,
+    "error": null
+  }
+}
