@@ -4,10 +4,13 @@
 //! Protocol (the contract fixtures and later `/term` tests depend on it):
 //! 1. stdin goes raw (`cfmakeraw` / `ENABLE_VIRTUAL_TERMINAL_INPUT`);
 //! 2. one JSON line `{"pid","hookUrl","args","cwd"}` is appended to `$OD_FAKE_AGENT_OUT/agents.jsonl`;
-//! 3. `FAKE AGENT READY\r\n` is written;
+//! 3. `FAKE AGENT READY\r\n` is written, then a Claude-style composer ([`COMPOSER`]: a `❯` line
+//!    between two rules of 16 `─`), so `composerState` reads the screen as `ready`;
 //! 4. stdin bytes accumulate into a line; on `\r` the bracketed-paste markers are stripped and
-//!    `query` writes `ESC [ c`, `exit` writes `bye\r\n` and exits 3, anything else writes
-//!    `got:<line>\r\n`. A read that starts with `ESC [ ?` is first echoed as `in:<{:?}>\r\n`.
+//!    `query` writes `ESC [ c`, `exit` writes `bye\r\n` and exits 3, `menu` clears the screen
+//!    and draws an unframed `❯ 1. Yes` (a dialog: `composerState` reads `menu`), anything else
+//!    writes `got:<line>\r\n`. A read that starts with `ESC [ ?` is first echoed as
+//!    `in:<{:?}>\r\n`.
 //!
 //! EOF or a read error exits 0.
 
@@ -25,11 +28,17 @@ pub struct AgentLine {
     pub cwd: String,
 }
 
+/// Claude's composer as `screen.ts` recognizes it: `❯` framed by rules of at least 8 `─`.
+pub const COMPOSER: &str = "────────────────\r\n❯ \r\n────────────────\r\n";
+/// A dialog: clear the screen, then an unframed `❯` option.
+pub const MENU: &str = "\x1b[2J\x1b[H❯ 1. Yes\r\n";
+
 pub fn run() -> ! {
     raw::enable();
     record();
     let mut out = std::io::stdout();
     let _ = out.write_all(b"FAKE AGENT READY\r\n");
+    let _ = out.write_all(COMPOSER.as_bytes());
     let _ = out.flush();
     let mut line: Vec<u8> = Vec::new();
     let mut buf = [0u8; 4096];
@@ -55,6 +64,9 @@ pub fn run() -> ! {
             match text.as_str() {
                 "query" => {
                     let _ = out.write_all(b"\x1b[c");
+                }
+                "menu" => {
+                    let _ = out.write_all(MENU.as_bytes());
                 }
                 "exit" => {
                     let _ = out.write_all(b"bye\r\n");

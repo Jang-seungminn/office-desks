@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { subagentFile, subagentIds, subagentInfos } from '../src/subagents.js';
 import { parseTranscript, readTranscript } from '../src/transcript.js';
+import { scratch } from './scratch.js';
 
 const L = (o: unknown) => JSON.stringify(o);
 const agentCall = (id: string, description: string) =>
@@ -46,7 +46,7 @@ describe('subagent tracking', () => {
   });
 
   it('maps tool calls to subagent transcripts and reads their sidechain records', async () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'od-sub-'));
+    const root = scratch('od-sub-');
     const main = path.join(root, 'sess.jsonl');
     writeFileSync(main, agentCall('t1', 'Review') + '\n');
     const dir = path.join(root, 'sess', 'subagents');

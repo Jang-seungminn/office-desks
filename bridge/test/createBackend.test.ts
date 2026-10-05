@@ -1,10 +1,9 @@
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createBackend, probeOrca } from '../src/backend/index.js';
+import { scratch } from './scratch.js';
 
-const home = () => mkdtempSync(path.join(os.tmpdir(), 'od-cb-'));
+const home = () => scratch('od-cb-');
 
 describe('createBackend', () => {
   it('honors OFFICE_DESKS_BACKEND and OFFICE_DESKS_DEMO without probing', async () => {

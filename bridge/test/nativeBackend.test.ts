@@ -1,11 +1,11 @@
-import { existsSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
-import os from 'node:os';
+import { existsSync, readdirSync, realpathSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NativeBackend, type PtyLike } from '../src/backend/native.js';
 import type { PtyOptions } from '../src/native/ptyHost.js';
 import { Registry } from '../src/native/registry.js';
 import { validateHire } from '../src/hire.js';
+import { scratch } from './scratch.js';
 
 const READY = ['', '─'.repeat(40), '❯ ', '─'.repeat(40), '  ⏵⏵ auto mode on'];
 const TRUST = [' Quick safety check: Is this a project you created or one you trust?', ' ❯ No, exit', '   Yes, I trust this folder', ' Enter to confirm · Esc to cancel'];
@@ -80,7 +80,7 @@ async function setup(
   opts: { home?: string; which?: (cmd: string, env: Record<string, string>) => string | null } = {},
 ) {
   const clock = { t: 1_000_000 };
-  const home = opts.home ?? mkdtempSync(path.join(os.tmpdir(), 'od-native-'));
+  const home = opts.home ?? scratch('od-native-');
   const registry = new Registry(path.join(home, 'state.json'));
   await registry.load();
   await registry.addRepo(REPO);
@@ -242,8 +242,8 @@ describe('NativeBackend hire and hooks', () => {
   });
 
   it.skipIf(process.platform === 'win32')('puts the new agent on its desk when the office home is behind a symlink', async () => {
-    const real = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'od-real-')));
-    const link = path.join(mkdtempSync(path.join(os.tmpdir(), 'od-link-')), 'home');
+    const real = realpathSync.native(scratch('od-real-'));
+    const link = path.join(scratch('od-link-'), 'home');
     symlinkSync(real, link);
     const wt = `${real}/worktrees/app/fix-login`;
     const porcelain = `worktree /p/app\nHEAD a\nbranch refs/heads/main\n\nworktree ${wt}\nHEAD b\nbranch refs/heads/fix-login\n\n`;
@@ -449,7 +449,7 @@ describe('NativeBackend input, board, sessions, repos', () => {
   });
 
   it('honors CLAUDE_CONFIG_DIR for the transcript root', async () => {
-    const cfg = mkdtempSync(path.join(os.tmpdir(), 'od-cfg-'));
+    const cfg = scratch('od-cfg-');
     const pty = new FakePty();
     const { home, registry } = await setup();
     const backend = new NativeBackend({

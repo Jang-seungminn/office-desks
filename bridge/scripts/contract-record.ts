@@ -11,7 +11,7 @@
 // root's agents.jsonl.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
@@ -92,11 +92,39 @@ export class Normalizer {
 
 export const normalize = (v: Json, vars: Vars): Json => new Normalizer(vars).value(v);
 
+/**
+ * Id shapes in captured values: lowercase UUIDs become `${UUID}`, then every alphanumeric run of
+ * 8+ lowercase hex digits becomes `${HEX<n>}`. Uppercase hex stays, so a format change shows.
+ */
+export function maskIds(s: string): string {
+  return s
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, () => '${UUID}')
+    .replace(/[0-9A-Za-z]+/g, (t) => (t.length >= 8 && /^[0-9a-f]+$/.test(t) ? `\${HEX${t.length}}` : t));
+}
+
+function maskValue(v: Json): Json {
+  if (typeof v === 'string') return maskIds(v);
+  if (Array.isArray(v)) return v.map(maskValue);
+  if (isObject(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, maskValue(x)]));
+  return v;
+}
+
+/** Each captured value normalized with the variables before the step plus its other captures, then masked. */
+export function capturedBlock(before: Vars, captured: Vars): JsonObject {
+  const out: JsonObject = {};
+  for (const [name, value] of Object.entries(captured)) {
+    const vars: Vars = { ...before };
+    for (const [k, v] of Object.entries(captured)) if (k !== name) vars[k] = v;
+    out[name] = maskIds(new Normalizer(vars).string(value));
+  }
+  return out;
+}
+
 function checkNormalizeCases(): void {
-  const cases = JSON.parse(readFileSync(path.join(CONTRACT_DIR, 'normalize-cases.json'), 'utf8')) as { vars: Vars; input: Json; output: Json }[];
+  const cases = JSON.parse(readFileSync(path.join(CONTRACT_DIR, 'normalize-cases.json'), 'utf8')) as { vars: Vars; input: Json; output: Json; mask?: boolean }[];
   if (cases.length < 8) throw new Error(`normalize-cases.json: only ${cases.length} cases`);
   cases.forEach((c, i) => {
-    const got = normalize(c.input, c.vars);
+    const got = c.mask ? maskValue(normalize(c.input, c.vars)) : normalize(c.input, c.vars);
     if (!deepEqual(got, c.output)) throw new Error(`normalize case ${i}: expected ${JSON.stringify(c.output)} got ${JSON.stringify(got)}`);
   });
 }
@@ -134,7 +162,10 @@ function resolve(v: Json, segments: Json[]): Json | undefined {
     if (cur === undefined) return undefined;
     if (typeof seg === 'string') cur = isObject(cur) && seg in cur ? cur[seg] : undefined;
     else if (typeof seg === 'number') cur = Array.isArray(cur) && Number.isInteger(seg) && seg >= 0 && seg < cur.length ? cur[seg] : undefined;
-    else if (isObject(seg) && isObject(seg.where)) {
+    else if (isObject(seg) && typeof seg.contains === 'string') {
+      const text = seg.contains;
+      cur = Array.isArray(cur) ? cur.find((el) => typeof el === 'string' && el.includes(text)) : undefined;
+    } else if (isObject(seg) && isObject(seg.where)) {
       const want = seg.where;
       cur = Array.isArray(cur) ? cur.find((el) => isObject(el) && Object.entries(want).every(([k, x]) => k in el && deepEqual(el[k], x))) : undefined;
     } else return undefined;
@@ -319,12 +350,29 @@ function agentLines(out: string): JsonObject[] {
     .map((l) => JSON.parse(l) as JsonObject);
 }
 
+/**
+ * `pid` is alive and runs our fake agent: its first `txt` file (the executable) per `lsof` is
+ * `exe`. `ps -o comm=` is no use here: it shows argv[0] (`claude`), not the path.
+ */
+function isOurAgent(pid: number, exe: string): boolean {
+  const r = spawnSync('/usr/sbin/lsof', ['-a', '-p', String(pid), '-d', 'txt', '-Fn'], { encoding: 'utf8' });
+  const file = r.stdout?.split('\n').find((l) => l.startsWith('n'))?.slice(1);
+  if (!file) return false;
+  try {
+    return realpathSync.native(file) === realpathSync.native(exe);
+  } catch {
+    return false;
+  }
+}
+
 // --- The run ----------------------------------------------------------------------------------
 
 class Run {
   readonly vars: Vars;
   readonly sockets = new Map<string, Sock>();
   readonly started = new Map<string, number>();
+  /** What the current step captured. */
+  captured: Vars = {};
 
   constructor(
     private readonly port: number,
@@ -340,6 +388,7 @@ class Run {
       const v = resolve(from, segs as Json[]);
       if (typeof v !== 'string') throw new Error(`capture ${name}: ${JSON.stringify(segs)} is not a string`);
       this.vars[name] = v;
+      this.captured[name] = v;
     }
   }
 
@@ -395,9 +444,10 @@ class Run {
 
   private async waitFor(step: Step): Promise<void> {
     const segs = step.path as Json[];
+    const url = typeof step.url === 'string' ? expand(step.url, this.vars) : '/api/snapshot';
     const deadline = Date.now() + WAIT_FOR_TIMEOUT_MS;
     for (;;) {
-      const r = await request(this.port, 'GET', '/api/snapshot', {}, null);
+      const r = await request(this.port, 'GET', url, {}, null);
       let snap: Json = null;
       try {
         snap = JSON.parse(r.body.toString('utf8')) as Json;
@@ -405,7 +455,7 @@ class Run {
         /* keep waiting */
       }
       if (resolves(snap, segs, step.equals)) return this.capture(step, snap);
-      if (Date.now() >= deadline) throw new Error(`waitFor ${JSON.stringify(segs)} did not resolve in ${WAIT_FOR_TIMEOUT_MS} ms; last snapshot:\n${JSON.stringify(snap, null, 2)}`);
+      if (Date.now() >= deadline) throw new Error(`waitFor ${JSON.stringify(segs)} did not resolve in ${WAIT_FOR_TIMEOUT_MS} ms at ${url}; last answer:\n${JSON.stringify(snap, null, 2)}`);
       await sleep(WAIT_FOR_EVERY_MS);
     }
   }
@@ -456,8 +506,8 @@ class Run {
     const args = (line.args as string[]) ?? [];
     const i = args.indexOf('--session-id');
     if (!token || i < 0 || !args[i + 1]) throw new Error(`agentInfo: bad line ${JSON.stringify(line)}`);
-    this.vars.TOKEN = token;
-    this.vars.SID = args[i + 1];
+    this.vars.TOKEN = this.captured.TOKEN = token;
+    this.vars.SID = this.captured.SID = args[i + 1];
   }
 
   private seedTranscript(step: Step): void {
@@ -505,13 +555,10 @@ async function main(): Promise<void> {
         await exited;
       }
     }
+    const ours = path.join(root, 'bin', 'claude');
     for (const line of agentLines(path.join(root, 'out'))) {
       const pid = line.pid as number;
-      try {
-        process.kill(pid, 0);
-      } catch {
-        continue; // gone
-      }
+      if (!isOurAgent(pid, ours)) continue; // gone, or the pid now belongs to someone else
       console.error(`contract: fake agent ${pid} outlived the bridge; SIGKILL`);
       try {
         process.kill(pid, 'SIGKILL');
@@ -535,7 +582,11 @@ async function main(): Promise<void> {
     const gitPath = findCommand('git', process.env as Vars);
     if (!gitPath) throw new Error('contract: git not found');
     const port = await freePort();
-    const pathDirs = [path.join(root, 'bin'), path.dirname(gitPath), '/usr/bin', '/bin'].filter((d, i, a) => a.indexOf(d) === i);
+    // git through a symlink of its own, so a folder next to git (Homebrew's bin, with a real
+    // claude or codex in it) never lands on the scratch PATH.
+    mkdirSync(path.join(root, 'gitbin'));
+    symlinkSync(gitPath, path.join(root, 'gitbin', 'git'));
+    const pathDirs = [path.join(root, 'bin'), path.join(root, 'gitbin'), '/usr/bin', '/bin'];
     const env: Vars = {
       PATH: pathDirs.join(path.delimiter),
       HOME: path.join(root, 'home'),
@@ -581,6 +632,8 @@ async function main(): Promise<void> {
     const fixtures: Record<string, JsonObject> = Object.fromEntries(GROUPS.map((g) => [g, {}]));
     for (const step of doc.steps) {
       run.started.set(step.name, performance.now());
+      const before: Vars = { ...run.vars };
+      run.captured = {};
       let rec: Json | undefined;
       try {
         rec = await run.run(step);
@@ -589,7 +642,14 @@ async function main(): Promise<void> {
       }
       // Normalized with the variables known after this step (its own captures included), so a
       // fixture never depends on a later step: the Rust replay may stop at any group.
-      if (rec !== undefined) fixtures[step.group][step.name] = normalize(rec, run.vars);
+      // A capturing step also records `captured`: id shapes, normalized with the variables
+      // before the step (never normalized again).
+      const captured = Object.keys(run.captured).length ? capturedBlock(before, run.captured) : null;
+      if (rec !== undefined) {
+        const n = normalize(rec, run.vars) as JsonObject;
+        if (captured) n.captured = captured;
+        fixtures[step.group][step.name] = n;
+      } else if (captured) fixtures[step.group][step.name] = { captured };
       const status = isObject(rec) && typeof rec.status === 'number' ? rec.status : rec === undefined ? '-' : 'ws';
       console.log(`  ${step.group.padEnd(6)} ${step.name} ${status}`);
     }

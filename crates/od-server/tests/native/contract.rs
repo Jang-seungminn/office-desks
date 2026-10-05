@@ -69,6 +69,7 @@ pub fn trials(root: &Path) -> Vec<Trial> {
     let fake = sub("fake_agent_protocol");
     let contract_root = sub("contract");
     let preflight_root = sub("preflight_refuses_other_agents");
+    let terminal_root = sub("terminal_matches_fixture");
     vec![
         Trial::test("normalize_cases", normalize_cases),
         Trial::test("harness_units", harness_units),
@@ -76,6 +77,9 @@ pub fn trials(root: &Path) -> Vec<Trial> {
             preflight_refuses_other_agents(&preflight_root)
         }),
         Trial::test("fake_agent_protocol", move || fake_agent_protocol(&fake)),
+        Trial::test("terminal_matches_fixture", move || {
+            terminal_matches_fixture(&terminal_root)
+        }),
         Trial::test("contract", move || contract(&contract_root)),
     ]
 }
@@ -202,6 +206,64 @@ pub fn normalize(v: &Value, vars: &BTreeMap<String, String>) -> Value {
     Normalizer::new(vars).value(v)
 }
 
+static UUID_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap()
+});
+static TOKEN_RE: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new("[0-9A-Za-z]+").unwrap());
+
+/// Id shapes in captured values: lowercase UUIDs become `${UUID}`, then every alphanumeric run
+/// that is 8 or more lowercase hex digits becomes `${HEX<n>}`. Uppercase hex is left alone, so a
+/// format change shows.
+pub fn mask_ids(s: &str) -> String {
+    let s = UUID_RE.replace_all(s, regex::NoExpand("${UUID}"));
+    TOKEN_RE
+        .replace_all(&s, |c: &regex::Captures| {
+            let t = &c[0];
+            if t.len() >= 8
+                && t.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                format!("${{HEX{}}}", t.len())
+            } else {
+                t.to_string()
+            }
+        })
+        .into_owned()
+}
+
+fn mask_value(v: &Value) -> Value {
+    match v {
+        Value::String(s) => Value::String(mask_ids(s)),
+        Value::Array(a) => Value::Array(a.iter().map(mask_value).collect()),
+        Value::Object(m) => {
+            Value::Object(m.iter().map(|(k, x)| (k.clone(), mask_value(x))).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+/// The `captured` record of a step: each value normalized with the variables known before the
+/// step plus the step's *other* captures, then id-masked. Pins shapes like
+/// `${REPO_ID}::${ROOT}/repo` or `pty_${UUID}`.
+pub fn captured_block(
+    before: &BTreeMap<String, String>,
+    captured: &BTreeMap<String, String>,
+) -> Value {
+    let mut out = Map::new();
+    for (var, value) in captured {
+        let mut vars = before.clone();
+        for (k, v) in captured {
+            if k != var {
+                vars.insert(k.clone(), v.clone());
+            }
+        }
+        let s = Normalizer::new(&vars).string(value);
+        out.insert(var.clone(), Value::String(mask_ids(&s)));
+    }
+    Value::Object(out)
+}
+
 // ---------------------------------------------------------------------------------------------
 // Templates, segments, recording and comparison
 // ---------------------------------------------------------------------------------------------
@@ -277,6 +339,12 @@ pub fn resolve<'a>(v: &'a Value, segments: &[Value]) -> Option<&'a Value> {
         cur = match seg {
             Value::String(k) => cur.as_object()?.get(k)?,
             Value::Number(n) => cur.as_array()?.get(usize::try_from(n.as_u64()?).ok()?)?,
+            Value::Object(o) if o.contains_key("contains") => {
+                let text = o["contains"].as_str()?;
+                cur.as_array()?
+                    .iter()
+                    .find(|el| el.as_str().is_some_and(|s| s.contains(text)))?
+            }
             Value::Object(o) => {
                 let want = o.get("where")?.as_object()?;
                 cur.as_array()?.iter().find(|el| {
@@ -476,6 +544,24 @@ fn git(git: &Path, cwd: &Path, env: &EnvMap, extra: &[(&str, &str)], args: &[&st
     );
 }
 
+/// The folder that puts git on the scratch PATH. On unix, a symlink `<ROOT>/gitbin/git` to the
+/// real git, so whatever else lives next to git (a Homebrew `bin` with `claude` or `codex`) stays
+/// off the PATH. On Windows, git's own folder (`Git\cmd` holds only git's launchers).
+fn git_bin_dir(root: &Path, git_exe: &Path) -> PathBuf {
+    #[cfg(unix)]
+    {
+        let dir = root.join("gitbin");
+        std::fs::create_dir_all(&dir).expect("gitbin");
+        std::os::unix::fs::symlink(git_exe, dir.join("git")).expect("git symlink");
+        dir
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = root;
+        git_exe.parent().expect("git dir").to_path_buf()
+    }
+}
+
 /// The agent binary inside a sub-root: a copy of this test binary.
 fn install_agent(root: &Path) -> PathBuf {
     let bin = root.join("bin").join(AGENT_EXE);
@@ -495,7 +581,7 @@ fn build_world(root: &Path, setup: &Value) -> World {
     install_agent(&root);
 
     let git_exe = find_command("git", &process_env()).expect("git on the PATH");
-    let git_dir = git_exe.parent().expect("git dir").to_path_buf();
+    let git_dir = git_bin_dir(&root, &git_exe);
     let mut env = EnvMap::new();
     let path = std::env::join_paths([root.join("bin"), git_dir]).expect("PATH");
     env.insert("PATH".into(), path.to_string_lossy().into_owned());
@@ -631,35 +717,60 @@ fn agent_pids(out: &Path) -> Vec<u32> {
         .collect()
 }
 
-#[cfg(unix)]
-fn pid_alive(pid: u32) -> bool {
-    // SAFETY: signal 0 only checks existence.
-    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+/// The executable a live process runs, or None (gone, or not ours to inspect).
+#[cfg(target_os = "macos")]
+fn pid_exe(pid: u32) -> Option<PathBuf> {
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: proc_pidpath writes at most `buf.len()` bytes into our buffer.
+    let n = unsafe {
+        libc::proc_pidpath(
+            pid as libc::c_int,
+            buf.as_mut_ptr().cast(),
+            buf.len() as u32,
+        )
+    };
+    (n > 0).then(|| PathBuf::from(String::from_utf8_lossy(&buf[..n as usize]).into_owned()))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn pid_exe(pid: u32) -> Option<PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+}
+
+#[cfg(windows)]
+fn pid_exe(pid: u32) -> Option<PathBuf> {
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, QueryFullProcessImageNameW,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    // SAFETY: query calls on a handle we open and close here, into our own buffer.
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return None;
+        }
+        let mut code = 0u32;
+        let alive = GetExitCodeProcess(h, &mut code) != 0 && code == STILL_ACTIVE as u32;
+        let mut buf = vec![0u16; 32768];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut len) != 0;
+        CloseHandle(h);
+        (alive && ok).then(|| PathBuf::from(String::from_utf16_lossy(&buf[..len as usize])))
+    }
+}
+
+/// `pid` is alive and runs our fake agent `exe` (never act on a recycled pid).
+fn is_our_agent(pid: u32, exe: &Path) -> bool {
+    pid_exe(pid)
+        .and_then(|p| dunce::canonicalize(p).ok())
+        .is_some_and(|p| p == exe)
 }
 
 #[cfg(unix)]
 fn kill_pid(pid: u32) {
     // SAFETY: kill(2) on a fake agent this trial started (its pid came from its own line).
     unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
-}
-
-#[cfg(windows)]
-fn pid_alive(pid: u32) -> bool {
-    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
-    use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-    // SAFETY: query calls on a handle we open and close here.
-    unsafe {
-        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if h.is_null() {
-            return false;
-        }
-        let mut code = 0u32;
-        let ok = GetExitCodeProcess(h, &mut code) != 0;
-        CloseHandle(h);
-        ok && code == STILL_ACTIVE as u32
-    }
 }
 
 #[cfg(windows)]
@@ -676,21 +787,36 @@ fn kill_pid(pid: u32) {
     }
 }
 
-/// Kills this trial's own fake agents (the pids in its own `agents.jsonl`) if the trial panics.
+/// Kills this trial's own fake agents (the pids in its own `agents.jsonl` whose executable is
+/// still its own `bin/claude`) if the trial panics.
 struct PidGuard {
     out: PathBuf,
+    exe: PathBuf,
 }
 
 impl Drop for PidGuard {
     fn drop(&mut self) {
         if std::thread::panicking() {
             for pid in agent_pids(&self.out) {
-                if pid_alive(pid) {
+                if is_our_agent(pid, &self.exe) {
                     kill_pid(pid);
                 }
             }
         }
     }
+}
+
+/// Windows: desk ids, paths and repo ids use `/` (PLAN Review Focus 4).
+fn backslash_desks(v: &Value) -> Vec<String> {
+    let mut bad = Vec::new();
+    for d in v["desks"].as_array().into_iter().flatten() {
+        for k in ["id", "path", "repoId"] {
+            if let Some(x) = d[k].as_str().filter(|x| x.contains('\\')) {
+                bad.push(format!("desk {k} {x:?} contains a backslash"));
+            }
+        }
+    }
+    bad
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -707,6 +833,10 @@ struct Ctx {
     vars: BTreeMap<String, String>,
     sockets: HashMap<String, (Queue, tokio::task::JoinHandle<()>)>,
     started: HashMap<String, Instant>,
+    /// What the current step captured.
+    captured: BTreeMap<String, String>,
+    /// Checks that fail the run without a fixture (Windows desk paths).
+    problems: Vec<String>,
 }
 
 /// How a `wsReject` handshake ended.
@@ -739,6 +869,7 @@ impl Ctx {
                 .and_then(Value::as_str)
                 .ok_or_else(|| format!("capture {var}: {segs:?} is not a string"))?;
             self.vars.insert(var.clone(), v.to_string());
+            self.captured.insert(var.clone(), v.to_string());
         }
         Ok(())
     }
@@ -811,6 +942,13 @@ impl Ctx {
             .collect();
         let resp = self.client.request(&method, &path, &hs, body).await;
         let rec = record_resp(&resp);
+        if cfg!(windows) {
+            self.problems.extend(
+                backslash_desks(&rec["body"]["json"])
+                    .into_iter()
+                    .map(|p| format!("{path}: {p}")),
+            );
+        }
         if step.get("capture").is_some() {
             let body = rec["body"]["json"].clone();
             self.capture(step, &body)?;
@@ -821,16 +959,27 @@ impl Ctx {
     async fn wait_for(&mut self, step: &Value) -> Result<(), String> {
         let segs = step["path"].as_array().ok_or("waitFor path")?.clone();
         let equals = step.get("equals");
+        let url = match s(step, "url") {
+            Some(u) => expand(u, &self.vars)?,
+            None => "/api/snapshot".to_string(),
+        };
         let deadline = Instant::now() + WAIT_FOR_TIMEOUT;
         loop {
-            let r = self.client.get("/api/snapshot").await;
+            let r = self.client.get(&url).await;
             let snap: Value = serde_json::from_slice(&r.body).unwrap_or(Value::Null);
             if resolves(&snap, &segs, equals) {
+                if cfg!(windows) {
+                    self.problems.extend(
+                        backslash_desks(&snap)
+                            .into_iter()
+                            .map(|p| format!("{url}: {p}")),
+                    );
+                }
                 return self.capture(step, &snap);
             }
             if Instant::now() >= deadline {
                 return Err(format!(
-                    "waitFor {segs:?} did not resolve in {WAIT_FOR_TIMEOUT:?}; last snapshot:\n{}",
+                    "waitFor {url} {segs:?} did not resolve in {WAIT_FOR_TIMEOUT:?}; last answer:\n{}",
                     pretty(&snap)
                 ));
             }
@@ -987,8 +1136,10 @@ impl Ctx {
             .and_then(|i| args.get(i + 1))
             .ok_or("agentInfo: no --session-id")?;
         let (token, sid) = (token.to_string(), sid.to_string());
-        self.vars.insert("TOKEN".into(), token);
-        self.vars.insert("SID".into(), sid);
+        for (k, v) in [("TOKEN", token), ("SID", sid)] {
+            self.vars.insert(k.into(), v.clone());
+            self.captured.insert(k.into(), v);
+        }
         Ok(())
     }
 
@@ -1036,18 +1187,36 @@ async fn run_steps(ctx: &mut Ctx, steps: &[Value], tally: &mut Tally) -> Result<
             .entry(group.to_string())
             .or_insert_with(|| load_fixture(group));
         ctx.started.insert(name.to_string(), Instant::now());
+        let before = ctx.vars.clone();
+        ctx.captured.clear();
         let outcome = ctx
             .run(step)
             .await
             .map_err(|e| format!("step {name}: {e}"))?;
+        for p in ctx.problems.drain(..) {
+            println!("  FAIL {name}: {p}");
+            tally.failures.push(format!("{name}: {p}"));
+        }
+        let captured = (!ctx.captured.is_empty()).then(|| captured_block(&before, &ctx.captured));
         let compare = s(step, "compare").unwrap_or("full");
-        let actual = match outcome {
-            Outcome::Unrecorded => {
+        let actual = match (outcome, captured) {
+            (Outcome::Unrecorded, None) => {
                 println!("  ok   {name}");
                 continue;
             }
-            Outcome::Recorded(v) => v,
-            Outcome::WsReject(h) => {
+            (Outcome::Unrecorded, Some(c)) => {
+                // Already normalized: the captured block is not normalized again.
+                compare_step(name, fixture, json!({ "captured": c }), compare, tally)?;
+                continue;
+            }
+            (Outcome::Recorded(v), Some(c)) => {
+                let mut v = normalize(&v, &ctx.vars);
+                v["captured"] = c;
+                compare_step(name, fixture, v, compare, tally)?;
+                continue;
+            }
+            (Outcome::Recorded(v), None) => v,
+            (Outcome::WsReject(h), _) => {
                 if h == Handshake::Status(101) {
                     tally
                         .failures
@@ -1074,23 +1243,58 @@ async fn run_steps(ctx: &mut Ctx, steps: &[Value], tally: &mut Tally) -> Result<
             }
         };
         let actual = normalize(&actual, &ctx.vars);
-        let Some(expected) = fixture.get(name) else {
-            return Err(format!(
-                "step {name}: no fixture in {group}.json (re-record with `npm run contract:record`)"
-            ));
-        };
-        if same(expected, &actual, compare) {
-            tally.passed += 1;
-            println!("  ok   {name}");
-        } else {
-            println!("  FAIL {name}");
+        compare_step(name, fixture, actual, compare, tally)?;
+    }
+    // Every fully run group's fixture holds exactly its recording steps: stale entries fail.
+    for (group, fixture) in &fixtures {
+        let want: std::collections::BTreeSet<&str> = steps
+            .iter()
+            .filter(|st| s(st, "group") == Some(group.as_str()) && records(st))
+            .filter_map(|st| s(st, "name"))
+            .collect();
+        let have: std::collections::BTreeSet<&str> = fixture.keys().map(String::as_str).collect();
+        if want != have {
             tally.failures.push(format!(
-                "{name} (compare: {compare})\n--- expected\n{}\n--- actual\n{}\n--- diff\n{}",
-                pretty(expected),
-                pretty(&actual),
-                unified(expected, &actual)
+                "{group}.json keys differ from its recording steps: only in the fixture {:?}, only in steps.json {:?}",
+                have.difference(&want).collect::<Vec<_>>(),
+                want.difference(&have).collect::<Vec<_>>()
             ));
         }
+    }
+    Ok(())
+}
+
+/// Steps that leave a fixture entry: requests, WebSocket steps and anything that captures.
+fn records(step: &Value) -> bool {
+    matches!(
+        s(step, "kind"),
+        Some("http" | "wsOpen" | "wsExpect" | "wsReject" | "agentInfo")
+    ) || step.get("capture").is_some()
+}
+
+fn compare_step(
+    name: &str,
+    fixture: &Map<String, Value>,
+    actual: Value,
+    compare: &str,
+    tally: &mut Tally,
+) -> Result<(), String> {
+    let Some(expected) = fixture.get(name) else {
+        return Err(format!(
+            "step {name}: no fixture entry (re-record with `npm run contract:record`)"
+        ));
+    };
+    if same(expected, &actual, compare) {
+        tally.passed += 1;
+        println!("  ok   {name}");
+    } else {
+        println!("  FAIL {name}");
+        tally.failures.push(format!(
+            "{name} (compare: {compare})\n--- expected\n{}\n--- actual\n{}\n--- diff\n{}",
+            pretty(expected),
+            pretty(&actual),
+            unified(expected, &actual)
+        ));
     }
     Ok(())
 }
@@ -1099,7 +1303,11 @@ fn contract(sub: &Path) -> Result<(), Failed> {
     let file = load_steps();
     let world = build_world(sub, &file.setup);
     let out = world.root.join("out");
-    let _guard = PidGuard { out: out.clone() };
+    let exe = dunce::canonicalize(world.root.join("bin").join(AGENT_EXE)).expect("fake agent");
+    let _guard = PidGuard {
+        out: out.clone(),
+        exe: exe.clone(),
+    };
     preflight(&world.env, &world.root).map_err(Failed::from)?;
 
     let skipped: Vec<&str> = GROUPS
@@ -1147,6 +1355,8 @@ fn contract(sub: &Path) -> Result<(), Failed> {
             vars,
             sockets: HashMap::new(),
             started: HashMap::new(),
+            captured: BTreeMap::new(),
+            problems: Vec::new(),
         };
         let result = run_steps(&mut ctx, &steps, &mut tally).await;
         for (_, (_, task)) in ctx.sockets.drain() {
@@ -1155,7 +1365,7 @@ fn contract(sub: &Path) -> Result<(), Failed> {
         handle.shutdown().await;
         let pids = agent_pids(&out);
         let deadline = Instant::now() + Duration::from_secs(3);
-        while pids.iter().any(|p| pid_alive(*p)) {
+        while pids.iter().any(|p| is_our_agent(*p, &exe)) {
             if Instant::now() >= deadline {
                 panic!("fake agents still alive after shutdown: {pids:?}");
             }
@@ -1175,6 +1385,12 @@ fn contract(sub: &Path) -> Result<(), Failed> {
         }
     );
     result.map_err(Failed::from)?;
+    if SKIP.is_empty() && !tally.unverified.is_empty() {
+        tally.failures.push(format!(
+            "nothing is skipped, so nothing may stay unverified: {:?}",
+            tally.unverified
+        ));
+    }
     if tally.failures.is_empty() {
         Ok(())
     } else {
@@ -1201,7 +1417,10 @@ fn normalize_cases() -> Result<(), Failed> {
     let cases: Vec<Value> = serde_json::from_str(&text)?;
     let mut bad = Vec::new();
     for (i, c) in cases.iter().enumerate() {
-        let got = normalize(&c["input"], &vars_of(&c["vars"]));
+        let mut got = normalize(&c["input"], &vars_of(&c["vars"]));
+        if c["mask"] == json!(true) {
+            got = mask_value(&got);
+        }
         if got != c["output"] {
             bad.push(format!(
                 "case {i}: expected {} got {}",
@@ -1264,6 +1483,39 @@ fn harness_units() -> Result<(), Failed> {
         Some(&json!([{ "id": "a", "model": null }]))
     ));
     assert!(resolves(&snap, &seg(json!(["desks", 0, "agents"])), None));
+
+    // `contains` picks the first string element containing the text.
+    let screen = json!({ "lines": ["FAKE AGENT READY", "got:hello", "got:hello again"] });
+    assert_eq!(
+        resolve(&screen, &seg(json!(["lines", {"contains": "got:hello"}]))),
+        Some(&json!("got:hello"))
+    );
+    assert_eq!(
+        resolve(&screen, &seg(json!(["lines", {"contains": "got:x"}]))),
+        None
+    );
+
+    // Id masks and the captured block.
+    assert_eq!(
+        mask_ids("pty_6f1c2d3e-aaaa-4bbb-8ccc-0123456789ab and 6f1c2d3e-aaaa-4bbb-8ccc-0123456789ab:main"),
+        "pty_${UUID} and ${UUID}:main"
+    );
+    assert_eq!(
+        mask_ids("0123456789abcdef0123456789abcdef feat1 1234567 deadBEEF00 a1b2c3d4"),
+        "${HEX32} feat1 1234567 deadBEEF00 ${HEX8}"
+    );
+    let mut before = BTreeMap::new();
+    before.insert("ROOT".to_string(), "/r/odc".to_string());
+    let mut cap = BTreeMap::new();
+    cap.insert(
+        "MAIN_DESK".to_string(),
+        "0a1b2c3d4e5f::/r/odc/repo".to_string(),
+    );
+    cap.insert("REPO_ID".to_string(), "0a1b2c3d4e5f".to_string());
+    assert_eq!(
+        captured_block(&before, &cap),
+        json!({ "MAIN_DESK": "${REPO_ID}::${ROOT}/repo", "REPO_ID": "${HEX12}" })
+    );
 
     // Templates.
     let mut vars = BTreeMap::new();
@@ -1360,6 +1612,81 @@ fn preflight_refuses_other_agents(sub: &Path) -> Result<(), Failed> {
     Ok(())
 }
 
+/// The fake agent's first screen through the real `PtyHost` (ConPTY on Windows) matches what
+/// the Node bridge recorded for `read-terminal`: the same lines, 40 rows.
+fn terminal_matches_fixture(sub: &Path) -> Result<(), Failed> {
+    use od_core::native::pty_host::{PtyHost, PtyOptions};
+
+    let fixture = load_fixture("read");
+    let want: Vec<String> = fixture["read-terminal"]["body"]["json"]["lines"]
+        .as_array()
+        .ok_or("read-terminal lines")?
+        .iter()
+        .map(|l| l.as_str().unwrap_or("").to_string())
+        .collect();
+    if want.len() != 40 {
+        return Err(format!("read-terminal has {} lines, expected 40", want.len()).into());
+    }
+    std::fs::create_dir_all(sub)?;
+    let sub = dunce::canonicalize(sub)?;
+    let bin = install_agent(&sub);
+    let exe = dunce::canonicalize(&bin)?;
+    let out = sub.join("out");
+    let _guard = PidGuard {
+        out: out.clone(),
+        exe: exe.clone(),
+    };
+    let mut env = process_env();
+    env.insert("OD_FAKE_AGENT_OUT".into(), path_str(&out));
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(async {
+        let host = PtyHost::new();
+        host.spawn(
+            "t1",
+            PtyOptions {
+                file: path_str(&bin),
+                args: vec!["--session-id".into(), "s-1".into()],
+                cwd: sub.clone(),
+                env,
+                cols: None,
+                rows: None,
+            },
+        )
+        .map_err(|e| e.message)?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut got = host.screen_lines("t1");
+        while got != want && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            got = host.screen_lines("t1");
+        }
+        // The pid check the guards rely on: ours while it runs, not after.
+        let pid = host.pid("t1").ok_or("no pid")?;
+        if !is_our_agent(pid, &exe) {
+            return Err(format!(
+                "pid {pid} not recognized as our fake agent ({:?})",
+                pid_exe(pid)
+            ));
+        }
+        host.dispose().await;
+        if is_our_agent(pid, &exe) {
+            return Err(format!("pid {pid} still our agent after dispose"));
+        }
+        if got == want {
+            Ok(())
+        } else {
+            Err(format!(
+                "PtyHost screen differs from the Node fixture\n{}",
+                similar::TextDiff::from_lines(&want.join("\n"), &got.join("\n"))
+                    .unified_diff()
+                    .header("Node read-terminal", "PtyHost")
+            ))
+        }
+    })
+    .map_err(Failed::from)
+}
+
 /// The fake agent's protocol over plain pipes (raw mode is a no-op there).
 fn fake_agent_protocol(sub: &Path) -> Result<(), Failed> {
     use std::io::{Read, Write};
@@ -1420,14 +1747,17 @@ fn fake_agent_protocol(sub: &Path) -> Result<(), Failed> {
         }
         Ok(())
     };
-    wait_for("FAKE AGENT READY\r\n")?;
+    wait_for(&format!(
+        "FAKE AGENT READY\r\n{}",
+        crate::fake_agent::COMPOSER
+    ))?;
     stdin.write_all(b"\x1b[?1;2c")?;
     stdin.flush()?;
     wait_for("in:\"\\u{1b}[?1;2c\"\r\n")?;
     stdin.write_all(b"\r")?;
     stdin.flush()?;
     wait_for("got:\x1b[?1;2c\r\n")?;
-    stdin.write_all(b"hello\r\x1b[200~pasted\x1b[201~\rquery\rexit\r")?;
+    stdin.write_all(b"hello\r\x1b[200~pasted\x1b[201~\rquery\rmenu\rexit\r")?;
     stdin.flush()?;
     let status = child.0.wait()?;
     drop(stdin);
@@ -1436,7 +1766,11 @@ fn fake_agent_protocol(sub: &Path) -> Result<(), Failed> {
         seen.extend(b);
     }
     let all = String::from_utf8_lossy(&seen).into_owned();
-    let expected = "FAKE AGENT READY\r\nin:\"\\u{1b}[?1;2c\"\r\ngot:\x1b[?1;2c\r\ngot:hello\r\ngot:pasted\r\n\x1b[cbye\r\n";
+    let expected = format!(
+        "FAKE AGENT READY\r\n{}in:\"\\u{{1b}}[?1;2c\"\r\ngot:\x1b[?1;2c\r\ngot:hello\r\ngot:pasted\r\n\x1b[c{}bye\r\n",
+        crate::fake_agent::COMPOSER,
+        crate::fake_agent::MENU
+    );
     if all != expected {
         return Err(format!("fake agent output {all:?}, expected {expected:?}").into());
     }

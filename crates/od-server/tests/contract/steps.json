@@ -243,18 +243,30 @@
       "kind": "waitFor",
       "path": [
         "desks",
-        0,
+        {
+          "where": {
+            "isMain": true
+          }
+        },
         "id"
       ],
       "capture": {
         "MAIN_DESK": [
           "desks",
-          0,
+          {
+            "where": {
+              "isMain": true
+            }
+          },
           "id"
         ],
         "REPO_ID": [
           "desks",
-          0,
+          {
+            "where": {
+              "isMain": true
+            }
+          },
           "repoId"
         ]
       }
@@ -386,10 +398,21 @@
       ]
     },
     {
-      "name": "manage-settle",
+      "name": "manage-wait-feat1-state",
       "group": "manage",
-      "kind": "sleep",
-      "ms": 2700
+      "kind": "waitFor",
+      "path": [
+        "desks",
+        {
+          "where": {
+            "name": "feat1"
+          }
+        },
+        "agents",
+        0,
+        "state"
+      ],
+      "equals": "done"
     },
     {
       "name": "manage-snapshot",
@@ -903,6 +926,59 @@
       }
     },
     {
+      "name": "input-send",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "text": "hello"
+      }
+    },
+    {
+      "name": "input-wait-got-hello",
+      "group": "input",
+      "kind": "waitFor",
+      "url": "/api/terminal?agentId=${AGENT|uri}",
+      "path": [
+        "lines",
+        {
+          "contains": "got:hello"
+        }
+      ]
+    },
+    {
+      "name": "input-terminal-after-send",
+      "group": "input",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/terminal?agentId=${AGENT|uri}"
+    },
+    {
+      "name": "input-send-menu",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "text": "menu"
+      }
+    },
+    {
+      "name": "input-wait-menu",
+      "group": "input",
+      "kind": "waitFor",
+      "url": "/api/terminal?agentId=${AGENT|uri}",
+      "path": [
+        "lines",
+        {
+          "contains": "❯ 1. Yes"
+        }
+      ]
+    },
+    {
       "name": "input-send-menu-open",
       "group": "input",
       "kind": "http",
@@ -940,18 +1016,6 @@
             "data": "AA=="
           }
         ],
-        "force": true
-      }
-    },
-    {
-      "name": "input-send",
-      "group": "input",
-      "kind": "http",
-      "method": "POST",
-      "path": "/api/send",
-      "body": {
-        "terminalHandle": "${HANDLE}",
-        "text": "hello",
         "force": true
       }
     },
@@ -1016,6 +1080,13 @@
       }
     },
     {
+      "name": "input-terminal-after-char",
+      "group": "input",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/terminal?agentId=${AGENT|uri}"
+    },
+    {
       "name": "input-keys-enter",
       "group": "input",
       "kind": "http",
@@ -1025,6 +1096,25 @@
         "terminalHandle": "${HANDLE}",
         "key": "enter"
       }
+    },
+    {
+      "name": "input-wait-got-a",
+      "group": "input",
+      "kind": "waitFor",
+      "url": "/api/terminal?agentId=${AGENT|uri}",
+      "path": [
+        "lines",
+        {
+          "contains": "got:a"
+        }
+      ]
+    },
+    {
+      "name": "input-terminal-after-enter",
+      "group": "input",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/terminal?agentId=${AGENT|uri}"
     },
     {
       "name": "input-queue-bad-action",
@@ -1112,6 +1202,54 @@
         "agent": "claude",
         "deskId": "${MAIN_DESK}"
       }
+    },
+    {
+      "name": "input-wait-main-agent",
+      "group": "input",
+      "kind": "waitFor",
+      "path": [
+        "desks",
+        {
+          "where": {
+            "isMain": true
+          }
+        },
+        "agents",
+        0,
+        "state"
+      ],
+      "equals": "done",
+      "capture": {
+        "AGENT2": [
+          "desks",
+          {
+            "where": {
+              "isMain": true
+            }
+          },
+          "agents",
+          0,
+          "id"
+        ],
+        "HANDLE2": [
+          "desks",
+          {
+            "where": {
+              "isMain": true
+            }
+          },
+          "agents",
+          0,
+          "terminalHandle"
+        ]
+      }
+    },
+    {
+      "name": "input-snapshot-after-hire",
+      "group": "input",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot"
     }
   ]
 }

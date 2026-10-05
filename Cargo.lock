@@ -892,6 +892,7 @@ dependencies = [
  "libc",
  "libtest-mimic",
  "od-core",
+ "regex",
  "rust-embed",
  "serde",
  "serde_json",

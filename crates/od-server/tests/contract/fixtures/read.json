@@ -1553,13 +1553,13 @@
   "read-terminal": {
     "body": {
       "json": {
-        "composer": "menu",
+        "composer": "ready",
         "found": true,
         "lines": [
           "FAKE AGENT READY",
-          "",
-          "",
-          "",
+          "────────────────",
+          "❯ ",
+          "────────────────",
           "",
           "",
           "",
