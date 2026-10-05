@@ -11,7 +11,10 @@ vi.mock('../src/termView', () => ({
     focused = 0;
     fits = 0;
     pasted: string[] = [];
+    visibleAtOpen: boolean;
     constructor(public host: HTMLElement, public cfg: unknown, public agentId: string) {
+      // xterm measures its cell at open: no hidden ancestor, and attached to the document.
+      this.visibleAtOpen = host.isConnected && host.closest('[hidden]') === null;
       views.push(this);
     }
     fit() {
@@ -146,6 +149,17 @@ describe('Workspace', () => {
     ws.toggleSplit();
     expect(views.length).toBe(before); // B already had its view
     for (const v of views) expect(v.host.hidden).toBe(v.agentId !== 'A' && v.agentId !== 'B');
+  });
+
+  it('every view is created in a visible, attached pane (first open, and after closing all)', () => {
+    ws.open(d, A);
+    ws.close();
+    ws.open(d, B);
+    ws.open(d, C);
+    ws.switchTo(0);
+    ws.toggleSplit();
+    expect(views.map((v) => v.agentId)).toEqual(['A', 'B', 'C']);
+    expect(views.every((v) => v.visibleAtOpen)).toBe(true);
   });
 
   it('tab titles carry the switch shortcut for the first 9', () => {

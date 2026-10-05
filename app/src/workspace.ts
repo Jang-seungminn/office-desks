@@ -111,6 +111,9 @@ export class Workspace {
   private render(): void {
     this.renderBar();
     const { active, split } = this.st;
+    this.panes.classList.toggle('split', split !== null);
+    this.empty.hidden = this.st.tabs.length > 0;
+    this.panes.hidden = this.st.tabs.length === 0;
     // Show the panes first, then create views: xterm measures its cell size at open.
     for (const [id, slot] of this.slots) this.place(slot.pane, id === active ? 'left' : id === split ? 'right' : null);
     for (const id of [active, split]) {
@@ -122,9 +125,6 @@ export class Workspace {
       this.panes.append(pane);
       this.slots.set(id, { pane, view: new TermView(pane, this.cfg, id) });
     }
-    this.panes.classList.toggle('split', split !== null);
-    this.empty.hidden = this.st.tabs.length > 0;
-    this.panes.hidden = this.st.tabs.length === 0;
   }
 
   private place(pane: HTMLDivElement, side: 'left' | 'right' | null): void {

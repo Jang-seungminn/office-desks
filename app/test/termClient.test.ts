@@ -1,4 +1,4 @@
-// @vitest-environment node
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { INPUT_CHUNK, TermSocket, termUrl, type TermHandlers } from '../src/termClient';
 
