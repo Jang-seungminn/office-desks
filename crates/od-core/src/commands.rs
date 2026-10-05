@@ -393,7 +393,7 @@ impl CommandCatalog {
         let key = format!("{agent_type}|{}", project_path.display());
         let now = (self.clock)();
         {
-            let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+            let cache = crate::util::lock(&self.cache);
             if let Some((at, list)) = cache.get(&key) {
                 if now - at < self.ttl_ms {
                     return list.clone();
@@ -402,10 +402,7 @@ impl CommandCatalog {
         }
         // Scan outside the lock so one slow folder doesn't hold up other agents.
         let list = Arc::new(list_commands(agent_type, project_path, &self.home));
-        self.cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(key, (now, list.clone()));
+        crate::util::lock(&self.cache).insert(key, (now, list.clone()));
         list
     }
 }

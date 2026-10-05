@@ -114,7 +114,7 @@ Backend and errors:
 - `os.homedir` is approximated by absolute HOME or USERPROFILE, else the OS home, else the temp dir.
 - Unix `find_command` checks any exec mode bit, not `access(X_OK)`. Reason: no libc call for it.
 - Windows path helpers (isAbsolute, extname, join) are hand-rolled so they are testable on macOS.
-- Node path helpers are spread over several modules: `win32_is_absolute` / `win32_has_ext` / `win32_join` (`native/env.rs`), `normalize_path` (`native/worktrees.rs`), `node_is_absolute` (`native/env.rs`) and `resolve_lexical` (`backend/native_backend.rs`). Left as they are in R1; R3 should consolidate them into one `nodepath` module when the Orca backend adds more.
+- Node path helpers (`win32_is_absolute`, `win32_has_ext`, `win32_join`, `normalize_path`, `node_is_absolute`, `resolve_lexical`, basenames, `slash`, `same_path`) live in one module, `nodepath` (consolidated in R3). Done.
 
 Git:
 
