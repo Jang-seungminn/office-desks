@@ -1200,3 +1200,101 @@ async fn the_real_backend_works_as_a_trait_object() {
     assert!(!backend.hook("nope:main", "t", &json!({})));
     backend.dispose().await;
 }
+
+// ---------- against real git ----------
+
+fn run_git(cwd: &Path, args: &[&str]) {
+    let o = std::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+}
+
+/// Desk ids, worktree removal and git's own error text with a scratch repo and the real git.
+#[tokio::test]
+async fn hires_into_and_removes_a_real_git_worktree() {
+    let repo_t = tmp("od-native-repo-");
+    let repo = dunce::canonicalize(repo_t.path()).unwrap();
+    run_git(&repo, &["init", "-q", "-b", "main"]);
+    run_git(
+        &repo,
+        &[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        ],
+    );
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    let home_t = tmp("od-native-home-");
+    let registry = Arc::new(Registry::new(home_t.path().join("state.json")));
+    registry.load();
+    let pty = Arc::new(FakePty::default());
+    let mut deps = NativeDeps::new(
+        pty.clone(),
+        registry.clone(),
+        home_t.path().to_path_buf(),
+        hook_url,
+    );
+    deps.claude_projects = Some(home_t.path().join("claude-projects"));
+    deps.env = Some(env(&[("PATH", "/bin")]));
+    deps.relay = Some(vec!["/r/office-desks".into(), "hook-relay".into()]);
+    deps.sleep = Some(instant_sleep());
+    deps.which = Some(Arc::new(|cmd: &str, _: &EnvMap| {
+        Some(PathBuf::from(format!("/bin/{cmd}")))
+    }));
+    let backend = NativeBackend::new(deps);
+
+    backend.add_repo(&s(&repo.join("src"))).await.unwrap();
+    let rec = registry.repos()[0].clone();
+    assert_eq!(rec.path, normalize_path(&s(&repo)));
+    backend
+        .hire(HireSpec::Worktree {
+            repo_id: rec.id.clone(),
+            name: "fix-login".into(),
+            agent: "codex".into(),
+            base_branch: None,
+            prompt: None,
+        })
+        .await
+        .unwrap();
+    let snap = backend.snapshot().await.unwrap();
+    let wt = snap.desks.iter().find(|d| !d.is_main).unwrap();
+    // The desk id we built from the resolved path is the one git lists.
+    assert_eq!(wt.name, "fix-login");
+    assert_eq!(wt.branch, "fix-login");
+    assert_eq!(
+        wt.agents.len(),
+        1,
+        "agent not on its desk: {:?}",
+        snap.desks
+    );
+    let wt_id = wt.id.clone();
+    let wt_path = PathBuf::from(&wt.path);
+    let main_id = snap.desks.iter().find(|d| d.is_main).unwrap().id.clone();
+
+    let code = |r: Result<(), BackendError>| r.unwrap_err().code;
+    assert_eq!(code(backend.remove_worktree(&wt_id).await), "has_agents");
+    pty.kill(&pty.id(0));
+    std::fs::write(wt_path.join("scratch.txt"), "x").unwrap();
+    assert_eq!(code(backend.remove_worktree(&wt_id).await), "dirty");
+    std::fs::remove_file(wt_path.join("scratch.txt")).unwrap();
+    backend.remove_worktree(&wt_id).await.unwrap();
+    assert!(!wt_path.exists());
+    assert_eq!(
+        code(backend.remove_worktree(&main_id).await),
+        "main_checkout"
+    );
+    let snap = backend.snapshot().await.unwrap();
+    assert_eq!(snap.desks.len(), 1);
+}

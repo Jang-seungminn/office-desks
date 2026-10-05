@@ -404,11 +404,7 @@ impl<P: PtyLike> NativeBackend<P> {
         f: impl FnOnce(&dyn GitRunner) -> T + Send + 'static,
     ) -> T {
         let git = self.git.clone();
-        match tokio::task::spawn_blocking(move || f(&*git)).await {
-            Ok(v) => v,
-            Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
-            Err(e) => panic!("git task did not run: {e}"),
-        }
+        blocking(move || f(&*git)).await
     }
 
     async fn worktrees_of(&self, repo_path: &str) -> Result<Vec<WorktreeInfo>, GitError> {
@@ -560,6 +556,15 @@ impl<P: PtyLike> NativeBackend<P> {
             return Err(e);
         }
         Ok(())
+    }
+}
+
+/// Run `f` on tokio's blocking pool; a panic in it is re-raised here.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    match tokio::task::spawn_blocking(f).await {
+        Ok(v) => v,
+        Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
+        Err(e) => panic!("blocking task did not run: {e}"),
     }
 }
 
@@ -748,15 +753,15 @@ impl<P: PtyLike> OfficeBackend for NativeBackend<P> {
     }
 
     async fn set_board(&self, desk_id: &str, update: BoardUpdate) -> Result<(), BackendError> {
-        self.registry
-            .set_meta(
-                desk_id,
-                DeskMeta {
-                    workspace_status: update.workspace_status,
-                    comment: update.comment,
-                    extra: Default::default(),
-                },
-            )
+        // The registry save retries with thread sleeps on Windows (a scanner holding the file).
+        let (registry, desk_id) = (self.registry.clone(), desk_id.to_string());
+        let patch = DeskMeta {
+            workspace_status: update.workspace_status,
+            comment: update.comment,
+            extra: Default::default(),
+        };
+        blocking(move || registry.set_meta(&desk_id, patch))
+            .await
             .map_err(io_error)
     }
 
@@ -788,6 +793,8 @@ impl<P: PtyLike> OfficeBackend for NativeBackend<P> {
             sid
         };
         let root = self.projects_root();
+        // TODO(R2): spawn_blocking. This scan is sync by the trait (TS `cachedSession` is sync)
+        // and runs per agent per poll at most every 5 s; ~/.claude/projects can be large.
         // No projects folder yet: nothing to find.
         let dirs = std::fs::read_dir(&root).ok()?;
         for dir in dirs.flatten() {
@@ -826,7 +833,10 @@ impl<P: PtyLike> OfficeBackend for NativeBackend<P> {
         }
         let dir = repo_path.to_string();
         let repo = self.with_git(move |g| resolve_repo(&dir, g)).await?;
-        self.registry.add_repo(repo).map_err(io_error)
+        let registry = self.registry.clone();
+        blocking(move || registry.add_repo(repo))
+            .await
+            .map_err(io_error)
     }
 
     async fn stop_agent(&self, agent_id: &str) -> Result<(), BackendError> {
