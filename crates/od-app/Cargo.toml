@@ -36,7 +36,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time",
 url = "2"
 
 [build-dependencies]
-tauri-build = { version = "2.7", features = [] }
+# windows/app.manifest copies tauri-build's own manifest: re-diff it when bumping tauri-build.
+tauri-build = { version = "~2.7", features = [] }
 embed-resource = "3"
 
 [dev-dependencies]

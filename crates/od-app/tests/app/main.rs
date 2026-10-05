@@ -237,6 +237,7 @@ fn core_is_native_whatever_the_env(sub: &Path) {
     let snap = get(core.port, "/api/snapshot");
     assert_eq!(snap.status, 200, "{}", snap.body);
     assert_eq!(snap.json()["error"], Value::Null, "{}", snap.body);
+    // Sanity check: the path really is missing, so a run of it could only fail.
     assert!(!orca.exists());
     rt.block_on(core.shutdown());
 }

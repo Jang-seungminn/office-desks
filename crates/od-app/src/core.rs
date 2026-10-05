@@ -84,6 +84,13 @@ mod tests {
         ])));
     }
 
+    #[test]
+    fn app_config_mounts_the_app() {
+        let mut env = EnvMap::new();
+        env.insert("OFFICE_DESKS_HOME".into(), "/nonexistent/od".into());
+        assert!(app_config(&env).app_assets.is_some());
+    }
+
     #[cfg(unix)]
     #[test]
     fn hook_relay_non_utf8_is_false() {

@@ -136,6 +136,8 @@ cargo test                 # Node 계약 재생 테스트 포함, macOS와 Windo
 
 Node 서버와 다른 점은 `crates/od-server/PARITY.md`에 정리했어요.
 
+워크스페이스에는 데스크톱 앱 `od-app`(Gongbang)도 있어요. release 빌드(`cargo build --release`)는 두 화면이 먼저 빌드돼 있어야 해요: `npm run build -w web`과 `npm run build -w app`을 먼저 실행하세요. 없으면 `od-app`의 빌드 스크립트가 멈춥니다. debug 빌드와 `cargo test`에는 필요 없어요.
+
 ## 터미널 앱 (TUI)
 
 터미널에서 `npx office-desks`(소스에서는 `npm run tui`)를 실행하면 Office Desks 터미널 앱이 뜨고, 같은 프로세스가 웹 사무실도 띄웁니다(주소는 화면 맨 위).

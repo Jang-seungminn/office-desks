@@ -16,6 +16,8 @@ fn main() {
         // Controls v6, so the unit tests, the `app` trials (and their fake `claude` copies) and
         // `e2e_harness.exe` would die at load with STATUS_ENTRYPOINT_NOT_FOUND. Ours is linked
         // into every target (`cargo:rustc-link-arg`).
+        // windows/app.manifest is tauri-build 2.7.1's `src/windows-app-manifest.xml` verbatim:
+        // re-diff it whenever tauri-build is upgraded (Cargo.toml pins `~2.7`).
         attrs =
             attrs.windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
         embed_resource::compile_for_everything("windows/app.rc", embed_resource::NONE)
@@ -24,7 +26,14 @@ fn main() {
     }
     tauri_build::try_build(attrs).expect("tauri-build");
 
-    println!("cargo:rerun-if-changed=../../app/dist");
+    for path in [
+        "windows/app.rc",
+        "windows/app.manifest",
+        "../../app/dist",
+        "../../web/dist",
+    ] {
+        println!("cargo:rerun-if-changed={path}");
+    }
     // rust-embed embeds whatever is there: a release built without the UIs would ship blank.
     if std::env::var("PROFILE").as_deref() == Ok("release") {
         let dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
