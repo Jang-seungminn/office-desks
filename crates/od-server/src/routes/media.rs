@@ -4,6 +4,7 @@ use axum::body::Body;
 use axum::http::{header, StatusCode};
 use axum::response::Response;
 use od_core::local_image::{is_linked_image, read_local_image};
+use od_core::model::{OfficeAgent, OfficeDesk};
 use od_core::uploads::{decode_base64_lenient, upload_path, IMAGE_TYPES};
 use serde_json::json;
 
@@ -33,9 +34,8 @@ fn index_of(i: f64, len: usize) -> Option<usize> {
 }
 
 /// The agent's session file; an empty path is falsy in JS.
-async fn agent_file(st: &AppState, agent_id: Option<&str>) -> Option<String> {
-    let (desk, agent) = st.find_agent(agent_id)?;
-    session_file(st, &desk, &agent)
+async fn file_of(st: &AppState, desk: &OfficeDesk, agent: &OfficeAgent) -> Option<String> {
+    session_file(st, desk, agent)
         .await
         .filter(|f| !f.is_empty())
 }
@@ -45,7 +45,10 @@ pub(crate) async fn conversation_image(
     st: &AppState,
     url: &RequestUrl,
 ) -> Result<Response, ApiError> {
-    let Some(file) = agent_file(st, url.get("agentId")).await else {
+    let Some((desk, agent)) = st.find_agent(url.get("agentId")) else {
+        return Ok(no_such("no such image"));
+    };
+    let Some(file) = file_of(st, &desk, &agent).await else {
         return Ok(no_such("no such image"));
     };
     let t = read_file(file.into(), false).await?;
@@ -66,10 +69,7 @@ pub(crate) async fn local_image(st: &AppState, url: &RequestUrl) -> Result<Respo
     let Some((desk, agent)) = agent.filter(|_| js::node_is_absolute(want)) else {
         return Ok(no_such("no such image"));
     };
-    let file = session_file(st, &desk, &agent)
-        .await
-        .filter(|f| !f.is_empty());
-    let linked = match file {
+    let linked = match file_of(st, &desk, &agent).await {
         Some(f) => {
             let t = read_file(f.into(), false).await?;
             is_linked_image(&t.messages, want)
@@ -92,14 +92,7 @@ pub(crate) async fn upload(st: &AppState, rest: &str) -> Result<Response, ApiErr
     let file = upload_path(rest, &st.cfg.upload_dir);
     let image = match file {
         Some(f) => {
-            tokio::task::spawn_blocking(move || {
-                if f.exists() {
-                    read_local_image(&f.to_string_lossy())
-                } else {
-                    None
-                }
-            })
-            .await?
+            tokio::task::spawn_blocking(move || read_local_image(&f.to_string_lossy())).await?
         }
         None => None,
     };

@@ -1372,6 +1372,9 @@ fn user_line(content: serde_json::Value) -> String {
 
 fn assert_binary_headers(r: &support::Resp, content_type: &str) {
     assert_eq!(r.status, 200);
+    for h in ["content-type", "cache-control", "x-content-type-options"] {
+        assert_eq!(r.headers.get_all(h).iter().count(), 1, "{h}");
+    }
     assert_eq!(r.header("content-type"), Some(content_type));
     assert_eq!(r.header("cache-control"), Some("private, max-age=86400"));
     assert_eq!(r.header("x-content-type-options"), Some("nosniff"));
@@ -1402,6 +1405,8 @@ async fn conversation_image_index_and_types() {
     assert_eq!(r.body, PNG);
     assert_eq!(get("").await.body, PNG); // Number(null) is 0
     assert_eq!(get("&i=").await.body, PNG);
+    assert_eq!(get("&i=0x1").await.body, other);
+    assert_eq!(get("&i=%201%20").await.body, other);
     let r = get("&i=1e0").await;
     assert_binary_headers(&r, "image/jpeg");
     assert_eq!(r.body, other);
@@ -1509,6 +1514,7 @@ async fn uploads_serve_only_plain_names() {
         "nope.png",
         "t.png",
         "ab-1_x.svg",
+        "ab-1_x.png%0A",
         "..%2Fab-1_x.png",
         "sub/ab-1_x.png",
         "",
