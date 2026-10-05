@@ -42,6 +42,9 @@ pub enum UploadError {
     Io(#[from] std::io::Error),
 }
 
+const UNSUPPORTED: &str = "지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)";
+const TOO_BIG: &str = "이미지가 비어 있거나 10MB를 넘습니다";
+
 fn rejected(msg: &str) -> UploadError {
     UploadError::Rejected(msg.to_string())
 }
@@ -163,10 +166,10 @@ pub fn random_file_id() -> String {
 }
 
 /// The raw `images` field of a send request as the typed list [`save_images`] takes. Untrusted
-/// input: a missing/null field is no images; an entry that is null, has no string `mediaType`
-/// or a non-string `data` is the TS "unsupported type" rejection (HTTP 400), not a panic or a
-/// different error. (TS reports an over-large earlier image before a malformed later one; this
-/// checks shapes first.) Unknown media types and sizes are still checked by [`save_images`].
+/// input: a missing/null field is no images. Each image is checked in the TS order, shape (a
+/// known string `mediaType` and a string `data`, else the "unsupported type" rejection) and then
+/// decoded size (empty or over 10 MB), stopping at the first failure, so several bad images
+/// report the same error TS does (HTTP 400). More than 6 images is rejected first.
 pub fn parse_images(raw: &serde_json::Value) -> Result<Vec<ImageUpload>, UploadError> {
     use serde_json::Value;
     let list = match raw {
@@ -186,12 +189,17 @@ pub fn parse_images(raw: &serde_json::Value) -> Result<Vec<ImageUpload>, UploadE
     list.iter()
         .map(|img| {
             let field = |k: &str| img.get(k).and_then(Value::as_str).map(str::to_string);
-            match (field("mediaType"), field("data")) {
-                (Some(media_type), Some(data)) => Ok(ImageUpload { media_type, data }),
-                _ => Err(rejected(
-                    "지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)",
-                )),
+            let (Some(media_type), Some(data)) = (field("mediaType"), field("data")) else {
+                return Err(rejected(UNSUPPORTED));
+            };
+            if image_ext(&media_type).is_none() {
+                return Err(rejected(UNSUPPORTED));
             }
+            let n = decode_base64_lenient(&data).len();
+            if n == 0 || n > MAX_IMAGE_BYTES {
+                return Err(rejected(TOO_BIG));
+            }
+            Ok(ImageUpload { media_type, data })
         })
         .collect()
 }
@@ -226,7 +234,7 @@ pub fn save_images_with(
         };
         let buf = decode_base64_lenient(&img.data);
         if buf.is_empty() || buf.len() > MAX_IMAGE_BYTES {
-            return Err(rejected("이미지가 비어 있거나 10MB를 넘습니다"));
+            return Err(rejected(TOO_BIG));
         }
         let file = dir.join(format!("{}-{}.{ext}", now(), rand8()));
         let mut o = std::fs::OpenOptions::new();
@@ -461,6 +469,19 @@ mod tests {
                 "{bad}"
             );
         }
+        // Several bad images: the first failure in TS order wins (size of #1 before shape of #2).
+        let huge = "A".repeat((MAX_IMAGE_BYTES / 3 + 1) * 4);
+        let two = json!([{ "mediaType": "image/png", "data": huge }, null]);
+        assert!(
+            matches!(parse_images(&two), Err(UploadError::Rejected(m)) if m == "이미지가 비어 있거나 10MB를 넘습니다")
+        );
+        let two =
+            json!([{ "mediaType": "image/png", "data": "" }, { "mediaType": "x", "data": "y" }]);
+        assert!(
+            matches!(parse_images(&two), Err(UploadError::Rejected(m)) if m == "이미지가 비어 있거나 10MB를 넘습니다")
+        );
+        let two = json!([null, { "mediaType": "image/png", "data": "" }]);
+        assert!(matches!(parse_images(&two), Err(UploadError::Rejected(m)) if m == msg));
         let seven = json!(vec![json!({ "mediaType": "image/png", "data": "x" }); 7]);
         assert!(matches!(parse_images(&seven), Err(UploadError::Rejected(m)) if m.contains("6장")));
     }

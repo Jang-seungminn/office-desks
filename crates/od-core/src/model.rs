@@ -238,8 +238,8 @@ pub struct SendRequest {
     pub terminal_handle: String,
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    /// Typed for serializing; untrusted request bodies should go through
-    /// `uploads::parse_images` on the raw `images` value to get the TS 400 messages.
+    /// Typed for serializing only. R2 must call `uploads::parse_images` on the raw `images`
+    /// value of the request body (not this field), to get the TS 400 messages in TS order.
     pub images: Option<Vec<ImageUpload>>,
     /// Send even if a dialog seems to be open in the agent's terminal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
