@@ -58,10 +58,10 @@ pub enum ApiError {
 }
 
 #[derive(Serialize)]
-struct ErrorBody<'a> {
-    error: &'a str,
+pub(crate) struct ErrorBody<'a> {
+    pub error: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    code: Option<&'a str>,
+    pub code: Option<&'a str>,
 }
 
 impl ApiError {

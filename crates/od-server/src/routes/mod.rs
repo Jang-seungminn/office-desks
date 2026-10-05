@@ -9,17 +9,40 @@
 //! Arms not ported yet are stubs answering 404 `{"error":"not found"}`. Each later task replaces
 //! its stubs with a call into its own module and adds that module's `mod` line here.
 
+mod manage;
 mod read;
 
 use std::sync::Arc;
 
 use axum::extract::Request;
 use axum::http::{header, Method, StatusCode};
-use axum::response::Response;
-use serde_json::json;
+use axum::response::{IntoResponse, Response};
+use serde_json::{json, Value};
 
 use crate::app::AppState;
-use crate::reqs::{json, RequestUrl};
+use crate::reqs::{json, read_json, ApiError, RequestUrl};
+
+/// Reads a POST body as a raw `Value` (never axum's `Json<T>`, which answers 422).
+pub(crate) async fn post_body(req: Request, cap: usize) -> Result<Value, ApiError> {
+    read_json(req.into_body(), cap).await
+}
+
+/// `body.<name>`: V8's `TypeError` for a `null` body, the value when the key is present, else
+/// None (also for a body that is not an object, where JS reads `undefined`).
+pub(crate) fn field<'a>(
+    body: &'a Value,
+    name: &'static str,
+) -> Result<Option<&'a Value>, ApiError> {
+    match body {
+        Value::Null => Err(ApiError::NullBody(name)),
+        Value::Object(m) => Ok(m.get(name)),
+        _ => Ok(None),
+    }
+}
+
+fn done(r: Result<Response, ApiError>) -> Response {
+    r.unwrap_or_else(IntoResponse::into_response)
+}
 
 fn not_found() -> Response {
     json(StatusCode::NOT_FOUND, &json!({ "error": "not found" }))
@@ -71,7 +94,7 @@ pub(crate) async fn dispatch(st: Arc<AppState>, req: Request, url: RequestUrl) -
 
     // 2. POST /api/org, before the content-type gate.
     if req.method() == Method::POST && p == "/api/org" {
-        return not_found(); // Task 4
+        return done(manage::org(&st, req).await);
     }
 
     // 3, 4. The gates.
@@ -95,10 +118,10 @@ pub(crate) async fn dispatch(st: Arc<AppState>, req: Request, url: RequestUrl) -
         "/api/keys" => not_found(),       // Task 8
         "/api/answer" => not_found(),     // Task 8
         "/api/queue" => not_found(),      // Task 8
-        "/api/hire" => not_found(),       // Task 4
-        "/api/worktree" => not_found(),   // Task 4
-        "/api/focus" => not_found(),      // Task 8
-        "/api/repos" => not_found(),      // Task 4
+        "/api/hire" => done(manage::hire(&st, req).await),
+        "/api/worktree" => done(manage::worktree(&st, req).await),
+        "/api/focus" => not_found(), // Task 8
+        "/api/repos" => done(manage::repos(&st, req).await),
         // 6.
         _ => not_found(),
     }

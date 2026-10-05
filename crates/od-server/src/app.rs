@@ -75,6 +75,22 @@ impl AppState {
         known_handle_in(&self.poller.current(), handle)
     }
 
+    /// After a hire: one more refresh once the agent's startup grace has passed, so a trust
+    /// dialog shows as waiting right away. Gives up on shutdown.
+    pub fn hire_recheck(&self) {
+        let (poller, wait, mut stop) = (
+            self.poller.clone(),
+            self.cfg.hire_recheck,
+            self.stop.clone(),
+        );
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = tokio::time::sleep(wait) => poller.refresh().await,
+                _ = async { let _ = stop.wait_for(|s| *s).await; } => {}
+            }
+        });
+    }
+
     /// Resolves once the server is stopping (or every handle is gone).
     pub async fn stopped(&self) {
         let mut stop = self.stop.clone();

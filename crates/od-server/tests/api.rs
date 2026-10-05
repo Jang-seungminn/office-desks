@@ -566,3 +566,342 @@ async fn transcripts_fill_model_effort_and_stats() {
         .iter()
         .all(|c| c != "find_session a3"));
 }
+
+// ---- Task 4: POST plumbing and the management routes ----
+
+use od_core::backend::BackendError;
+
+const JSON_CT: [(&str, &str); 1] = [("content-type", "application/json")];
+
+async fn post(s: &support::TestServer, path: &str, body: &str) -> support::Resp {
+    s.client
+        .request("POST", path, &JSON_CT, Some(body.as_bytes().to_vec()))
+        .await
+}
+
+fn err_of(fake: &FakeBackend, method: &'static str, e: BackendError) {
+    fake.errors.lock().unwrap().insert(method, e);
+}
+
+/// A server whose snapshot has desk `d1`, already polled.
+async fn with_desk(caps: BackendCapabilities) -> (Arc<FakeBackend>, support::TestServer) {
+    let fake = with_caps(caps);
+    fake.set_snapshot(Ok(office(vec![desk("d1", "/nowhere", vec![])])));
+    let s = start_cfg(&fake, |c| c.hire_recheck = Duration::from_millis(50)).await;
+    s.handle.poller().refresh().await;
+    (fake, s)
+}
+
+fn error_of(r: &support::Resp) -> String {
+    r.json()["error"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn hire_disabled_is_400_with_the_backend_text() {
+    let (_f, s) = with_desk(no_capabilities()).await;
+    let r = post(&s, "/api/hire", r#"{"agent":"claude","deskId":"d1"}"#).await;
+    assert_eq!(r.status, 400);
+    assert_eq!(r.body, br#"{"error":"hire disabled"}"#);
+    // The capability check comes before the null-body TypeError.
+    let r = post(&s, "/api/hire", "null").await;
+    assert_eq!(r.status, 400);
+}
+
+#[tokio::test]
+async fn hire_errors_and_success() {
+    let caps = BackendCapabilities {
+        hire: true,
+        ..no_capabilities()
+    };
+    let (fake, s) = with_desk(caps).await;
+    let r = post(&s, "/api/hire", "null").await;
+    assert_eq!(r.status, 502);
+    assert_eq!(
+        r.body,
+        br#"{"error":"Cannot read properties of null (reading 'agent')"}"#
+    );
+    // Non-string agent is unknown; a validation message is a 400.
+    let r = post(&s, "/api/hire", r#"{"agent":5}"#).await;
+    assert_eq!(
+        (r.status.as_u16(), error_of(&r)),
+        (400, "지원하지 않는 에이전트입니다".into())
+    );
+    // deskId null selects the worktree path and matches nothing.
+    let r = post(&s, "/api/hire", r#"{"agent":"claude","deskId":null}"#).await;
+    assert_eq!(error_of(&r), "알 수 없는 워크트리입니다");
+    assert!(fake.calls_of("hire").is_empty());
+
+    err_of(
+        &fake,
+        "hire",
+        BackendError::with_code("ro", "terminal_not_writable"),
+    );
+    let r = post(&s, "/api/hire", r#"{"agent":"claude","deskId":"d1"}"#).await;
+    assert_eq!(r.status, 400);
+    assert_eq!(r.body, br#"{"error":"ro"}"#);
+    fake.errors.lock().unwrap().clear();
+
+    let before = fake.calls_of("snapshot").len();
+    let r = post(
+        &s,
+        "/api/hire",
+        r#"{"agent":"claude","deskId":"d1","prompt":"hi"}"#,
+    )
+    .await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.body, br#"{"ok":true}"#);
+    assert_eq!(fake.calls_of("hire").len(), 2);
+    // One refresh now and one at hire_recheck (50 ms here; the poll interval is 1.5 s).
+    wait_until("two refreshes after a hire", Duration::from_secs(3), || {
+        fake.calls_of("snapshot").len() >= before + 2
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn repos_route() {
+    let (fake, s) = with_desk(no_capabilities()).await;
+    let r = post(&s, "/api/repos", "null").await;
+    assert_eq!(r.status, 400);
+    assert_eq!(
+        error_of(&r),
+        "이 백엔드에서는 여기서 프로젝트를 추가할 수 없어요"
+    );
+
+    let caps = BackendCapabilities {
+        repos: true,
+        ..no_capabilities()
+    };
+    let (fake2, s2) = with_desk(caps).await;
+    drop((fake, s));
+    let r = post(&s2, "/api/repos", "null").await;
+    assert_eq!(r.status, 502);
+    assert_eq!(
+        error_of(&r),
+        "Cannot read properties of null (reading 'path')"
+    );
+    for body in [r#"{}"#, r#"{"path":5}"#, r#"{"path":"   "}"#] {
+        let r = post(&s2, "/api/repos", body).await;
+        assert_eq!(
+            (r.status.as_u16(), error_of(&r)),
+            (400, "저장소 경로를 입력해 주세요".into()),
+            "{body}"
+        );
+    }
+    // The cap counts the untrimmed string.
+    let path = "a".repeat(999);
+    let r = post(&s2, "/api/repos", &format!(r#"{{"path":"  {path}  "}}"#)).await;
+    assert_eq!(r.status, 400);
+    assert!(fake2.calls_of("add_repo").is_empty());
+    let r = post(&s2, "/api/repos", &format!(r#"{{"path":"{path}"}}"#)).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(fake2.calls_of("add_repo"), vec![format!("add_repo {path}")]);
+    let r = post(&s2, "/api/repos", r#"{"path":"  /x/y \n"}"#).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(fake2.calls_of("add_repo")[1], "add_repo /x/y");
+
+    err_of(&fake2, "add_repo", BackendError::plain("boom"));
+    let r = post(&s2, "/api/repos", r#"{"path":"/x"}"#).await;
+    assert_eq!(r.status, 502);
+    assert_eq!(r.body, br#"{"error":"boom"}"#);
+    err_of(
+        &fake2,
+        "add_repo",
+        BackendError::with_code("nope", "not_a_repo"),
+    );
+    let r = post(&s2, "/api/repos", r#"{"path":"/x"}"#).await;
+    assert_eq!(r.status, 400);
+    assert_eq!(
+        r.body,
+        "{\"error\":\"nope\",\"code\":\"not_a_repo\"}".as_bytes()
+    );
+}
+
+#[tokio::test]
+async fn worktree_route() {
+    let caps = BackendCapabilities {
+        board: true,
+        ..no_capabilities()
+    };
+    let (fake, s) = with_desk(caps).await;
+    let unknown = br#"{"error":"unknown worktree"}"#;
+    assert_eq!(post(&s, "/api/worktree", "{}").await.body, unknown);
+    assert_eq!(
+        post(&s, "/api/worktree", r#"{"deskId":1}"#).await.body,
+        unknown
+    );
+    let r = post(&s, "/api/worktree", "null").await;
+    assert_eq!(r.status, 502);
+    assert_eq!(
+        error_of(&r),
+        "Cannot read properties of null (reading 'deskId')"
+    );
+    let r = post(&s, "/api/worktree", r#"{"deskId":"d1"}"#).await;
+    assert_eq!(
+        (r.status.as_u16(), error_of(&r)),
+        (400, "nothing to change".into())
+    );
+    let r = post(
+        &s,
+        "/api/worktree",
+        r#"{"deskId":"d1","workspaceStatus":"Bad"}"#,
+    )
+    .await;
+    assert_eq!(
+        (r.status.as_u16(), error_of(&r)),
+        (400, "invalid status".into())
+    );
+    let r = post(
+        &s,
+        "/api/worktree",
+        r#"{"deskId":"d1","workspaceStatus":"-a"}"#,
+    )
+    .await;
+    assert_eq!(error_of(&r), "invalid status");
+    let long = "a".repeat(41);
+    let r = post(
+        &s,
+        "/api/worktree",
+        &format!(r#"{{"deskId":"d1","workspaceStatus":"{long}"}}"#),
+    )
+    .await;
+    assert_eq!(error_of(&r), "invalid status");
+    assert!(fake.calls_of("set_board").is_empty());
+
+    let r = post(
+        &s,
+        "/api/worktree",
+        r#"{"deskId":"d1","workspaceStatus":1}"#,
+    )
+    .await;
+    assert_eq!(
+        (r.status.as_u16(), r.body.as_slice()),
+        (200, &br#"{"ok":true}"#[..])
+    );
+    assert_eq!(
+        fake.calls_of("set_board")[0],
+        r#"set_board d1 {"workspaceStatus":"1"}"#
+    );
+    let r = post(&s, "/api/worktree", r#"{"deskId":"d1","comment":[1,2]}"#).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(
+        fake.calls_of("set_board")[1],
+        r#"set_board d1 {"comment":"1,2"}"#
+    );
+    let r = post(
+        &s,
+        "/api/worktree",
+        r#"{"deskId":"d1","comment":"  a \n\t b  "}"#,
+    )
+    .await;
+    assert_eq!(r.status, 200);
+    assert_eq!(
+        fake.calls_of("set_board")[2],
+        r#"set_board d1 {"comment":"a b"}"#
+    );
+
+    let ok200 = "가".repeat(200);
+    let r = post(
+        &s,
+        "/api/worktree",
+        &format!(r#"{{"deskId":"d1","comment":"{ok200}"}}"#),
+    )
+    .await;
+    assert_eq!(r.status, 200);
+    let r = post(
+        &s,
+        "/api/worktree",
+        &format!(r#"{{"deskId":"d1","comment":"{ok200}가"}}"#),
+    )
+    .await;
+    assert_eq!(
+        (r.status.as_u16(), error_of(&r)),
+        (400, "코멘트는 200자까지 쓸 수 있어요".into())
+    );
+
+    err_of(
+        &fake,
+        "set_board",
+        BackendError::with_code("ro", "terminal_not_writable"),
+    );
+    let r = post(&s, "/api/worktree", r#"{"deskId":"d1","comment":"x"}"#).await;
+    assert_eq!(r.status, 409);
+    assert_eq!(r.body, br#"{"error":"ro","code":"terminal_not_writable"}"#);
+}
+
+#[tokio::test]
+async fn worktree_without_board_or_desks() {
+    let (_f, s) = with_desk(no_capabilities()).await;
+    let r = post(&s, "/api/worktree", r#"{"deskId":"d1","comment":"x"}"#).await;
+    assert_eq!(r.status, 404);
+    // No desks at all: a null body is 404, not the TypeError (the find callback never runs).
+    let s = start_fake().await;
+    let r = post(&s, "/api/worktree", "null").await;
+    assert_eq!(
+        (r.status.as_u16(), error_of(&r)),
+        (404, "unknown worktree".into())
+    );
+}
+
+#[tokio::test]
+async fn org_post_saves_broadcasts_and_ignores_content_type() {
+    let s = start_fake().await;
+    let mut ws = ws_connect(s.handle.port, "/ws").await.unwrap();
+    ws_drain(&mut ws, QUIET).await;
+    let body =
+        br#"{"departments":[{"id":"d-a","name":" Dev  Team ","theme":"x","repoIds":["r1"]}]}"#;
+    let r = s
+        .client
+        .request(
+            "POST",
+            "/api/org",
+            &[("content-type", "text/plain")],
+            Some(body.to_vec()),
+        )
+        .await;
+    assert_eq!(r.status, 200);
+    let org = r.json();
+    assert_eq!(org["departments"][0]["name"], "Dev Team");
+    let m = ws_json(&mut ws).await;
+    assert_eq!(msg_type(&m), "org");
+    assert_eq!(m["org"], org);
+    assert_eq!(s.client.get("/api/org").await.json(), org);
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(s.dir.path().join("org.json")).unwrap()).unwrap();
+    assert_eq!(saved, org);
+
+    let r = post(&s, "/api/org", r#"{"departments":5}"#).await;
+    assert_eq!(r.status, 400);
+    assert_eq!(r.body, br#"{"error":"departments must be a list"}"#);
+    let r = post(&s, "/api/org", "null").await;
+    assert_eq!(r.status, 400);
+    // Over the cap.
+    let big = format!(r#"{{"departments":[],"pad":"{}"}}"#, "x".repeat(64_000));
+    let r = post(&s, "/api/org", &big).await;
+    assert_eq!(
+        (r.status.as_u16(), error_of(&r)),
+        (400, "요청이 너무 큽니다".into())
+    );
+}
+
+#[tokio::test]
+async fn org_save_failure_is_502_without_code() {
+    let fake = Arc::new(FakeBackend::default());
+    let s = start_cfg(&fake, |c| {
+        // A directory where the file should go: the atomic rename fails with an io::Error.
+        std::fs::create_dir_all(&c.org_file).unwrap();
+    })
+    .await;
+    let r = post(&s, "/api/org", r#"{"departments":[]}"#).await;
+    assert_eq!(r.status, 502);
+    assert!(r.json().get("code").is_none());
+    assert!(r.json()["error"].as_str().is_some());
+    // Not stored on failure.
+    assert_eq!(
+        s.client.get("/api/org").await.json()["departments"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}
