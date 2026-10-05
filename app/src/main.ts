@@ -1,39 +1,38 @@
 import './style.css';
+import { addAgentFlow, addProjectFlow, hooks, newWorkFlow, onSnapshot, removeFlow, stopFlow } from './actions';
 import { OfficeFeed } from './feed';
 import { openOffice } from './host';
+import { toast } from './modal';
+import { Sidebar } from './sidebar';
 
 const root = document.getElementById('app')!;
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-}
-
-const sidebar = el('aside', 'sidebar');
-const head = el('div', 'sidebar-head');
-head.append(el('h1', undefined, '공방'));
-const addBtn = el('button', undefined, '＋ 프로젝트');
-const officeBtn = el('button', undefined, '🏢 사무실');
-const note = el('div', 'sidebar-note');
-officeBtn.addEventListener('click', () => {
-  openOffice().catch(() => {
-    note.textContent = '사무실을 열 수 없어요';
-  });
-});
-head.append(addBtn, officeBtn);
-const body = el('div', 'sidebar-body', '연결 중…');
-sidebar.append(head, note, body);
-
-const workspace = el('main', 'workspace', '왼쪽에서 에이전트를 골라 터미널을 여세요');
-root.replaceChildren(sidebar, workspace);
+const aside = document.createElement('aside');
+aside.className = 'sidebar';
+const workspace = document.createElement('main');
+workspace.className = 'workspace';
+workspace.textContent = '왼쪽에서 에이전트를 골라 터미널을 여세요';
+root.replaceChildren(aside, workspace);
 
 const feed = new OfficeFeed();
-feed.onSnapshot(() => {
-  body.textContent = '';
+hooks.snapshot = () => feed.snapshot;
+hooks.openAgent = (desk, agent) => console.debug('open agent (Task 7)', desk.id, agent.id);
+
+export const sidebar = new Sidebar(aside, {
+  openAgent: (d, a) => hooks.openAgent(d, a),
+  newWork: (id) => void newWorkFlow(id),
+  addAgent: (d) => void addAgentFlow(d),
+  stop: (d, a) => void stopFlow(d, a),
+  remove: (d) => void removeFlow(d),
+  addProject: () => void addProjectFlow(),
+  openOffice: () => {
+    openOffice().catch(() => toast('⚠️ 사무실을 열 수 없어요', 'error'));
+  },
 });
-feed.onStatus((c) => {
-  if (!c) body.textContent = '연결이 끊겼어요. 다시 연결 중…';
+
+sidebar.render(null);
+feed.onSnapshot((s) => {
+  sidebar.render(s);
+  onSnapshot(s);
 });
+feed.onStatus((c) => sidebar.setConnected(c));
 feed.start();

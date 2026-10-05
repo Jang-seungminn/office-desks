@@ -25,7 +25,6 @@ body.sidebar-hidden .sidebar { display: none; }
 .sidebar { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; overflow: auto; }
 .sidebar-head { display: flex; align-items: center; gap: 6px; padding: 10px; border-bottom: 1px solid var(--line); }
 .sidebar-head h1 { font-size: 15px; margin: 0 auto 0 0; }
-.sidebar-body { padding: 10px; color: var(--muted); }
 .workspace { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; color: var(--muted); }
 button {
   background: var(--bg); color: var(--text); border: 1px solid var(--line);
@@ -34,4 +33,34 @@ button {
 button:hover { border-color: var(--accent); }
 button.danger { color: var(--danger); }
 .term { font-family: var(--font-term); }
-.sidebar-note { padding: 0 10px; color: var(--danger); }
+.sidebar-banner { margin: 8px 10px 0; padding: 6px 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--danger); color: var(--danger); }
+.sidebar-banner[hidden] { display: none; }
+.empty, .muted { color: var(--muted); }
+.project-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.worktree { border-left: 2px solid var(--line); padding: 2px 0 2px 8px; margin: 6px 0; }
+.worktree-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--text); }
+.worktree-actions { display: flex; gap: 4px; margin-left: auto; }
+.agent { display: flex; align-items: center; gap: 8px; padding: 4px 6px; margin-top: 4px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); cursor: pointer; color: var(--text); }
+.agent:hover, .agent:focus-visible { border-color: var(--accent); outline: none; }
+.agent .stop-agent { margin-left: auto; }
+.state { font-size: 12px; }
+.state-waiting { color: var(--accent); font-weight: 600; }
+.state-done { color: var(--ok); }
+.state-away { color: var(--muted); }
+.empty-seat { padding: 4px 6px; }
+#modal-root { position: fixed; inset: 0; z-index: 100; pointer-events: none; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
+.modal { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: min(460px, 92vw); max-height: 90vh; overflow: auto; padding: 14px; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; }
+.modal-head h2 { font-size: 15px; margin: 0; }
+.modal-form { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.modal-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field-label { color: var(--muted); }
+.modal input, .modal select, .modal textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; }
+button.modal-ok { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+button.modal-ok.danger { background: var(--danger); color: var(--text); border-color: var(--danger); }
+#toast-root { position: fixed; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 200; pointer-events: none; }
+.toast { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; max-width: 360px; overflow-wrap: anywhere; }
+.toast.error { border-color: var(--danger); color: var(--danger); }
