@@ -34,7 +34,11 @@ fn index_of(i: f64, len: usize) -> Option<usize> {
 }
 
 /// The agent's session file; an empty path is falsy in JS.
-async fn file_of(st: &AppState, desk: &OfficeDesk, agent: &OfficeAgent) -> Option<String> {
+pub(crate) async fn file_of(
+    st: &AppState,
+    desk: &OfficeDesk,
+    agent: &OfficeAgent,
+) -> Option<String> {
     session_file(st, desk, agent)
         .await
         .filter(|f| !f.is_empty())

@@ -5,10 +5,8 @@
 //! 4. a content-type not starting with `application/json`: 415;
 //! 5. the POST arms;
 //! 6. 404.
-//!
-//! Arms not ported yet are stubs answering 404 `{"error":"not found"}`. Each later task replaces
-//! its stubs with a call into its own module and adds that module's `mod` line here.
 
+mod input;
 mod manage;
 mod media;
 mod read;
@@ -114,14 +112,14 @@ pub(crate) async fn dispatch(st: Arc<AppState>, req: Request, url: RequestUrl) -
 
     // 5. POST arms.
     match p {
-        "/api/send" => not_found(),       // Task 8
-        "/api/send/retry" => not_found(), // Task 8
-        "/api/keys" => not_found(),       // Task 8
-        "/api/answer" => not_found(),     // Task 8
-        "/api/queue" => not_found(),      // Task 8
+        "/api/send" => done(input::send(&st, req).await),
+        "/api/send/retry" => done(input::retry(&st, req).await),
+        "/api/keys" => done(input::keys(&st, req).await),
+        "/api/answer" => done(input::answer(&st, req).await),
+        "/api/queue" => done(input::queue(&st, req).await),
         "/api/hire" => done(manage::hire(&st, req).await),
         "/api/worktree" => done(manage::worktree(&st, req).await),
-        "/api/focus" => not_found(), // Task 8
+        "/api/focus" => done(input::focus(&st, req).await),
         "/api/repos" => done(manage::repos(&st, req).await),
         // 6.
         _ => not_found(),

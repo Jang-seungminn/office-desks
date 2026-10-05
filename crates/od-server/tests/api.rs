@@ -1524,3 +1524,514 @@ async fn uploads_serve_only_plain_names() {
         assert_eq!(r.json()["error"], "no such upload", "{name}");
     }
 }
+
+// ---- input routes (Task 8) ----
+
+const BUSY_TEXT: &str = "에이전트가 지금 새 메시지를 받을 수 없는 상태예요 (질문·권한 확인 중이거나 화면 전환 중). 잠시 후 다시 보내기를 눌러 주세요";
+
+/// A screen fixture from the bridge tests, split into lines (a Windows checkout may have CRLF).
+fn screen_fixture(name: &str) -> Vec<String> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../bridge/test/fixtures/screens/claude-2.1")
+        .join(name);
+    std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// Claude's idle composer, as the fake agent draws it.
+fn idle_composer() -> Vec<String> {
+    let rule = "─".repeat(16);
+    vec![rule.clone(), "❯ ".into(), rule]
+}
+
+fn sb(r: &support::Resp) -> (u16, String) {
+    (r.status.as_u16(), r.text())
+}
+
+async fn answer(s: &support::TestServer, body: &str) -> support::Resp {
+    post(s, "/api/answer", body).await
+}
+
+fn set_screen(fake: &FakeBackend, lines: Vec<String>) {
+    *fake.screen.lock().unwrap() = lines;
+}
+
+fn composer_of(lines: &[String]) -> od_core::model::ComposerState {
+    od_core::screen::composer_state(lines, "claude")
+}
+
+#[tokio::test]
+async fn send_to_an_idle_composer_is_200() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    set_screen(&fake, idle_composer());
+    assert_eq!(
+        composer_of(&idle_composer()),
+        od_core::model::ComposerState::Ready
+    );
+    let r = post(
+        &s,
+        "/api/send",
+        r#"{"terminalHandle":"pty_1","text":"  hi  "}"#,
+    )
+    .await;
+    assert_eq!(sb(&r), (200, r#"{"ok":true}"#.to_string()));
+    assert_eq!(fake.calls_of("read_screen"), ["read_screen pty_1"]);
+    assert_eq!(fake.calls_of("send_prompt"), ["send_prompt pty_1 hi"]);
+}
+
+#[tokio::test]
+async fn send_busy_is_409_with_the_request_id() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    set_screen(&fake, idle_composer());
+    err_of(&fake, "send_prompt", BackendError::busy("r1"));
+    let r = post(&s, "/api/send", r#"{"terminalHandle":"pty_1","text":"hi"}"#).await;
+    assert_eq!(r.status, 409);
+    assert_eq!(r.header("content-type"), Some("application/json"));
+    let want = format!(r#"{{"code":"agent_busy","requestId":"r1","error":"{BUSY_TEXT}"}}"#);
+    assert_eq!(r.text(), want);
+    // Any other error is the catch-all's.
+    err_of(&fake, "send_prompt", BackendError::plain("boom"));
+    let r = post(&s, "/api/send", r#"{"terminalHandle":"pty_1","text":"hi"}"#).await;
+    assert_eq!(sb(&r), (502, r#"{"error":"boom"}"#.to_string()));
+}
+
+#[tokio::test]
+async fn send_refuses_an_open_menu_unless_forced() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    let menu = screen_fixture("trust-dialog.txt");
+    assert_eq!(composer_of(&menu), od_core::model::ComposerState::Menu);
+    set_screen(&fake, menu);
+    for force in ["", r#","force":0"#, r#","force":"""#, r#","force":null"#] {
+        let body = format!(r#"{{"terminalHandle":"pty_1","text":"hi"{force}}}"#);
+        let r = post(&s, "/api/send", &body).await;
+        assert_eq!(r.status, 409, "{force}");
+        assert_eq!(
+            r.text(),
+            r#"{"error":"에이전트 터미널에 메뉴가 열려 있어 메시지가 전달되지 않습니다","code":"menu_open"}"#
+        );
+    }
+    assert!(fake.calls_of("send_prompt").is_empty());
+    let reads = fake.calls_of("read_screen").len();
+    let r = post(
+        &s,
+        "/api/send",
+        r#"{"terminalHandle":"pty_1","text":"hi","force":1}"#,
+    )
+    .await;
+    assert_eq!(r.status, 200);
+    assert_eq!(fake.calls_of("read_screen").len(), reads, "forced: no read");
+    assert_eq!(fake.calls_of("send_prompt"), ["send_prompt pty_1 hi"]);
+    // A screen error goes to the catch-all.
+    err_of(
+        &fake,
+        "read_screen",
+        BackendError::with_code("read only", "terminal_not_writable"),
+    );
+    let r = post(&s, "/api/send", r#"{"terminalHandle":"pty_1","text":"hi"}"#).await;
+    assert_eq!(r.status, 409);
+    assert_eq!(
+        r.text(),
+        r#"{"error":"read only","code":"terminal_not_writable"}"#
+    );
+}
+
+#[tokio::test]
+async fn send_checks_the_handle_text_and_images() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    set_screen(&fake, idle_composer());
+    for body in [
+        r#"{"text":"x"}"#,
+        r#"{"terminalHandle":"nope","text":"x"}"#,
+        r#"{"terminalHandle":1,"text":"x"}"#,
+        r#"{"terminalHandle":null,"text":"x"}"#,
+        r#"[1]"#,
+    ] {
+        let r = post(&s, "/api/send", body).await;
+        assert_eq!(r.status, 404, "{body}");
+        assert_eq!(r.text(), r#"{"error":"unknown terminal"}"#);
+    }
+    let r = post(&s, "/api/send", "null").await;
+    assert_eq!(r.status, 502);
+    assert_eq!(
+        r.json()["error"],
+        "Cannot read properties of null (reading 'terminalHandle')"
+    );
+    for body in [
+        r#"{"terminalHandle":"pty_1","text":" \n "}"#,
+        r#"{"terminalHandle":"pty_1","text":5}"#,
+        r#"{"terminalHandle":"pty_1","text":"","images":[]}"#,
+        r#"{"terminalHandle":"pty_1","text":"","images":""}"#,
+        r#"{"terminalHandle":"pty_1","images":7}"#,
+        r#"{"terminalHandle":"pty_1","images":{"length":0}}"#,
+    ] {
+        let r = post(&s, "/api/send", body).await;
+        assert_eq!(r.status, 400, "{body}");
+        assert_eq!(r.text(), r#"{"error":"empty message"}"#, "{body}");
+    }
+    // `images: "abc"` passes the length test and reaches parse_images.
+    let r = post(
+        &s,
+        "/api/send",
+        r#"{"terminalHandle":"pty_1","text":"","images":"abc"}"#,
+    )
+    .await;
+    assert_eq!(r.status, 400);
+    assert_eq!(
+        r.json()["error"],
+        "지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)"
+    );
+    assert!(fake.calls_of("send_prompt").is_empty());
+    // An object with a truthy length is "some images", but parse_images finds none.
+    let r = post(
+        &s,
+        "/api/send",
+        r#"{"terminalHandle":"pty_1","images":{"length":1}}"#,
+    )
+    .await;
+    assert_eq!(r.status, 200);
+    assert_eq!(fake.calls_of("send_prompt"), ["send_prompt pty_1 "]);
+    // A real image is saved in the upload folder and its path follows the text.
+    let body = serde_json::json!({
+        "terminalHandle": "pty_1", "text": " look ",
+        "images": [{ "mediaType": "image/png", "data": b64(&PNG) }],
+    });
+    let r = post(&s, "/api/send", &body.to_string()).await;
+    assert_eq!(r.status, 200);
+    let sent = fake.calls_of("send_prompt").pop().unwrap();
+    let (text, path) = sent
+        .strip_prefix("send_prompt pty_1 ")
+        .unwrap()
+        .split_once('\n')
+        .unwrap();
+    assert_eq!(text, "look");
+    assert!(path.ends_with(".png"), "{path}");
+    assert!(std::path::Path::new(path).starts_with(s.dir.path().join("uploads")));
+    assert_eq!(std::fs::read(path).unwrap(), PNG);
+}
+
+#[tokio::test]
+async fn retry_needs_a_blocked_prompt_on_a_known_terminal() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    {
+        let mut b = fake.blocked.lock().unwrap();
+        b.insert("r1".into(), "pty_1".into());
+        b.insert("r2".into(), "pty_9".into());
+    }
+    let r = post(&s, "/api/send/retry", r#"{"requestId":"r1"}"#).await;
+    assert_eq!(sb(&r), (200, r#"{"ok":true}"#.to_string()));
+    assert_eq!(fake.calls_of("retry_prompt"), ["retry_prompt r1"]);
+    for body in [
+        r#"{"requestId":"r2"}"#,
+        r#"{"requestId":"r3"}"#,
+        r#"{"requestId":5}"#,
+        "{}",
+    ] {
+        let r = post(&s, "/api/send/retry", body).await;
+        assert_eq!(r.status, 404, "{body}");
+        assert_eq!(
+            r.text(),
+            r#"{"error":"다시 보낼 메시지를 찾지 못했습니다. 새로 보내주세요"}"#
+        );
+    }
+    assert_eq!(
+        fake.calls_of("blocked_handle")[2..],
+        ["blocked_handle r3", "blocked_handle ", "blocked_handle "]
+    );
+    assert_eq!(fake.calls_of("retry_prompt").len(), 1);
+    err_of(&fake, "retry_prompt", BackendError::busy("r1"));
+    let r = post(&s, "/api/send/retry", r#"{"requestId":"r1"}"#).await;
+    assert_eq!(r.status, 409);
+    assert_eq!(r.json()["requestId"], "r1");
+    assert_eq!(r.json()["code"], "agent_busy");
+}
+
+#[tokio::test]
+async fn keys_char_decides_the_bytes_and_enter_wins() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    let ok = |body: &'static str| {
+        let s = &s;
+        async move {
+            let r = post(s, "/api/keys", body).await;
+            assert_eq!(r.status, 200, "{body}");
+        }
+    };
+    ok(r#"{"terminalHandle":"pty_1","char":"a","key":"enter"}"#).await;
+    ok(r#"{"terminalHandle":"pty_1","char":"가"}"#).await;
+    ok(r#"{"terminalHandle":"pty_1","key":"esc"}"#).await;
+    ok(r#"{"terminalHandle":"pty_1","key":"enter"}"#).await;
+    assert_eq!(
+        fake.calls_of("send_keys"),
+        [
+            "send_keys pty_1 <enter>",
+            "send_keys pty_1 \"가\"",
+            "send_keys pty_1 \"\\u{1b}\"",
+            "send_keys pty_1 <enter>",
+        ]
+    );
+    for body in [
+        r#"{"terminalHandle":"pty_1","char":null,"key":"esc"}"#,
+        r#"{"terminalHandle":"pty_1","char":5}"#,
+        r#"{"terminalHandle":"pty_1","char":"ab"}"#,
+        r#"{"terminalHandle":"pty_1","char":"\n"}"#,
+        r#"{"terminalHandle":"pty_1","key":"nope"}"#,
+        r#"{"terminalHandle":"pty_1","key":5}"#,
+        r#"{"terminalHandle":"pty_1"}"#,
+    ] {
+        let r = post(&s, "/api/keys", body).await;
+        assert_eq!(r.status, 400, "{body}");
+        assert_eq!(r.text(), r#"{"error":"unsupported key"}"#);
+    }
+    let r = post(&s, "/api/keys", r#"{"terminalHandle":"nope","key":"esc"}"#).await;
+    assert_eq!(r.status, 404);
+    assert_eq!(fake.calls_of("send_keys").len(), 4);
+}
+
+#[tokio::test]
+async fn keys_on_a_read_only_terminal_is_409_with_its_code() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    err_of(
+        &fake,
+        "send_keys",
+        BackendError::with_code("read only", "terminal_not_writable"),
+    );
+    let r = post(&s, "/api/keys", r#"{"terminalHandle":"pty_1","key":"esc"}"#).await;
+    assert_eq!(r.status, 409);
+    assert_eq!(r.header("content-type"), Some("application/json"));
+    assert_eq!(
+        r.text(),
+        r#"{"error":"read only","code":"terminal_not_writable"}"#
+    );
+    err_of(&fake, "send_keys", BackendError::plain("gone"));
+    let r = post(&s, "/api/keys", r#"{"terminalHandle":"pty_1","key":"esc"}"#).await;
+    assert_eq!(sb(&r), (502, r#"{"error":"gone"}"#.to_string()));
+}
+
+#[tokio::test]
+async fn queue_presses_its_keys_in_order() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    let start = std::time::Instant::now();
+    let r = post(
+        &s,
+        "/api/queue",
+        r#"{"terminalHandle":"pty_1","action":"cancel"}"#,
+    )
+    .await;
+    assert_eq!(r.status, 200);
+    assert!(start.elapsed() >= Duration::from_millis(600));
+    let r = post(
+        &s,
+        "/api/queue",
+        r#"{"terminalHandle":"pty_1","action":"send-now"}"#,
+    )
+    .await;
+    assert_eq!(r.status, 200);
+    assert_eq!(
+        fake.calls_of("send_keys"),
+        [
+            "send_keys pty_1 \"\\u{1b}[A\"",
+            "send_keys pty_1 \"\\u{15}\"",
+            "send_keys pty_1 \"\\u{1b}[13;5u\"",
+        ]
+    );
+    for body in [
+        r#"{"terminalHandle":"pty_1","action":"x"}"#,
+        r#"{"terminalHandle":"pty_1","action":5}"#,
+        r#"{"terminalHandle":"pty_1"}"#,
+    ] {
+        let r = post(&s, "/api/queue", body).await;
+        assert_eq!(r.status, 400, "{body}");
+        assert_eq!(r.text(), r#"{"error":"unknown action"}"#);
+    }
+    let r = post(
+        &s,
+        "/api/queue",
+        r#"{"terminalHandle":"pty_2","action":"cancel"}"#,
+    )
+    .await;
+    assert_eq!(r.status, 404);
+}
+
+#[tokio::test]
+async fn focus_a_known_terminal() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    let r = post(&s, "/api/focus", r#"{"terminalHandle":"pty_1"}"#).await;
+    assert_eq!(sb(&r), (200, r#"{"ok":true}"#.to_string()));
+    assert_eq!(fake.calls_of("focus"), ["focus pty_1"]);
+    let r = post(&s, "/api/focus", r#"{"terminalHandle":"nope"}"#).await;
+    assert_eq!(r.status, 404);
+    assert_eq!(r.text(), r#"{"error":"unknown terminal"}"#);
+    err_of(&fake, "focus", BackendError::plain("no window"));
+    let r = post(&s, "/api/focus", r#"{"terminalHandle":"pty_1"}"#).await;
+    assert_eq!(sb(&r), (502, r#"{"error":"no window"}"#.to_string()));
+}
+
+/// A transcript with a pending one-question dialog `qp` (Which color? Red / Blue) and an
+/// answered one `qa`.
+fn question_transcript(dir: &std::path::Path) -> String {
+    let ask = |id: &str, ts: &str| {
+        serde_json::json!({"type":"assistant","timestamp":ts,"message":{"role":"assistant",
+            "model":"claude-opus-5-5","content":[{"type":"tool_use","id":id,"name":"AskUserQuestion",
+            "input":{"questions":[{"header":"Color","question":"Which color?","multiSelect":false,
+            "options":[{"label":"Red","description":"warm"},{"label":"Blue","description":"cool"}]}]}}]}})
+        .to_string()
+    };
+    let answered = serde_json::json!({"type":"user","timestamp":"2026-10-04T09:00:02.000Z",
+        "toolUseResult":{"answers":{"Which color?":"Red"}},
+        "message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"qa","content":"answered"}]}})
+    .to_string();
+    let file = dir.join("answer.jsonl");
+    let lines = [
+        ask("qa", "2026-10-04T09:00:01.000Z"),
+        answered,
+        ask("qp", "2026-10-04T09:00:03.000Z"),
+    ];
+    std::fs::write(&file, lines.join("\n") + "\n").unwrap();
+    file.to_string_lossy().into_owned()
+}
+
+/// The dialog for `qp` as Claude Code 2.1 draws it.
+fn color_question() -> Vec<String> {
+    let rule = "─".repeat(40);
+    [
+        "❯ Use AskUserQuestion: Which color?",
+        &rule,
+        "←  ☐ Color  ✔ Submit  →",
+        "Which color?",
+        "❯ 1. Red",
+        "     warm",
+        "  2. Blue",
+        "  3. Type something.",
+        &rule,
+        "  4. Chat about this",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+#[tokio::test]
+async fn answer_finds_the_pending_question_and_presses_its_keys() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    let unknown_agent = r#"{"error":"unknown agent"}"#;
+    for body in [
+        r#"{"agentId":"nope"}"#,
+        r#"{"agentId":"a2"}"#,
+        r#"{"agentId":5}"#,
+        "{}",
+    ] {
+        let r = answer(&s, body).await;
+        assert_eq!(sb(&r), (404, unknown_agent.to_string()), "{body}");
+    }
+    let r = answer(&s, "null").await;
+    assert_eq!(r.status, 502);
+    assert_eq!(
+        r.json()["error"],
+        "Cannot read properties of null (reading 'agentId')"
+    );
+    let not_found = r#"{"error":"질문을 찾지 못했습니다"}"#;
+    // No session, or an empty session path.
+    let body = r#"{"agentId":"a1","toolUseId":"qp","choices":[[1]]}"#;
+    for session in [None, Some(String::new())] {
+        fake.set_session(session);
+        let r = answer(&s, body).await;
+        assert_eq!(sb(&r), (404, not_found.to_string()));
+    }
+    fake.set_session(Some(question_transcript(s.dir.path())));
+    for body in [
+        r#"{"agentId":"a1","toolUseId":"nope","choices":[[1]]}"#,
+        r#"{"agentId":"a1","choices":[[1]]}"#,
+        r#"{"agentId":"a1","toolUseId":["qp"],"choices":[[1]]}"#,
+    ] {
+        let r = answer(&s, body).await;
+        assert_eq!(sb(&r), (404, not_found.to_string()), "{body}");
+    }
+    let r = answer(&s, r#"{"agentId":"a1","toolUseId":"qa","choices":[[1]]}"#).await;
+    assert_eq!(r.status, 409);
+    assert_eq!(r.text(), r#"{"error":"이미 답했거나 취소된 질문입니다"}"#);
+    // validateChoices on the pending question.
+    for (choices, msg) in [
+        ("[]", "모든 질문에 답해 주세요"),
+        ("null", "모든 질문에 답해 주세요"),
+        ("[[2]]", "잘못된 선택입니다"),
+        ("[[0,1]]", "\\\"Color\\\"에 답해 주세요"),
+    ] {
+        let body = format!(r#"{{"agentId":"a1","toolUseId":"qp","choices":{choices}}}"#);
+        let r = answer(&s, &body).await;
+        assert_eq!(r.status, 400, "{choices}");
+        assert_eq!(r.text(), format!(r#"{{"error":"{msg}"}}"#), "{choices}");
+    }
+    let r = answer(&s, r#"{"agentId":"a1","toolUseId":"qp"}"#).await;
+    assert_eq!(r.status, 400);
+    assert!(fake.calls_of("send_keys").is_empty());
+
+    // The dialog is on screen; pressing 2 makes it go away.
+    set_screen(&fake, color_question());
+    fake.screens_after_keys
+        .lock()
+        .unwrap()
+        .push_back(idle_composer());
+    let r = answer(&s, r#"{"agentId":"a1","toolUseId":"qp","choices":[[1]]}"#).await;
+    assert_eq!(sb(&r), (200, r#"{"ok":true}"#.to_string()));
+    assert_eq!(fake.calls_of("send_keys"), ["send_keys pty_1 \"2\""]);
+
+    // A failing key press is the driver's 409, without the error's code.
+    set_screen(&fake, color_question());
+    err_of(
+        &fake,
+        "send_keys",
+        BackendError::with_code("read only", "terminal_not_writable"),
+    );
+    let r = answer(&s, r#"{"agentId":"a1","toolUseId":"qp","choices":[[0]]}"#).await;
+    assert_eq!(r.status, 409);
+    assert_eq!(r.text(), r#"{"error":"read only"}"#);
+    // The terminal was released: the next answer is not refused as in progress.
+    fake.errors.lock().unwrap().clear();
+    fake.screens_after_keys
+        .lock()
+        .unwrap()
+        .push_back(idle_composer());
+    let r = answer(&s, r#"{"agentId":"a1","toolUseId":"qp","choices":[[0]]}"#).await;
+    assert_eq!(r.status, 200);
+}
+
+#[tokio::test]
+async fn a_second_answer_on_the_same_terminal_is_409() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    fake.set_session(Some(question_transcript(s.dir.path())));
+    set_screen(&fake, color_question());
+    fake.screens_after_keys
+        .lock()
+        .unwrap()
+        .push_back(idle_composer());
+    let gate = Arc::new(tokio::sync::Notify::new());
+    *fake.pending_keys.lock().unwrap() = Some(gate.clone());
+    let body = r#"{"agentId":"a1","toolUseId":"qp","choices":[[1]]}"#;
+    let client = support::Client::new(s.handle.port);
+    let first = tokio::spawn(async move {
+        client
+            .request(
+                "POST",
+                "/api/answer",
+                &JSON_CT,
+                Some(body.as_bytes().to_vec()),
+            )
+            .await
+    });
+    wait_until(
+        "the first answer reads the screen",
+        Duration::from_secs(5),
+        || !fake.calls_of("read_screen").is_empty(),
+    )
+    .await;
+    let r = post(&s, "/api/answer", body).await;
+    assert_eq!(r.status, 409);
+    assert_eq!(r.text(), r#"{"error":"답을 입력하는 중입니다"}"#);
+    *fake.pending_keys.lock().unwrap() = None;
+    gate.notify_one();
+    let r = first.await.unwrap();
+    assert_eq!(r.status, 200);
+    assert_eq!(fake.calls_of("send_keys"), ["send_keys pty_1 \"2\""]);
+}

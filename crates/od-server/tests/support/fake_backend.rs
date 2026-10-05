@@ -5,7 +5,7 @@
 //! - `errors` scripts a failure per method name (checked first in each method).
 //! - `calls` logs every call as `"<method> <args…>"` (space separated, args as given).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_trait::async_trait;
@@ -40,6 +40,8 @@ pub struct FakeBackend {
     pub hook: Mutex<bool>,
     /// The `warning` `hire` answers with.
     pub hire_warning: Mutex<Option<String>>,
+    /// Each successful `send_keys` moves the next of these into `screen` (a terminal reacting).
+    pub screens_after_keys: Mutex<VecDeque<Vec<String>>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -117,6 +119,7 @@ impl Default for FakeBackend {
             calls: Mutex::new(Vec::new()),
             hook: Mutex::new(false),
             hire_warning: Mutex::new(None),
+            screens_after_keys: Mutex::new(VecDeque::new()),
         }
     }
 }
@@ -196,7 +199,11 @@ impl OfficeBackend for FakeBackend {
             KeyInput::Enter => "<enter>".to_string(),
             KeyInput::Bytes(b) => format!("{b:?}"),
         };
-        self.call("send_keys", &[handle, &input])
+        self.call("send_keys", &[handle, &input])?;
+        if let Some(next) = lock(&self.screens_after_keys).pop_front() {
+            *lock(&self.screen) = next;
+        }
+        Ok(())
     }
     async fn focus(&self, handle: &str) -> Result<(), BackendError> {
         self.call("focus", &[handle])

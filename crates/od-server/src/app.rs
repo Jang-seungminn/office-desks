@@ -3,6 +3,7 @@
 //! here, `/term/` in Task 9), as Node's `'upgrade'` event never reaches the request handler.
 
 use std::any::Any;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use axum::extract::{DefaultBodyLimit, Request, State};
@@ -42,6 +43,8 @@ pub(crate) struct AppState {
     pub awards: Arc<Mutex<AwardBook>>,
     /// Slash-command scans, cached for 30 s, over `cfg.commands_home`.
     pub commands: Arc<CommandCatalog>,
+    /// Terminals currently being driven through a question dialog (one at a time each).
+    pub answering: Mutex<HashSet<String>>,
     /// Becomes true on `ServerHandle::shutdown` (and errors once every handle is dropped).
     /// Upgraded WS connections outlive the graceful shutdown, so every WS loop and background
     /// task `select!`s on this to end itself.
@@ -72,7 +75,6 @@ impl AppState {
     }
 
     /// `knownHandle`: a string that is the terminal handle of an agent in the office now.
-    #[expect(dead_code, reason = "used by the input routes of Task 8")]
     pub fn known_handle(&self, handle: &Value) -> Option<String> {
         known_handle_in(&self.poller.current(), handle)
     }
@@ -113,7 +115,7 @@ fn find_agent_in(
     })
 }
 
-fn known_handle_in(snap: &OfficeSnapshot, handle: &Value) -> Option<String> {
+pub(crate) fn known_handle_in(snap: &OfficeSnapshot, handle: &Value) -> Option<String> {
     let h = handle.as_str()?;
     snap.desks
         .iter()

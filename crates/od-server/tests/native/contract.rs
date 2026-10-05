@@ -21,9 +21,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::support::{Client, Resp};
 
-/// Groups not replayed yet. Each later task removes its group once its routes exist; removing
-/// a group whose earlier groups are still skipped fails on the first missing capture.
-pub const SKIP: &[&str] = &["input"];
+/// Groups not replayed. Empty since every route exists (Task 8): with nothing skipped, a step
+/// left NOT VERIFIED fails the run. Skipping a group again makes its later groups fail on the
+/// first missing capture.
+pub const SKIP: &[&str] = &[];
 
 /// `wsReject` steps also require the natively observed handshake answer to be 403 (on since the
 /// `/ws` arm exists, Task 3). When off, a rejected upgrade is reported NOT VERIFIED, never passed.

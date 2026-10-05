@@ -180,6 +180,7 @@ pub async fn serve(
                     .map_or(0, |d| d.as_millis() as i64)
             }),
         )),
+        answering: Mutex::new(std::collections::HashSet::new()),
         stop: stop_tx.subscribe(),
     });
     start_background(&state);
