@@ -20,6 +20,9 @@ fn main() {
         fake_agent::run();
     }
 
+    // Parse first: bad arguments exit the process, which must not leave a scratch root behind.
+    let args = libtest_mimic::Arguments::from_args();
+
     // Still single-threaded here: set_var is sound (edition 2021).
     let scratch = tempfile::Builder::new()
         .prefix("od-server-native-")
@@ -28,7 +31,6 @@ fn main() {
     let root = dunce::canonicalize(scratch.path()).expect("canonical scratch root");
     scrub_process_env(&root);
 
-    let args = libtest_mimic::Arguments::from_args();
     let conclusion = libtest_mimic::run(&args, contract::trials(&root));
     drop(scratch);
     conclusion.exit();
