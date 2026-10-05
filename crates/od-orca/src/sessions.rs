@@ -6,7 +6,7 @@
 //! caller that goes away does not cancel it and a stuck runner cannot wedge an agent.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -25,6 +25,10 @@ use crate::cli::OrcaRunner;
 pub const MISS_TTL_MS: i64 = 30_000;
 /// The overall bound on one agent's search (verification included).
 pub const RESOLVE_TIMEOUT: Duration = Duration::from_secs(30);
+/// At most this many agents in the cache; past it the oldest entry goes (never the one just
+/// written). The resolver never sees snapshots, so it cannot prune by the agents still there;
+/// 256 is far above any real office, as for the backend's blocked-prompt map.
+pub const CACHE_MAX: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchKey {
@@ -126,6 +130,8 @@ pub struct SessionResolver {
     cache: Mutex<HashMap<String, Entry>>,
     inflight: Mutex<HashMap<String, (u64, SharedResolve)>>,
     generation: AtomicU64,
+    /// Set by [`SessionResolver::dispose`]: no new `orca search` starts after it.
+    disposed: AtomicBool,
 }
 
 /// Removes the in-flight entry when the search task ends, even by panic, unless a newer search
@@ -169,7 +175,35 @@ impl SessionResolver {
             cache: Mutex::new(HashMap::new()),
             inflight: Mutex::new(HashMap::new()),
             generation: AtomicU64::new(0),
+            disposed: AtomicBool::new(false),
         })
+    }
+
+    /// No new searches from now on: `resolve` answers from the cache. A search already
+    /// running finishes (its `orca` call has its own timeout).
+    pub fn dispose(&self) {
+        self.disposed.store(true, Ordering::SeqCst);
+    }
+
+    fn is_disposed(&self) -> bool {
+        self.disposed.load(Ordering::SeqCst)
+    }
+
+    /// Writes one agent's entry and keeps the cache at [`CACHE_MAX`] agents.
+    fn remember(&self, id: String, entry: Entry) {
+        let mut cache = lock(&self.cache);
+        cache.insert(id.clone(), entry);
+        while cache.len() > CACHE_MAX {
+            let oldest = cache
+                .iter()
+                .filter(|(k, _)| **k != id)
+                .min_by_key(|(_, e)| e.at)
+                .map(|(k, _)| k.clone());
+            match oldest {
+                Some(k) => cache.remove(&k),
+                None => break,
+            };
+        }
     }
 
     /// Last known transcript for an agent, without searching.
@@ -185,6 +219,9 @@ impl SessionResolver {
         desk: &OfficeDesk,
         agent: &OfficeAgent,
     ) -> Result<Option<String>, BackendError> {
+        if self.is_disposed() {
+            return Ok(self.cached(&agent.id));
+        }
         let running = lock(&self.inflight).get(&agent.id).map(|(_, r)| r.clone());
         if let Some(running) = running {
             return running.await;
@@ -285,7 +322,26 @@ impl SessionResolver {
             "--limit=5".into(),
             "--fresh".into(),
         ];
-        let result = self.runner.run(&args).await?;
+        if self.is_disposed() {
+            return Ok(cached_good);
+        }
+        let result = match self.runner.run(&args).await {
+            Ok(r) => r,
+            Err(e) => {
+                // A failing `orca search` counts as a miss for MISS_TTL_MS, so it is not
+                // spawned again on every poll. This call still reports the error.
+                self.remember(
+                    q.id,
+                    Entry {
+                        phrase: key.phrase,
+                        file_path: None,
+                        at: (self.now)(),
+                        last_good: cached_good,
+                    },
+                );
+                return Err(e);
+            }
+        };
         let mut hits: Vec<Hit> = match result.get("hits") {
             Some(Value::Array(hits)) => hits.iter().filter_map(|h| hit(h, &q.desk_path)).collect(),
             _ => Vec::new(),
@@ -305,7 +361,7 @@ impl SessionResolver {
         }
         // Keep showing the last known session while a brand-new prompt isn't indexed yet.
         let last_good = found.clone().or(cached_good);
-        lock(&self.cache).insert(
+        self.remember(
             q.id,
             Entry {
                 phrase: key.phrase,
@@ -598,7 +654,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn odd_hits_are_dropped_and_errors_leave_the_cache() {
+    async fn odd_hits_are_dropped_and_an_error_keeps_the_last_good() {
         let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let f = Arc::clone(&fail);
         let runner = FakeRunner::new(move |_| {
@@ -632,6 +688,115 @@ mod tests {
             Some("/x/ok.jsonl".into())
         );
         assert_eq!(runner.calls().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_failed_search_is_a_miss_for_30s() {
+        let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let f = Arc::clone(&fail);
+        let runner = FakeRunner::new(move |_| {
+            if f.load(Ordering::SeqCst) {
+                return Err(BackendError::with_code("boom", "orca_error"));
+            }
+            Ok(
+                json!({ "hits": [{ "cwd": "/Users/me/proj", "source": { "filePath": "/x/a.jsonl" } }] }),
+            )
+        });
+        let (t, now) = manual_clock();
+        let r = SessionResolver::new(runner.clone(), None, now, false);
+        let d = desk();
+        r.resolve(&d, &agent(PROMPT, None, None)).await.unwrap();
+        fail.store(true, Ordering::SeqCst);
+        let fresh = agent("a prompt orca cannot search", None, None);
+        let err = r.resolve(&d, &fresh).await.unwrap_err();
+        assert_eq!(err.code.as_deref(), Some("orca_error"));
+        assert_eq!(runner.calls().len(), 2);
+        // Within MISS_TTL_MS: the last good session, no new `orca search`.
+        t.fetch_add(MISS_TTL_MS - 1, Ordering::SeqCst);
+        assert_eq!(
+            r.resolve(&d, &fresh).await.unwrap(),
+            Some("/x/a.jsonl".into())
+        );
+        assert_eq!(runner.calls().len(), 2);
+        // At the TTL it searches again (and fails again).
+        t.fetch_add(1, Ordering::SeqCst);
+        assert!(r.resolve(&d, &fresh).await.is_err());
+        assert_eq!(runner.calls().len(), 3);
+        // A failure with nothing known before answers None while it is cached.
+        let other = OfficeAgent {
+            id: "other".into(),
+            ..fresh.clone()
+        };
+        assert!(r.resolve(&d, &other).await.is_err());
+        assert_eq!(r.resolve(&d, &other).await.unwrap(), None);
+        assert_eq!(runner.calls().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn the_cache_keeps_at_most_256_agents() {
+        let runner = FakeRunner::new(|_| Ok(json!({ "hits": [] })));
+        let (t, now) = manual_clock();
+        let r = SessionResolver::new(runner, None, now, false);
+        let d = desk();
+        for i in 0..=CACHE_MAX {
+            t.fetch_add(1, Ordering::SeqCst);
+            let a = OfficeAgent {
+                id: format!("agent-{i}"),
+                ..agent(PROMPT, None, None)
+            };
+            r.resolve(&d, &a).await.unwrap();
+        }
+        let cache = lock(&r.cache);
+        assert_eq!(cache.len(), CACHE_MAX);
+        assert!(!cache.contains_key("agent-0"), "the oldest went");
+        assert!(cache.contains_key("agent-1"));
+        assert!(cache.contains_key(&format!("agent-{CACHE_MAX}")));
+    }
+
+    #[tokio::test]
+    async fn no_new_search_after_dispose() {
+        let runner = gated();
+        let r = SessionResolver::new(runner.clone(), None, clock(), false);
+        let d = desk();
+        let a = agent(PROMPT, None, None);
+        // A search parked in `orca search` when dispose comes finishes and is cached.
+        let (first, ()) = tokio::join!(r.resolve(&d, &a), async {
+            until_called(&runner).await;
+            r.dispose();
+            runner.gate.notify_one();
+        });
+        assert_eq!(first.unwrap(), Some("/x/one.jsonl".into()));
+        assert_eq!(runner.calls.load(Ordering::SeqCst), 1);
+        // After it: the cache only, never a new search.
+        assert_eq!(
+            r.resolve(&d, &agent("a brand new prompt", None, None))
+                .await
+                .unwrap(),
+            Some("/x/one.jsonl".into())
+        );
+        let other = OfficeAgent {
+            id: "other".into(),
+            ..a.clone()
+        };
+        assert_eq!(r.resolve(&d, &other).await.unwrap(), None);
+        assert_eq!(runner.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn resolve_now_checks_dispose_before_it_searches() {
+        let runner = FakeRunner::ok();
+        let r = SessionResolver::new(runner.clone(), None, clock(), false);
+        r.dispose();
+        let q = Query {
+            desk_path: "/Users/me/proj".into(),
+            id: "tab:leaf".into(),
+            agent_type: "claude".into(),
+            prompt: Some(PROMPT.into()),
+            terminal_title: None,
+            last_message: None,
+        };
+        assert_eq!(r.resolve_now(q).await.unwrap(), None);
+        assert!(runner.calls().is_empty());
     }
 
     #[tokio::test]

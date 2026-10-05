@@ -538,7 +538,11 @@ impl OfficeBackend for OrcaBackend {
         false
     }
 
-    async fn dispose(&self) {}
+    /// Orca owns the terminals, so there is nothing to stop; only no new `orca search` may
+    /// start (the session resolver answers from its cache from now on).
+    async fn dispose(&self) {
+        self.sessions.dispose();
+    }
 }
 
 #[cfg(test)]
@@ -1185,6 +1189,24 @@ mod tests {
             Some("/s.jsonl")
         );
         assert_eq!(b.cached_session("tab:leaf").as_deref(), Some("/s.jsonl"));
+
+        // After dispose: the cache only, no new `orca search`.
+        b.dispose().await;
+        let calls = fake.calls().len();
+        let fresh = OfficeAgent {
+            prompt: Some("a prompt after dispose".into()),
+            ..agent.clone()
+        };
+        assert_eq!(
+            b.find_session(&desk, &fresh).await.unwrap().as_deref(),
+            Some("/s.jsonl")
+        );
+        let unknown = OfficeAgent {
+            id: "other".into(),
+            ..agent
+        };
+        assert_eq!(b.find_session(&desk, &unknown).await.unwrap(), None);
+        assert_eq!(fake.calls().len(), calls);
     }
 
     // orcaBackend.test.ts: OrcaBackend v2
