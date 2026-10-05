@@ -5,19 +5,35 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * POST JSON to the same origin. Always resolves with the parsed JSON body, never null:
+ * a 2xx whose body is not JSON throws ApiError(code 'bad-body'); a network failure throws
+ * ApiError(status 0, code 'network').
+ */
 export async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError('서버에 연결할 수 없어요', 0, 'network');
+  }
   let json: any = null;
   try {
     json = await res.json();
   } catch {
     json = null;
   }
-  if (!res.ok) throw new ApiError(json?.error ?? `HTTP ${res.status}`, res.status, json?.code);
+  if (!res.ok) {
+    const msg = typeof json?.error === 'string' ? json.error : `HTTP ${res.status}`;
+    throw new ApiError(msg, res.status, typeof json?.code === 'string' ? json.code : undefined);
+  }
+  if (json === null || typeof json !== 'object') {
+    throw new ApiError('서버 응답을 읽을 수 없어요', res.status, 'bad-body');
+  }
   return json as T;
 }
 

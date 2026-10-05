@@ -34,3 +34,4 @@ button {
 button:hover { border-color: var(--accent); }
 button.danger { color: var(--danger); }
 .term { font-family: var(--font-term); }
+.sidebar-note { padding: 0 10px; color: var(--danger); }

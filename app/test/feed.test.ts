@@ -82,4 +82,63 @@ describe('OfficeFeed', () => {
     expect(FakeWs.all.length).toBe(1);
     expect(feed.connected).toBe(false);
   });
+
+  it('ignores malformed, binary and non-object snapshot frames', () => {
+    const feed = new OfficeFeed('ws://x/ws', make);
+    const got: unknown[] = [];
+    feed.onSnapshot((s) => got.push(s));
+    feed.start();
+    const ws = FakeWs.all[0];
+    ws.open();
+    ws.onmessage!({ data: 'not json' });
+    ws.onmessage!({ data: new ArrayBuffer(4) });
+    ws.send({ type: 'snapshot', snapshot: null });
+    ws.send({ type: 'snapshot', snapshot: 'x' });
+    expect(got).toEqual([]);
+  });
+
+  it('a stale socket cannot affect the feed', () => {
+    const feed = new OfficeFeed('ws://x/ws', make);
+    const got: unknown[] = [];
+    feed.onSnapshot((s) => got.push(s));
+    feed.start();
+    const old = FakeWs.all[0];
+    old.drop();
+    vi.advanceTimersByTime(1000);
+    const cur = FakeWs.all[1];
+    old.open();
+    expect(feed.connected).toBe(false);
+    old.send({ type: 'snapshot', snapshot: snap });
+    expect(got).toEqual([]);
+    cur.open();
+    expect(feed.connected).toBe(true);
+  });
+
+  it('stop() detaches handlers; start twice opens one socket', () => {
+    const feed = new OfficeFeed('ws://x/ws', make);
+    feed.start();
+    feed.start();
+    expect(FakeWs.all.length).toBe(1);
+    const ws = FakeWs.all[0];
+    feed.stop();
+    expect([ws.onopen, ws.onmessage, ws.onclose]).toEqual([null, null, null]);
+  });
+
+  it('onStatus reports open and close; a throwing make() reschedules', () => {
+    let fail = true;
+    const feed = new OfficeFeed('ws://x/ws', (u) => {
+      if (fail) throw new Error('boom');
+      return make(u);
+    });
+    const st: boolean[] = [];
+    feed.onStatus((c) => st.push(c));
+    feed.start();
+    expect(FakeWs.all.length).toBe(0);
+    fail = false;
+    vi.advanceTimersByTime(1000);
+    expect(FakeWs.all.length).toBe(1);
+    FakeWs.all[0].open();
+    FakeWs.all[0].drop();
+    expect(st).toEqual([true, false]);
+  });
 });

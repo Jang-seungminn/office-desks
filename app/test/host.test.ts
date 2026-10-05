@@ -21,7 +21,13 @@ describe('host', () => {
     expect(isE2E()).toBe(true);
   });
 
-  it('isE2E is false without the flag', () => {
+  it('isE2E is false without the flag or without internals', () => {
     expect(isE2E()).toBe(false);
+    (window as any).__TAURI_INTERNALS__ = {};
+    expect(isE2E()).toBe(false);
+  });
+
+  it('termConfig rejects when __TAURI_INTERNALS__ is absent', async () => {
+    await expect(termConfig()).rejects.toBeTruthy();
   });
 });
