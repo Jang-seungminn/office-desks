@@ -162,6 +162,40 @@ pub fn random_file_id() -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// The raw `images` field of a send request as the typed list [`save_images`] takes. Untrusted
+/// input: a missing/null field is no images; an entry that is null, has no string `mediaType`
+/// or a non-string `data` is the TS "unsupported type" rejection (HTTP 400), not a panic or a
+/// different error. (TS reports an over-large earlier image before a malformed later one; this
+/// checks shapes first.) Unknown media types and sizes are still checked by [`save_images`].
+pub fn parse_images(raw: &serde_json::Value) -> Result<Vec<ImageUpload>, UploadError> {
+    use serde_json::Value;
+    let list = match raw {
+        Value::Array(a) => a,
+        Value::String(s) if !s.is_empty() => {
+            return Err(rejected(
+                "지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)",
+            ))
+        }
+        _ => return Ok(Vec::new()),
+    };
+    if list.len() > MAX_IMAGES {
+        return Err(UploadError::Rejected(format!(
+            "이미지는 한 번에 {MAX_IMAGES}장까지 보낼 수 있습니다"
+        )));
+    }
+    list.iter()
+        .map(|img| {
+            let field = |k: &str| img.get(k).and_then(Value::as_str).map(str::to_string);
+            match (field("mediaType"), field("data")) {
+                (Some(media_type), Some(data)) => Ok(ImageUpload { media_type, data }),
+                _ => Err(rejected(
+                    "지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)",
+                )),
+            }
+        })
+        .collect()
+}
+
 /// Write the images into `dir` and return their paths, in order.
 pub fn save_images(images: &[ImageUpload], dir: &Path) -> Result<Vec<String>, UploadError> {
     save_images_with(images, dir, now_ms, random_file_id)
@@ -404,6 +438,31 @@ mod tests {
         assert_eq!(decode_base64_lenient("aGVsbG8=junk"), b"hello");
         assert_eq!(decode_base64_lenient("a"), b"");
         assert_eq!(decode_base64_lenient("a$b!c"), decode_base64_lenient("abc"));
+    }
+
+    #[test]
+    fn parse_images_handles_untrusted_shapes() {
+        use serde_json::json;
+        let msg = "지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)";
+        for none in [json!(null), json!([]), json!({}), json!(5), json!("")] {
+            assert!(parse_images(&none).unwrap().is_empty());
+        }
+        let ok = parse_images(&json!([{ "mediaType": "image/png", "data": "iVBORw==" }])).unwrap();
+        assert_eq!(ok, vec![png()]);
+        for bad in [
+            json!([null]),
+            json!([{ "mediaType": "image/png" }]),
+            json!([{ "mediaType": "image/png", "data": 5 }]),
+            json!([{ "mediaType": 5, "data": "x" }]),
+            json!("abc"),
+        ] {
+            assert!(
+                matches!(parse_images(&bad), Err(UploadError::Rejected(m)) if m == msg),
+                "{bad}"
+            );
+        }
+        let seven = json!(vec![json!({ "mediaType": "image/png", "data": "x" }); 7]);
+        assert!(matches!(parse_images(&seven), Err(UploadError::Rejected(m)) if m.contains("6장")));
     }
 
     // uploads.test.ts: serves uploads by bare name only

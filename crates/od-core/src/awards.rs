@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Datelike, TimeZone};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::fsio;
@@ -68,9 +69,44 @@ pub fn best_today(desks: &[OfficeDesk], date: &str) -> Option<Award> {
     best
 }
 
+/// The board as stored. Entries stay raw JSON so a hand-edited file or a newer version's extra
+/// fields survive a save, exactly as the TS keeps whatever it read.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RawBoard {
+    pub leader: Option<Value>,
+    pub hall: Vec<Value>,
+}
+
+impl RawBoard {
+    /// The typed view, if every entry is a well-formed award.
+    pub fn typed(&self) -> Option<AwardBoard> {
+        Some(AwardBoard {
+            leader: match &self.leader {
+                Some(l) => Some(serde_json::from_value(l.clone()).ok()?),
+                None => None,
+            },
+            hall: self
+                .hall
+                .iter()
+                .map(|h| serde_json::from_value(h.clone()).ok())
+                .collect::<Option<_>>()?,
+        })
+    }
+}
+
+/// JS truthiness of a leader value.
+fn truthy(v: &Value) -> bool {
+    match v {
+        Value::Null | Value::Bool(false) => false,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+        Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
 pub struct AwardBook {
     file: PathBuf,
-    board: AwardBoard,
+    board: RawBoard,
     loaded: bool,
 }
 
@@ -78,7 +114,7 @@ impl AwardBook {
     pub fn new(file: impl Into<PathBuf>) -> Self {
         Self {
             file: file.into(),
-            board: AwardBoard {
+            board: RawBoard {
                 leader: None,
                 hall: Vec::new(),
             },
@@ -90,56 +126,72 @@ impl AwardBook {
         &self.file
     }
 
-    /// Read the file; a missing or broken one is a first run. Entries that are not awards are
-    /// dropped (the TS code would keep arbitrary JSON and break later).
+    /// Read the file; a missing or broken one is a first run. Entries are kept as read.
     pub fn load(&mut self) {
         if let Some(raw) = std::fs::read_to_string(&self.file)
             .ok()
             .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         {
-            let award = |v: &Value| serde_json::from_value::<Award>(v.clone()).ok();
-            self.board = AwardBoard {
-                leader: raw.get("leader").and_then(award),
+            self.board = RawBoard {
+                leader: raw.get("leader").filter(|l| !l.is_null()).cloned(),
                 hall: raw
                     .get("hall")
                     .and_then(Value::as_array)
-                    .map(|h| h.iter().take(HALL_MAX).filter_map(award).collect())
+                    .map(|h| h.iter().take(HALL_MAX).cloned().collect())
                     .unwrap_or_default(),
             };
         }
         self.loaded = true;
     }
 
-    pub fn current(&self) -> &AwardBoard {
+    pub fn current(&self) -> &RawBoard {
         &self.board
     }
 
     /// Fold in the office as it is now. Returns true when the board changed (worth saving and
-    /// broadcasting). A leader from an earlier day is crowned into the hall first. Does nothing
-    /// before [`load`](Self::load).
+    /// broadcasting). A leader from an earlier day is crowned into the hall first, whatever
+    /// shape it has. Does nothing before [`load`](Self::load).
     pub fn update<Tz: TimeZone>(&mut self, desks: &[OfficeDesk], now: &DateTime<Tz>) -> bool {
         if !self.loaded {
             return false;
         }
         let date = local_date(now);
+        let today = Value::String(date.clone());
         let mut changed = false;
-        if let Some(leader) = self.board.leader.as_ref().filter(|l| l.date != date) {
-            if !self.board.hall.iter().any(|h| h.date == leader.date) {
-                self.board.hall.insert(0, leader.clone());
+        if let Some(leader) = self
+            .board
+            .leader
+            .clone()
+            .filter(|l| truthy(l) && l.get("date") != Some(&today))
+        {
+            if !self
+                .board
+                .hall
+                .iter()
+                .any(|h| h.get("date") == leader.get("date"))
+            {
+                self.board.hall.insert(0, leader);
                 self.board.hall.truncate(HALL_MAX);
             }
             self.board.leader = None;
             changed = true;
         }
         let best = best_today(desks, &date);
-        let cur = self.board.leader.as_ref();
         // The leader only gets replaced by a higher score (agents that close don't lose their
         // lead), or refreshed when the same agent keeps working.
         if let Some(best) = best {
-            if cur.is_none_or(|c| {
-                best.score > c.score || (best.agent_id == c.agent_id && best.score != c.score)
-            }) {
-                self.board.leader = Some(best);
+            let replace = match self.board.leader.as_ref().filter(|l| truthy(l)) {
+                None => true,
+                Some(cur) => {
+                    let score = cur.get("score").and_then(Value::as_f64);
+                    let same_agent =
+                        cur.get("agentId").and_then(Value::as_str) == Some(best.agent_id.as_str());
+                    score.is_some_and(|s| (best.score as f64) > s)
+                        || (same_agent && score != Some(best.score as f64))
+                }
+            };
+            if replace {
+                self.board.leader = serde_json::to_value(&best).ok();
                 changed = true;
             }
         }
@@ -276,14 +328,14 @@ mod tests {
         assert!(book.update(&[desk(vec![agent("a", 3, 5)])], &day1));
         // a closes its terminal; a weaker agent doesn't steal the lead
         assert!(!book.update(&[desk(vec![agent("b", 1, 1)])], &day1));
-        assert_eq!(book.current().leader.as_ref().unwrap().agent_id, "a");
+        assert_eq!(book.current().leader.as_ref().unwrap()["agentId"], "a");
         let day2 = at(2026, 10, 4, 9);
         assert!(book.update(&[desk(vec![])], &day2));
         let hall: Vec<_> = book
             .current()
             .hall
             .iter()
-            .map(|h| (h.date.as_str(), h.agent_id.as_str()))
+            .map(|h| (h["date"].as_str().unwrap(), h["agentId"].as_str().unwrap()))
             .collect();
         assert_eq!(hall, vec![("2026-10-03", "a")]);
         assert!(book.current().leader.is_none());
@@ -303,24 +355,24 @@ mod tests {
         assert!(!book.update(&[desk(vec![agent("a", 3, 5)])], &now));
         // The same agent with a lower score still refreshes (stats can be recounted).
         assert!(book.update(&[desk(vec![agent("a", 3, 2)])], &now));
-        assert_eq!(book.current().leader.as_ref().unwrap().score, 32);
+        assert_eq!(book.current().leader.as_ref().unwrap()["score"], 32);
         assert!(book.update(&[desk(vec![agent("b", 4, 0)])], &now));
-        assert_eq!(book.current().leader.as_ref().unwrap().agent_id, "b");
+        assert_eq!(book.current().leader.as_ref().unwrap()["agentId"], "b");
     }
 
     #[test]
     fn hall_is_capped_and_never_holds_a_date_twice() {
         let mut book = AwardBook::new("/nowhere/awards.json");
         book.load();
-        let aw = |date: &str| Award {
-            date: date.into(),
-            ..best_today(&[desk(vec![agent("a", 1, 0)])], date).unwrap()
+        let aw = |date: &str| {
+            serde_json::to_value(best_today(&[desk(vec![agent("a", 1, 0)])], date).unwrap())
+                .unwrap()
         };
         book.board.hall = (0..90).map(|i| aw(&format!("2020-01-{i:03}"))).collect();
         book.board.leader = Some(aw("2026-10-02"));
         assert!(book.update(&[], &at(2026, 10, 3, 1)));
         assert_eq!(book.current().hall.len(), 90);
-        assert_eq!(book.current().hall[0].date, "2026-10-02");
+        assert_eq!(book.current().hall[0]["date"], "2026-10-02");
         // A leader whose date is already in the hall is dropped, not duplicated.
         book.board.leader = Some(aw("2026-10-02"));
         assert!(book.update(&[], &at(2026, 10, 3, 1)));
@@ -328,10 +380,56 @@ mod tests {
             book.current()
                 .hall
                 .iter()
-                .filter(|h| h.date == "2026-10-02")
+                .filter(|h| h["date"] == "2026-10-02")
                 .count(),
             1
         );
+    }
+
+    // Entries stay raw: odd shapes and unknown fields survive load, update and save.
+    #[test]
+    fn raw_entries_and_unknown_fields_survive_a_save() {
+        let t = tempfile::tempdir().unwrap();
+        let file = t.path().join("a.json");
+        let leader = serde_json::json!({
+            "date": "2026-10-03", "agentId": "a", "score": 5, "futureField": { "x": [1] }
+        });
+        let hall = serde_json::json!([{ "date": "2026-10-01", "extra": true }, "junk", 7]);
+        std::fs::write(
+            &file,
+            serde_json::json!({ "leader": leader, "hall": hall }).to_string(),
+        )
+        .unwrap();
+        let mut book = AwardBook::new(&file);
+        book.load();
+        assert!(book.update(&[], &at(2026, 10, 4, 9)));
+        book.save().unwrap();
+        let saved: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(saved["leader"], Value::Null);
+        assert_eq!(saved["hall"][0], leader);
+        assert_eq!(
+            saved["hall"][1],
+            serde_json::json!({ "date": "2026-10-01", "extra": true })
+        );
+        assert_eq!(saved["hall"][2], "junk");
+        assert_eq!(saved["hall"][3], 7);
+    }
+
+    #[test]
+    fn an_unparsable_leader_from_another_day_is_crowned_and_replaced() {
+        let mut book = AwardBook::new("/nowhere/awards.json");
+        book.load();
+        book.board.leader = Some(serde_json::json!({ "date": "2026-10-02", "oops": 1 }));
+        let desks = [desk(vec![agent("a", 1, 0)])];
+        assert!(book.update(&desks, &at(2026, 10, 3, 9)));
+        assert_eq!(book.current().hall.len(), 1);
+        assert_eq!(book.current().leader.as_ref().unwrap()["agentId"], "a");
+        // Same-day junk leader without a score is not replaced by a different agent.
+        book.board.leader = Some(serde_json::json!({ "date": "2026-10-03", "agentId": "z" }));
+        assert!(!book.update(&desks, &at(2026, 10, 3, 9)));
+        // ...but the same agent refreshes it.
+        book.board.leader = Some(serde_json::json!({ "date": "2026-10-03", "agentId": "a" }));
+        assert!(book.update(&desks, &at(2026, 10, 3, 9)));
     }
 
     #[test]

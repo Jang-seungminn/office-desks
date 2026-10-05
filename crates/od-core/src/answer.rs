@@ -108,29 +108,35 @@ fn as_js_integer(v: &Value) -> Option<f64> {
     (f.is_finite() && f.fract() == 0.0).then_some(f)
 }
 
-/// Check a request before touching the terminal. Returns an error message or None.
-/// `choices` is the raw JSON the browser sent, so malformed shapes are caught here.
-pub fn validate_choices(questions: &[AskedQuestion], choices: &Value) -> Option<String> {
+/// Check a request before touching the terminal. `choices` is the raw JSON the browser sent;
+/// on success the parsed 0-based option indexes per question come back, which is the only form
+/// [`answer_questions`] accepts, so validation cannot be skipped. `Err` is the message the
+/// server shows (HTTP 400).
+pub fn validate_choices(
+    questions: &[AskedQuestion],
+    choices: &Value,
+) -> Result<Vec<Vec<usize>>, String> {
     let Some(list) = choices.as_array().filter(|c| c.len() == questions.len()) else {
-        return Some("모든 질문에 답해 주세요".into());
+        return Err("모든 질문에 답해 주세요".into());
     };
+    let bad = || "잘못된 선택입니다".to_string();
+    let mut parsed = Vec::with_capacity(list.len());
     for (q, c) in questions.iter().zip(list) {
-        let bad = || Some("잘못된 선택입니다".to_string());
         let Some(picks) = c.as_array() else {
-            return bad();
+            return Err(bad());
         };
         let mut idx = Vec::with_capacity(picks.len());
         for n in picks {
             match as_js_integer(n) {
                 Some(f) if f >= 0.0 && f < q.options.len() as f64 => idx.push(f as usize),
-                _ => return bad(),
+                _ => return Err(bad()),
             }
         }
         let mut uniq = idx.clone();
         uniq.sort_unstable();
         uniq.dedup();
         if uniq.len() != idx.len() {
-            return bad();
+            return Err(bad());
         }
         if if q.multi_select {
             idx.is_empty()
@@ -142,20 +148,16 @@ pub fn validate_choices(questions: &[AskedQuestion], choices: &Value) -> Option<
             } else {
                 &q.header
             };
-            return Some(format!("\"{label}\"에 답해 주세요"));
+            return Err(format!("\"{label}\"에 답해 주세요"));
         }
         if q.options.len() > 9 {
-            return Some(
+            return Err(
                 "선택지가 너무 많아 웹에서 답할 수 없습니다. 터미널에서 답해 주세요".into(),
             );
         }
+        parsed.push(idx);
     }
-    None
-}
-
-/// [`validate_choices`] for an already-typed request.
-pub fn validate_typed_choices(questions: &[AskedQuestion], choices: &[Vec<i64>]) -> Option<String> {
-    validate_choices(questions, &serde_json::json!(choices))
+    Ok(parsed)
 }
 
 /// The terminal the dialog is on.
@@ -230,24 +232,21 @@ fn same_question(shown: Option<&str>, q: &AskedQuestion) -> bool {
 }
 
 /// Key for the 0-based option index `n` (options 1-9 have a number key).
-fn digit_key(n: i64) -> Option<TerminalKey> {
-    usize::try_from(n)
-        .ok()
-        .filter(|n| *n < 9)
-        .map(|n| TerminalKey::ALL[13 + n])
+fn digit_key(n: usize) -> Option<TerminalKey> {
+    use TerminalKey::*;
+    [N1, N2, N3, N4, N5, N6, N7, N8, N9].get(n).copied()
 }
 
 fn stopped(msg: String) -> BackendError {
     BackendError::plain(msg)
 }
 
-/// Press the keys that answer `questions` with `choices` (0-based option indexes per question;
-/// validate with [`validate_choices`] first). Errors carry the Korean message the server shows
+/// Press the keys that answer `questions` with the `choices` [`validate_choices`] returned. Errors carry the Korean message the server shows
 /// (HTTP 409); IO errors pass through.
 pub async fn answer_questions(
     io: &mut dyn AnswerIO,
     questions: &[AskedQuestion],
-    choices: &[Vec<i64>],
+    choices: &[Vec<usize>],
 ) -> Result<(), BackendError> {
     for (i, q) in questions.iter().enumerate() {
         let shown = wait_for(
@@ -269,7 +268,7 @@ pub async fn answer_questions(
         let picks = choices
             .get(i)
             .ok_or_else(|| stopped("모든 질문에 답해 주세요".into()))?;
-        let key_for = |n: i64| digit_key(n).ok_or_else(|| stopped("잘못된 선택입니다".into()));
+        let key_for = |n: usize| digit_key(n).ok_or_else(|| stopped("잘못된 선택입니다".into()));
         if q.multi_select {
             for n in picks {
                 io.press(key_for(*n)?).await?;
@@ -510,18 +509,21 @@ mod tests {
     #[test]
     fn validates_choices_against_the_questions() {
         let q = qs();
-        assert_eq!(validate_choices(&q, &json!([[1], [0, 2]])), None);
-        assert!(validate_choices(&q, &json!([[1]])).is_some());
-        assert!(validate_choices(&q, &json!([[0, 1], [0]])).is_some()); // two answers to a single-select
-        assert!(validate_choices(&q, &json!([[1], []])).is_some());
-        assert!(validate_choices(&q, &json!([[5], [0]])).is_some());
-        assert!(validate_choices(&q, &json!([[1], [0, 0]])).is_some());
+        assert_eq!(
+            validate_choices(&q, &json!([[1], [0, 2]])),
+            Ok(vec![vec![1], vec![0, 2]])
+        );
+        assert!(validate_choices(&q, &json!([[1]])).is_err());
+        assert!(validate_choices(&q, &json!([[0, 1], [0]])).is_err()); // two answers to a single-select
+        assert!(validate_choices(&q, &json!([[1], []])).is_err());
+        assert!(validate_choices(&q, &json!([[5], [0]])).is_err());
+        assert!(validate_choices(&q, &json!([[1], [0, 0]])).is_err());
     }
 
     #[test]
     fn validation_messages_and_odd_shapes() {
         let q = qs();
-        let msg = |v: Value| validate_choices(&q, &v).unwrap();
+        let msg = |v: Value| validate_choices(&q, &v).unwrap_err();
         assert_eq!(msg(json!("x")), "모든 질문에 답해 주세요");
         assert_eq!(msg(json!(null)), "모든 질문에 답해 주세요");
         assert_eq!(msg(json!([[1]])), "모든 질문에 답해 주세요");
@@ -534,7 +536,10 @@ mod tests {
         assert_eq!(msg(json!([[0, 1], [0]])), "\"Color\"에 답해 주세요");
         assert_eq!(msg(json!([[0], []])), "\"Sizes\"에 답해 주세요");
         // 1.0 is an integer in JS.
-        assert_eq!(validate_choices(&q, &json!([[1.0], [0.0, 2]])), None);
+        assert_eq!(
+            validate_choices(&q, &json!([[1.0], [0.0, 2]])),
+            Ok(vec![vec![1], vec![0, 2]])
+        );
         // No header: the question names it. More than nine options cannot be answered by digit.
         let wide = AskedQuestion {
             header: String::new(),
@@ -543,15 +548,13 @@ mod tests {
             options: (0..10).map(|i| opt(&i.to_string(), "")).collect(),
         };
         assert_eq!(
-            validate_choices(std::slice::from_ref(&wide), &json!([[]])).unwrap(),
+            validate_choices(std::slice::from_ref(&wide), &json!([[]])).unwrap_err(),
             "\"Pick?\"에 답해 주세요"
         );
         assert_eq!(
-            validate_choices(&[wide], &json!([[0]])).unwrap(),
+            validate_choices(&[wide], &json!([[0]])).unwrap_err(),
             "선택지가 너무 많아 웹에서 답할 수 없습니다. 터미널에서 답해 주세요"
         );
-        assert_eq!(validate_typed_choices(&q, &[vec![1], vec![0, 2]]), None);
-        assert!(validate_typed_choices(&q, &[vec![1]]).is_some());
     }
 
     // answer.test.ts: presses digits, -> after multi-select, then submits on the review screen
@@ -676,6 +679,5 @@ mod tests {
         assert_eq!(digit_key(0), Some(TerminalKey::N1));
         assert_eq!(digit_key(8), Some(TerminalKey::N9));
         assert_eq!(digit_key(9), None);
-        assert_eq!(digit_key(-1), None);
     }
 }

@@ -310,7 +310,8 @@ fn builtins(list: &[(&str, &str)]) -> Vec<SlashCommand> {
 }
 
 /// The commands `agent_type` accepts in `project_path`, with `home` standing in for `~`.
-/// Unknown agent types have none.
+/// Unknown agent types have none. Entries of each folder are read in name order (TS uses the
+/// OS's readdir order), which only decides between two entries of the same name.
 pub fn list_commands(agent_type: &str, project_path: &Path, home: &Path) -> Vec<SlashCommand> {
     if agent_type == "codex" {
         let mut all = builtins(&CODEX_BUILTINS);

@@ -357,7 +357,7 @@ mod task10 {
             normalize(g["board"].clone())
         );
         let board: AwardBoard = serde_json::from_value(g["board"].clone()).unwrap();
-        assert_eq!(&board, book.current());
+        assert_eq!(Some(board), book.current().typed());
     }
 
     #[test]
@@ -376,7 +376,7 @@ mod task10 {
     fn answer_wire_shapes_roundtrip() {
         let g = golden("wire-answer");
         let req: AnswerRequest = serde_json::from_value(g["request"].clone()).unwrap();
-        assert_eq!(req.choices, vec![vec![1], vec![0, 2]]);
+        assert_eq!(req.choices, json!([[1], [0, 2]]));
         assert_eq!(
             normalize(serde_json::to_value(&req).unwrap()),
             normalize(g["request"].clone())
@@ -647,7 +647,9 @@ mod task10 {
         for v in arr(&g["validate"]) {
             let qs: Vec<AskedQuestion> = serde_json::from_value(v["questions"].clone()).unwrap();
             assert_eq!(
-                validate_choices(&qs, &v["choices"]).map_or(Value::Null, Value::from),
+                validate_choices(&qs, &v["choices"])
+                    .err()
+                    .map_or(Value::Null, Value::from),
                 v["expected"],
                 "validate {}",
                 v["name"]
@@ -655,7 +657,7 @@ mod task10 {
         }
         for run in arr(&g["runs"]) {
             let qs: Vec<AskedQuestion> = serde_json::from_value(run["questions"].clone()).unwrap();
-            let choices: Vec<Vec<i64>> = serde_json::from_value(run["choices"].clone()).unwrap();
+            let choices = validate_choices(&qs, &run["choices"]).expect("golden runs are valid");
             let mut io = Scripted {
                 screens: screens.clone(),
                 screen: screens[run["first"].as_str().unwrap()].clone(),

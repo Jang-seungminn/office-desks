@@ -238,6 +238,8 @@ pub struct SendRequest {
     pub terminal_handle: String,
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Typed for serializing; untrusted request bodies should go through
+    /// `uploads::parse_images` on the raw `images` value to get the TS 400 messages.
     pub images: Option<Vec<ImageUpload>>,
     /// Send even if a dialog seems to be open in the agent's terminal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -324,8 +326,10 @@ pub struct QuestionState {
 pub struct AnswerRequest {
     pub agent_id: String,
     pub tool_use_id: String,
-    /// Per question, the 0-based indexes of the chosen options.
-    pub choices: Vec<Vec<i64>>,
+    /// Per question, the 0-based indexes of the chosen options. Raw JSON on purpose: the
+    /// browser's input is untrusted, so it goes through `answer::validate_choices` (which accepts
+    /// what JS does, e.g. `1.0`) before anything is typed.
+    pub choices: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

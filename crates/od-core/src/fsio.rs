@@ -2,6 +2,7 @@
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::native::registry::{is_transient_rename_error, retry_io};
 
@@ -38,7 +39,13 @@ pub(crate) fn save_atomic(file: &Path, body: &str) -> io::Result<()> {
         create_private_dir_all(dir)?;
     }
     let mut tmp = file.as_os_str().to_owned();
-    tmp.push(format!(".{}.tmp", std::process::id()));
+    // Unique per call, so two saves of the same file never share a temp file.
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    tmp.push(format!(
+        ".{}.{}.tmp",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
     let tmp = PathBuf::from(tmp);
     write_private(&tmp, body.as_bytes())?;
     let renamed = retry_io(
