@@ -31,3 +31,9 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 name = "cli"
 path = "tests/cli/main.rs"
 harness = false
+
+# Read-only smoke test against the user's real Orca (R3 Task 8). Run by hand, with permission.
+# `test = true` makes `cargo test` run its ReadOnly unit tests (fake runner, no orca).
+[[example]]
+name = "orca_smoke"
+test = true
