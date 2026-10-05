@@ -86,6 +86,7 @@ Binary (`office-desks`):
 - **No port fallback.** The binary never picks another port. The Node TUI takes the next free port when 4317 is busy (see the README); the Rust binary has no TUI yet and fails with the bind error.
 - **`--no-tui`** is accepted and does nothing (there is no TUI yet).
 - **No SIGHUP handling.** Node handles it only in the TUI.
+- **Shutdown drains first.** `ServerHandle::shutdown` stops accepting, waits up to 2 s (`SHUTDOWN_DRAIN`) for in-flight HTTP requests (`closed()`), then disposes the backend. A hire still running after that (its client gone, or past 2 s) cannot start an agent: `PtyHost::spawn` refuses once dispose has begun (od-core PARITY). Node's shutdown disposes at once.
 - **Shutdown cannot be forced.** A second signal during `shutdown()` does nothing. If `shutdown()` hangs there is no force exit, as in Node.
 - **Windows shutdown is untested.** The bin shutdown test is a smoke test on Windows (`child.kill()` is `TerminateProcess` and asserts only that the process exits). Graceful shutdown is asserted on unix only (SIGINT and SIGTERM). The Ctrl+C, Ctrl+Break, close and shutdown console events are handled but never exercised, so graceful shutdown on Windows stays unverified until R4/R6.
 - **`hook-relay`** as the first argument runs before anything else and is bounded to 3 s overall, even if stdin stays open.

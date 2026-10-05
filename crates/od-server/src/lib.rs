@@ -40,6 +40,10 @@ use enrich::Enricher;
 
 pub type EnvMap = od_core::native::env::EnvMap;
 
+/// How long [`ServerHandle::shutdown`] waits for in-flight HTTP requests before it disposes the
+/// backend. The backend also refuses to start agents once dispose has begun.
+pub const SHUTDOWN_DRAIN: Duration = Duration::from_secs(2);
+
 /// The web dev server (`npm run dev`), allowed as an origin next to the bound port.
 pub const DEV_WEB_PORT: u16 = 5173;
 
@@ -358,14 +362,18 @@ pub struct ServerHandle {
 }
 
 impl ServerHandle {
-    /// Stop accepting, then `backend.dispose().await`. Idempotent: concurrent and later calls
-    /// wait for the same single dispose.
+    /// Stop accepting, wait up to [`SHUTDOWN_DRAIN`] for in-flight HTTP requests (a hire that is
+    /// starting an agent), then `backend.dispose().await`. Idempotent: concurrent and later
+    /// calls wait for the same single dispose.
     pub async fn shutdown(&self) {
         self.inner.stop.send_replace(true);
         self.inner.poller.stop();
         self.inner
             .disposed
-            .get_or_init(|| async { self.inner.backend.dispose().await })
+            .get_or_init(|| async {
+                let _ = tokio::time::timeout(SHUTDOWN_DRAIN, self.closed()).await;
+                self.inner.backend.dispose().await
+            })
             .await;
     }
 

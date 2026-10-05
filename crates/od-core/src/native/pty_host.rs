@@ -16,7 +16,7 @@ use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread;
 use std::time::Duration;
@@ -25,6 +25,9 @@ use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, Master
 
 use crate::backend::BackendError;
 use crate::native::env::{resolve_windows_command, win32_is_absolute, EnvMap, ResolvedCommand};
+
+/// `spawn` after `dispose` has started (the server is shutting down).
+pub const DISPOSED: &str = "종료 중이라 에이전트 터미널을 시작할 수 없어요";
 
 /// Default PTY width.
 pub const COLS: u16 = 120;
@@ -839,6 +842,9 @@ struct Inner {
     /// live, so `dispose` returns only after every exit event has been delivered.
     exiting: AtomicUsize,
     seq: AtomicU64,
+    /// Set by `dispose` under the `sessions` lock; `spawn` checks it under the same lock before
+    /// it inserts, so no session can appear after dispose took its list.
+    disposed: AtomicBool,
 }
 
 impl Inner {
@@ -879,6 +885,7 @@ impl PtyHost {
                 live: tokio::sync::watch::channel(0).0,
                 exiting: AtomicUsize::new(0),
                 seq: AtomicU64::new(0),
+                disposed: AtomicBool::new(false),
             }),
         }
     }
@@ -893,8 +900,12 @@ impl PtyHost {
 
     /// Start `opts.file` in a new PTY under `id`. Fails for an id that is still live (TS would
     /// silently orphan the old process), for arguments a Windows .cmd shim can't carry safely
-    /// (`unsafe_for_cmd`), and when the PTY or process can't be created.
+    /// (`unsafe_for_cmd`), when the PTY or process can't be created, and once `dispose` has
+    /// started ([`DISPOSED`]).
     pub fn spawn(&self, id: &str, opts: PtyOptions) -> Result<(), BackendError> {
+        if self.inner.disposed.load(Ordering::SeqCst) {
+            return Err(BackendError::new(DISPOSED));
+        }
         if self.has(id) {
             return Err(BackendError::new(format!(
                 "이미 실행 중인 에이전트 터미널이에요: {id}"
@@ -955,22 +966,26 @@ impl PtyHost {
                 killer: child.clone_killer(),
             }),
         });
-        let raced = {
+        let refused = {
             let mut map = lock(&self.inner.sessions);
-            if map.contains_key(id) {
-                true // another spawn took this id while ours started
+            if self.inner.disposed.load(Ordering::SeqCst) {
+                // dispose started while ours started: it would never see this child
+                Some(BackendError::new(DISPOSED))
+            } else if map.contains_key(id) {
+                // another spawn took this id while ours started
+                Some(BackendError::new(format!(
+                    "이미 실행 중인 에이전트 터미널이에요: {id}"
+                )))
             } else {
                 map.insert(id.to_string(), session.clone());
-                false
+                None
             }
         };
-        if raced {
+        if let Some(e) = refused {
             session.close();
             let _ = child.kill();
             let _ = child.wait();
-            return Err(BackendError::new(format!(
-                "이미 실행 중인 에이전트 터미널이에요: {id}"
-            )));
+            return Err(e);
         }
         self.inner.publish_count();
 
@@ -1215,11 +1230,16 @@ impl PtyHost {
     }
 
     /// Kill every agent and wait (at most 2 s) until all have exited and been reaped.
-    /// Survivors of the hang-up are force-killed after 1.5 s.
+    /// Survivors of the hang-up are force-killed after 1.5 s. From the first call on, `spawn`
+    /// refuses with [`DISPOSED`]; the host cannot be reused.
     /// Needs a tokio runtime with the time driver enabled (it panics without one); a sync
     /// caller can `block_on` it on a small current-thread runtime built with `enable_time()`.
     pub async fn dispose(&self) {
-        let sessions = self.all();
+        let sessions: Vec<Arc<Session>> = {
+            let map = lock(&self.inner.sessions);
+            self.inner.disposed.store(true, Ordering::SeqCst);
+            map.values().cloned().collect()
+        };
         if sessions.is_empty() {
             return;
         }

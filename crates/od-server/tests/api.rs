@@ -2388,3 +2388,63 @@ async fn a_dropped_client_does_not_cut_the_hire_short() {
     .await;
     s.handle.shutdown().await;
 }
+
+#[tokio::test]
+async fn shutdown_lets_an_in_flight_hire_finish_before_dispose() {
+    let caps = BackendCapabilities {
+        hire: true,
+        ..no_capabilities()
+    };
+    let (fake, s) = with_desk(caps).await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    fake.gates.lock().unwrap().insert("hire", gate.clone());
+    let hiring = post_in_task(&s, "/api/hire", r#"{"agent":"claude","deskId":"d1"}"#);
+    wait_until("the hire starts", Duration::from_secs(5), || {
+        !fake.calls_of("hire").is_empty()
+    })
+    .await;
+    let handle = s.handle.clone();
+    let shutting = tokio::spawn(async move { handle.shutdown().await });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        fake.calls_of("dispose").is_empty(),
+        "dispose waits for the in-flight hire"
+    );
+    gate.notify_one();
+    tokio::time::timeout(Duration::from_secs(5), shutting)
+        .await
+        .expect("shutdown ends")
+        .unwrap();
+    let r = hiring.await.unwrap();
+    assert_eq!(r.status, 200);
+    let calls = fake.calls.lock().unwrap().clone();
+    let done = calls.iter().position(|c| c.starts_with("hire_done"));
+    let dispose = calls.iter().position(|c| c == "dispose");
+    assert!(
+        matches!((done, dispose), (Some(d), Some(x)) if d < x),
+        "{calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn shutdown_disposes_after_two_seconds_when_a_hire_hangs() {
+    let caps = BackendCapabilities {
+        hire: true,
+        ..no_capabilities()
+    };
+    let (fake, s) = with_desk(caps).await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    fake.gates.lock().unwrap().insert("hire", gate.clone());
+    let _hiring = post_in_task(&s, "/api/hire", r#"{"agent":"claude","deskId":"d1"}"#);
+    wait_until("the hire starts", Duration::from_secs(5), || {
+        !fake.calls_of("hire").is_empty()
+    })
+    .await;
+    let started = std::time::Instant::now();
+    tokio::time::timeout(Duration::from_secs(5), s.handle.shutdown())
+        .await
+        .expect("shutdown does not wait forever");
+    assert!(started.elapsed() >= Duration::from_millis(1900));
+    assert_eq!(fake.calls_of("dispose"), ["dispose"]);
+    gate.notify_one();
+}

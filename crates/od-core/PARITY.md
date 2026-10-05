@@ -77,6 +77,7 @@ PtyHost (xterm-headless to vt100, node-pty to portable-pty):
 - `serialize` replays only the alternate screen when active, and history rows lose their soft-wrap flag. Reason: vt100 does not expose the hidden normal screen.
 - `serialize` appends `?1004h`, `?7l` and `4h` when they differ from the defaults. Reason: keep attached terminals in sync with modes vt100 does not replay.
 - `dispose` escalates to SIGKILL after 1.5 s (TS only sent SIGHUP). Reason: really kill and reap; needs a tokio runtime with time.
+- `spawn` is refused once `dispose` has started, with `DISPOSED` (`종료 중이라 에이전트 터미널을 시작할 수 없어요`, code `backend_error`); the flag is set and checked under the sessions lock, so a hire racing a shutdown cannot leave an agent behind. TS has no such check. The host cannot be reused after `dispose`.
 - The exit event waits up to 200 ms for the reader (on Windows always the full 200 ms). Reason: final output lands first; ConPTY EOF only after the pseudoconsole closes.
 - `feed` runs the parser and responder but is not broadcast to `on_data` (same as TS `term.write`).
 - Unicode widths come from unicode-width 0.2 (Unicode 16), not xterm's Unicode 11. Reason: vt100. Rare characters may differ.
