@@ -831,6 +831,62 @@
       "path": "/api/conversation?agentId=${AGENT|uri}&sub=nope"
     },
     {
+      "name": "read-conversation-sub-empty",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}&sub="
+    },
+    {
+      "name": "read-conversation-after-empty",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}&after="
+    },
+    {
+      "name": "read-conversation-after-negative",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}&after=-1"
+    },
+    {
+      "name": "read-write-sub-meta",
+      "group": "read",
+      "kind": "writeFile",
+      "path": "${ROOT}/claude/projects/scratch/${SID}/subagents/agent-sa1.meta.json",
+      "base64": "eyJ0b29sVXNlSWQiOiAiczEifQ=="
+    },
+    {
+      "name": "read-write-sub-transcript",
+      "group": "read",
+      "kind": "writeFile",
+      "path": "${ROOT}/claude/projects/scratch/${SID}/subagents/agent-sa1.jsonl",
+      "base64": "eyJ0eXBlIjogInVzZXIiLCAiaXNTaWRlY2hhaW4iOiB0cnVlLCAidGltZXN0YW1wIjogIjIwMjYtMTAtMDRUMDk6MTA6MDAuMDAwWiIsICJtZXNzYWdlIjogeyJyb2xlIjogInVzZXIiLCAiY29udGVudCI6ICJSZXZpZXcgdGhlIGRpZmYifX0KeyJ0eXBlIjogImFzc2lzdGFudCIsICJpc1NpZGVjaGFpbiI6IHRydWUsICJ0aW1lc3RhbXAiOiAiMjAyNi0xMC0wNFQwOToxMDowMS4wMDBaIiwgIm1lc3NhZ2UiOiB7InJvbGUiOiAiYXNzaXN0YW50IiwgImNvbnRlbnQiOiBbeyJ0eXBlIjogInRleHQiLCAidGV4dCI6ICJMb29rcyBmaW5lLiJ9XX19Cg=="
+    },
+    {
+      "name": "read-conversation-sub",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}&sub=sa1"
+    },
+    {
+      "name": "read-conversation-sub-after-1",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}&sub=sa1&after=1"
+    },
+    {
+      "name": "read-conversation-sub-missing-file",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}&sub=sa2"
+    },
+    {
       "name": "media-image-0",
       "group": "media",
       "kind": "http",

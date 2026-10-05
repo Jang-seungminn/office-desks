@@ -1123,6 +1123,240 @@
     },
     "status": 200
   },
+  "read-conversation-after-empty": {
+    "body": {
+      "json": {
+        "after": 0,
+        "claudeVersion": "2.1.5",
+        "fileId": "${FILE_ID}",
+        "found": true,
+        "messages": [
+          {
+            "images": [
+              0
+            ],
+            "role": "user",
+            "text": "안녕 — 첫 요청",
+            "ts": "2026-10-03T10:00:00.000Z"
+          },
+          {
+            "role": "assistant",
+            "text": "Working on it.",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Read: /a/b.ts",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Grep: a b",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Bash: echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Weird: not json",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Skill: review",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Empty",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "question",
+            "text": "Which mode?\nPick many",
+            "toolUseId": "q1",
+            "ts": "2026-10-03T10:00:03.000Z"
+          },
+          {
+            "role": "question",
+            "text": "Cancelled one?",
+            "toolUseId": "q2",
+            "ts": "2026-10-03T10:00:03.000Z"
+          },
+          {
+            "role": "question",
+            "text": "Still waiting?",
+            "toolUseId": "q3",
+            "ts": "2026-10-03T10:00:03.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "Security review",
+            "toolUseId": "s1",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "Find the files please",
+            "toolUseId": "s2",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "subagent",
+            "toolUseId": "s3",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "Will fail",
+            "toolUseId": "s4",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "queued": true,
+            "role": "user",
+            "text": "also do this",
+            "ts": "2026-10-03T10:00:10.000Z"
+          },
+          {
+            "images": [
+              1
+            ],
+            "queued": true,
+            "role": "user",
+            "text": "with image",
+            "ts": "2026-10-03T10:00:10.200Z"
+          },
+          {
+            "role": "user",
+            "text": "한 줄\n더",
+            "ts": "2026-10-04T09:00:13.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Bash: ls",
+            "ts": "2026-10-04T09:00:14.000Z"
+          },
+          {
+            "role": "assistant",
+            "text": "Saved ![shot](${ROOT}/shot.png)",
+            "ts": "2026-10-04T09:00:15.000Z"
+          }
+        ],
+        "pending": [
+          {
+            "text": "queued B",
+            "ts": "2026-10-03T10:00:09.500Z"
+          }
+        ],
+        "questions": [
+          {
+            "answers": {
+              "Pick many": "a, b",
+              "Which mode?": "Fast"
+            },
+            "questions": [
+              {
+                "header": "Mode",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "description": "quick",
+                    "label": "Fast"
+                  },
+                  {
+                    "description": "",
+                    "label": "Slow"
+                  }
+                ],
+                "question": "Which mode?"
+              },
+              {
+                "header": "",
+                "multiSelect": true,
+                "options": [],
+                "question": "Pick many"
+              }
+            ],
+            "status": "answered",
+            "toolUseId": "q1"
+          },
+          {
+            "answers": {},
+            "questions": [
+              {
+                "header": "H",
+                "multiSelect": false,
+                "options": [],
+                "question": "Cancelled one?"
+              }
+            ],
+            "status": "cancelled",
+            "toolUseId": "q2"
+          },
+          {
+            "answers": {},
+            "questions": [
+              {
+                "header": "H",
+                "multiSelect": false,
+                "options": [],
+                "question": "Still waiting?"
+              }
+            ],
+            "status": "pending",
+            "toolUseId": "q3"
+          }
+        ],
+        "screenSupport": "tested",
+        "subagents": [
+          {
+            "agentId": null,
+            "agentType": "Explore",
+            "description": "Security review",
+            "status": "done",
+            "toolUseId": "s1"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Find the files please",
+            "status": "done",
+            "toolUseId": "s2"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "subagent",
+            "status": "running",
+            "toolUseId": "s3"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Will fail",
+            "status": "failed",
+            "toolUseId": "s4"
+          }
+        ],
+        "title": "Fallback summary",
+        "total": 20
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
   "read-conversation-after-fraction": {
     "body": {
       "json": {
@@ -1345,6 +1579,773 @@
         ],
         "title": "Fallback summary",
         "total": 20
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "read-conversation-after-negative": {
+    "body": {
+      "json": {
+        "after": 0,
+        "claudeVersion": "2.1.5",
+        "fileId": "${FILE_ID}",
+        "found": true,
+        "messages": [
+          {
+            "images": [
+              0
+            ],
+            "role": "user",
+            "text": "안녕 — 첫 요청",
+            "ts": "2026-10-03T10:00:00.000Z"
+          },
+          {
+            "role": "assistant",
+            "text": "Working on it.",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Read: /a/b.ts",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Grep: a b",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Bash: echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Weird: not json",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Skill: review",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Empty",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "question",
+            "text": "Which mode?\nPick many",
+            "toolUseId": "q1",
+            "ts": "2026-10-03T10:00:03.000Z"
+          },
+          {
+            "role": "question",
+            "text": "Cancelled one?",
+            "toolUseId": "q2",
+            "ts": "2026-10-03T10:00:03.000Z"
+          },
+          {
+            "role": "question",
+            "text": "Still waiting?",
+            "toolUseId": "q3",
+            "ts": "2026-10-03T10:00:03.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "Security review",
+            "toolUseId": "s1",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "Find the files please",
+            "toolUseId": "s2",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "subagent",
+            "toolUseId": "s3",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "Will fail",
+            "toolUseId": "s4",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "queued": true,
+            "role": "user",
+            "text": "also do this",
+            "ts": "2026-10-03T10:00:10.000Z"
+          },
+          {
+            "images": [
+              1
+            ],
+            "queued": true,
+            "role": "user",
+            "text": "with image",
+            "ts": "2026-10-03T10:00:10.200Z"
+          },
+          {
+            "role": "user",
+            "text": "한 줄\n더",
+            "ts": "2026-10-04T09:00:13.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Bash: ls",
+            "ts": "2026-10-04T09:00:14.000Z"
+          },
+          {
+            "role": "assistant",
+            "text": "Saved ![shot](${ROOT}/shot.png)",
+            "ts": "2026-10-04T09:00:15.000Z"
+          }
+        ],
+        "pending": [
+          {
+            "text": "queued B",
+            "ts": "2026-10-03T10:00:09.500Z"
+          }
+        ],
+        "questions": [
+          {
+            "answers": {
+              "Pick many": "a, b",
+              "Which mode?": "Fast"
+            },
+            "questions": [
+              {
+                "header": "Mode",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "description": "quick",
+                    "label": "Fast"
+                  },
+                  {
+                    "description": "",
+                    "label": "Slow"
+                  }
+                ],
+                "question": "Which mode?"
+              },
+              {
+                "header": "",
+                "multiSelect": true,
+                "options": [],
+                "question": "Pick many"
+              }
+            ],
+            "status": "answered",
+            "toolUseId": "q1"
+          },
+          {
+            "answers": {},
+            "questions": [
+              {
+                "header": "H",
+                "multiSelect": false,
+                "options": [],
+                "question": "Cancelled one?"
+              }
+            ],
+            "status": "cancelled",
+            "toolUseId": "q2"
+          },
+          {
+            "answers": {},
+            "questions": [
+              {
+                "header": "H",
+                "multiSelect": false,
+                "options": [],
+                "question": "Still waiting?"
+              }
+            ],
+            "status": "pending",
+            "toolUseId": "q3"
+          }
+        ],
+        "screenSupport": "tested",
+        "subagents": [
+          {
+            "agentId": null,
+            "agentType": "Explore",
+            "description": "Security review",
+            "status": "done",
+            "toolUseId": "s1"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Find the files please",
+            "status": "done",
+            "toolUseId": "s2"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "subagent",
+            "status": "running",
+            "toolUseId": "s3"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Will fail",
+            "status": "failed",
+            "toolUseId": "s4"
+          }
+        ],
+        "title": "Fallback summary",
+        "total": 20
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "read-conversation-sub": {
+    "body": {
+      "json": {
+        "after": 0,
+        "claudeVersion": "2.1.5",
+        "fileId": "${FILE_ID}",
+        "found": true,
+        "messages": [
+          {
+            "role": "user",
+            "text": "Review the diff",
+            "ts": "2026-10-04T09:10:00.000Z"
+          },
+          {
+            "role": "assistant",
+            "text": "Looks fine.",
+            "ts": "2026-10-04T09:10:01.000Z"
+          }
+        ],
+        "pending": [],
+        "questions": [
+          {
+            "answers": {
+              "Pick many": "a, b",
+              "Which mode?": "Fast"
+            },
+            "questions": [
+              {
+                "header": "Mode",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "description": "quick",
+                    "label": "Fast"
+                  },
+                  {
+                    "description": "",
+                    "label": "Slow"
+                  }
+                ],
+                "question": "Which mode?"
+              },
+              {
+                "header": "",
+                "multiSelect": true,
+                "options": [],
+                "question": "Pick many"
+              }
+            ],
+            "status": "answered",
+            "toolUseId": "q1"
+          },
+          {
+            "answers": {},
+            "questions": [
+              {
+                "header": "H",
+                "multiSelect": false,
+                "options": [],
+                "question": "Cancelled one?"
+              }
+            ],
+            "status": "cancelled",
+            "toolUseId": "q2"
+          },
+          {
+            "answers": {},
+            "questions": [
+              {
+                "header": "H",
+                "multiSelect": false,
+                "options": [],
+                "question": "Still waiting?"
+              }
+            ],
+            "status": "pending",
+            "toolUseId": "q3"
+          }
+        ],
+        "screenSupport": "tested",
+        "subagents": [
+          {
+            "agentId": "sa1",
+            "agentType": "Explore",
+            "description": "Security review",
+            "status": "done",
+            "toolUseId": "s1"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Find the files please",
+            "status": "done",
+            "toolUseId": "s2"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "subagent",
+            "status": "running",
+            "toolUseId": "s3"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Will fail",
+            "status": "failed",
+            "toolUseId": "s4"
+          }
+        ],
+        "title": null,
+        "total": 2
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "read-conversation-sub-after-1": {
+    "body": {
+      "json": {
+        "after": 1,
+        "claudeVersion": "2.1.5",
+        "fileId": "${FILE_ID}",
+        "found": true,
+        "messages": [
+          {
+            "role": "assistant",
+            "text": "Looks fine.",
+            "ts": "2026-10-04T09:10:01.000Z"
+          }
+        ],
+        "pending": [],
+        "questions": [
+          {
+            "answers": {
+              "Pick many": "a, b",
+              "Which mode?": "Fast"
+            },
+            "questions": [
+              {
+                "header": "Mode",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "description": "quick",
+                    "label": "Fast"
+                  },
+                  {
+                    "description": "",
+                    "label": "Slow"
+                  }
+                ],
+                "question": "Which mode?"
+              },
+              {
+                "header": "",
+                "multiSelect": true,
+                "options": [],
+                "question": "Pick many"
+              }
+            ],
+            "status": "answered",
+            "toolUseId": "q1"
+          },
+          {
+            "answers": {},
+            "questions": [
+              {
+                "header": "H",
+                "multiSelect": false,
+                "options": [],
+                "question": "Cancelled one?"
+              }
+            ],
+            "status": "cancelled",
+            "toolUseId": "q2"
+          },
+          {
+            "answers": {},
+            "questions": [
+              {
+                "header": "H",
+                "multiSelect": false,
+                "options": [],
+                "question": "Still waiting?"
+              }
+            ],
+            "status": "pending",
+            "toolUseId": "q3"
+          }
+        ],
+        "screenSupport": "tested",
+        "subagents": [
+          {
+            "agentId": "sa1",
+            "agentType": "Explore",
+            "description": "Security review",
+            "status": "done",
+            "toolUseId": "s1"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Find the files please",
+            "status": "done",
+            "toolUseId": "s2"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "subagent",
+            "status": "running",
+            "toolUseId": "s3"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Will fail",
+            "status": "failed",
+            "toolUseId": "s4"
+          }
+        ],
+        "title": null,
+        "total": 2
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "read-conversation-sub-empty": {
+    "body": {
+      "json": {
+        "after": 0,
+        "claudeVersion": "2.1.5",
+        "fileId": "${FILE_ID}",
+        "found": true,
+        "messages": [
+          {
+            "images": [
+              0
+            ],
+            "role": "user",
+            "text": "안녕 — 첫 요청",
+            "ts": "2026-10-03T10:00:00.000Z"
+          },
+          {
+            "role": "assistant",
+            "text": "Working on it.",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Read: /a/b.ts",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Grep: a b",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Bash: echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Weird: not json",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Skill: review",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Empty",
+            "ts": "2026-10-03T10:00:01.000Z"
+          },
+          {
+            "role": "question",
+            "text": "Which mode?\nPick many",
+            "toolUseId": "q1",
+            "ts": "2026-10-03T10:00:03.000Z"
+          },
+          {
+            "role": "question",
+            "text": "Cancelled one?",
+            "toolUseId": "q2",
+            "ts": "2026-10-03T10:00:03.000Z"
+          },
+          {
+            "role": "question",
+            "text": "Still waiting?",
+            "toolUseId": "q3",
+            "ts": "2026-10-03T10:00:03.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "Security review",
+            "toolUseId": "s1",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "Find the files please",
+            "toolUseId": "s2",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "subagent",
+            "toolUseId": "s3",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "Will fail",
+            "toolUseId": "s4",
+            "ts": "2026-10-03T10:00:06.000Z"
+          },
+          {
+            "queued": true,
+            "role": "user",
+            "text": "also do this",
+            "ts": "2026-10-03T10:00:10.000Z"
+          },
+          {
+            "images": [
+              1
+            ],
+            "queued": true,
+            "role": "user",
+            "text": "with image",
+            "ts": "2026-10-03T10:00:10.200Z"
+          },
+          {
+            "role": "user",
+            "text": "한 줄\n더",
+            "ts": "2026-10-04T09:00:13.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Bash: ls",
+            "ts": "2026-10-04T09:00:14.000Z"
+          },
+          {
+            "role": "assistant",
+            "text": "Saved ![shot](${ROOT}/shot.png)",
+            "ts": "2026-10-04T09:00:15.000Z"
+          }
+        ],
+        "pending": [
+          {
+            "text": "queued B",
+            "ts": "2026-10-03T10:00:09.500Z"
+          }
+        ],
+        "questions": [
+          {
+            "answers": {
+              "Pick many": "a, b",
+              "Which mode?": "Fast"
+            },
+            "questions": [
+              {
+                "header": "Mode",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "description": "quick",
+                    "label": "Fast"
+                  },
+                  {
+                    "description": "",
+                    "label": "Slow"
+                  }
+                ],
+                "question": "Which mode?"
+              },
+              {
+                "header": "",
+                "multiSelect": true,
+                "options": [],
+                "question": "Pick many"
+              }
+            ],
+            "status": "answered",
+            "toolUseId": "q1"
+          },
+          {
+            "answers": {},
+            "questions": [
+              {
+                "header": "H",
+                "multiSelect": false,
+                "options": [],
+                "question": "Cancelled one?"
+              }
+            ],
+            "status": "cancelled",
+            "toolUseId": "q2"
+          },
+          {
+            "answers": {},
+            "questions": [
+              {
+                "header": "H",
+                "multiSelect": false,
+                "options": [],
+                "question": "Still waiting?"
+              }
+            ],
+            "status": "pending",
+            "toolUseId": "q3"
+          }
+        ],
+        "screenSupport": "tested",
+        "subagents": [
+          {
+            "agentId": null,
+            "agentType": "Explore",
+            "description": "Security review",
+            "status": "done",
+            "toolUseId": "s1"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Find the files please",
+            "status": "done",
+            "toolUseId": "s2"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "subagent",
+            "status": "running",
+            "toolUseId": "s3"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Will fail",
+            "status": "failed",
+            "toolUseId": "s4"
+          }
+        ],
+        "title": "Fallback summary",
+        "total": 20
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "read-conversation-sub-missing-file": {
+    "body": {
+      "json": {
+        "after": 0,
+        "claudeVersion": null,
+        "fileId": null,
+        "found": false,
+        "messages": [],
+        "pending": [],
+        "questions": [],
+        "reason": "서브에이전트 기록을 찾지 못했습니다.",
+        "screenSupport": "unknown",
+        "subagents": [
+          {
+            "agentId": "sa1",
+            "agentType": "Explore",
+            "description": "Security review",
+            "status": "done",
+            "toolUseId": "s1"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Find the files please",
+            "status": "done",
+            "toolUseId": "s2"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "subagent",
+            "status": "running",
+            "toolUseId": "s3"
+          },
+          {
+            "agentId": null,
+            "agentType": "general-purpose",
+            "description": "Will fail",
+            "status": "failed",
+            "toolUseId": "s4"
+          }
+        ],
+        "title": null,
+        "total": 0
       }
     },
     "headers": {

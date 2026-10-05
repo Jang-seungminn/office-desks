@@ -100,14 +100,18 @@ pub(crate) async fn search(st: &AppState, url: &RequestUrl) -> Result<Response, 
         .into_iter()
         .map(|h| {
             // Is this the session an agent in the office is running right now?
-            let owner = h.file_path.as_deref().and_then(|fp| {
-                snap.desks.iter().find_map(|d| {
-                    d.agents
-                        .iter()
-                        .find(|a| st.backend.cached_session(&a.id).as_deref() == Some(fp))
-                        .map(|a| (d.id.clone(), a.id.clone()))
-                })
-            });
+            let owner = h
+                .file_path
+                .as_deref()
+                .filter(|f| !f.is_empty())
+                .and_then(|fp| {
+                    snap.desks.iter().find_map(|d| {
+                        d.agents
+                            .iter()
+                            .find(|a| st.backend.cached_session(&a.id).as_deref() == Some(fp))
+                            .map(|a| (d.id.clone(), a.id.clone()))
+                    })
+                });
             SearchResult {
                 title: h.title,
                 agent: h.agent,
@@ -142,9 +146,12 @@ pub(crate) async fn commands(st: &AppState, url: &RequestUrl) -> Result<Response
 
 /// `GET /api/terminal`: the rendered screen, for TUI menus and permission prompts.
 pub(crate) async fn terminal(st: &AppState, url: &RequestUrl) -> Result<Response, ApiError> {
-    let handle = st
-        .find_agent(url.get("agentId"))
-        .and_then(|(_, a)| a.terminal_handle.clone().map(|h| (h, a.agent_type)));
+    let handle = st.find_agent(url.get("agentId")).and_then(|(_, a)| {
+        a.terminal_handle
+            .clone()
+            .filter(|h| !h.is_empty())
+            .map(|h| (h, a.agent_type))
+    });
     let Some((handle, agent_type)) = handle else {
         return Ok(json(
             StatusCode::OK,
@@ -199,6 +206,8 @@ pub(crate) async fn conversation(
     after: f64,
     sub: Option<&str>,
 ) -> Result<ConversationResponse, ApiError> {
+    // JS `if (sub)`: an empty string is falsy.
+    let sub = sub.filter(|s| !s.is_empty());
     let Some((desk, agent)) = st.find_agent(agent_id) else {
         return Ok(empty_conversation(
             "이 에이전트는 더 이상 사무실에 없습니다.",
@@ -221,8 +230,12 @@ pub(crate) async fn conversation(
             .then(|| subagent_file(&path, sub))
             .flatten();
         let file = match file {
-            Some(f) if f.exists() => f,
-            _ => {
+            Some(f) => tokio::task::spawn_blocking(move || f.exists().then_some(f)).await?,
+            None => None,
+        };
+        let file = match file {
+            Some(f) => f,
+            None => {
                 let mut e = empty_conversation("서브에이전트 기록을 찾지 못했습니다.");
                 e.subagents = infos;
                 return Ok(e);

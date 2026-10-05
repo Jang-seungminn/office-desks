@@ -1283,3 +1283,57 @@ async fn conversation_without_agent_or_session() {
     assert_eq!(r.status, 502);
     assert!(r.json().get("code").is_none());
 }
+
+#[tokio::test]
+async fn conversation_empty_sub_is_the_main_conversation() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    let file = s.dir.path().join("s.jsonl");
+    std::fs::write(
+        &file,
+        "{\"type\":\"user\",\"timestamp\":\"2026-10-04T09:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
+    )
+    .unwrap();
+    fake.set_session(Some(file.display().to_string()));
+    let main = s.client.get("/api/conversation?agentId=a1").await.json();
+    assert_eq!(main["found"], true);
+    let empty = s
+        .client
+        .get("/api/conversation?agentId=a1&sub=")
+        .await
+        .json();
+    assert_eq!(empty, main);
+    let unknown = s
+        .client
+        .get("/api/conversation?agentId=a1&sub=x")
+        .await
+        .json();
+    assert_eq!(unknown["found"], false);
+    assert_eq!(unknown["reason"], "서브에이전트 기록을 찾지 못했습니다.");
+}
+
+#[tokio::test]
+async fn empty_file_path_and_empty_handle_are_falsy() {
+    let caps = BackendCapabilities {
+        search: true,
+        ..no_capabilities()
+    };
+    let fake = with_caps(caps);
+    fake.set_snapshot(Ok(office(vec![desk(
+        "d1",
+        "/nowhere",
+        vec![agent("a1", Some(""))],
+    )])));
+    let s = start_cfg(&fake, |_| {}).await;
+    s.handle.poller().refresh().await;
+    fake.set_session(Some(String::new()));
+    *fake.search.lock().unwrap() = vec![hit("t", "/w/p", Some(""), "resume")];
+    let v = s.client.get("/api/search?q=t").await.json();
+    assert!(v["results"][0]["agentId"].is_null());
+    assert_eq!(v["results"][0]["resumeCommand"], "resume");
+    let r = s.client.get("/api/terminal?agentId=a1").await;
+    assert_eq!(
+        r.body,
+        br#"{"found":false,"lines":[],"composer":"unknown"}"#
+    );
+    assert!(fake.calls_of("read_screen").is_empty());
+}
