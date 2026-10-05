@@ -42,6 +42,9 @@ const DISPOSE_WAIT: Duration = Duration::from_secs(2);
 /// After the child exits, how long the waiter lets the reader drain the remaining output before
 /// the exit event. Unix readers see EOF at once; a ConPTY reader only after the console closes.
 const DRAIN: Duration = Duration::from_millis(200);
+/// Further grace after the exit event before a reader without EOF has its screen freed
+/// (about 2 s after the exit in total).
+const LINGER: Duration = Duration::from_millis(1800);
 const READ_BUF: usize = 64 * 1024;
 
 fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -408,53 +411,91 @@ pub fn row_text(screen: &vt100::Screen, row: u16, trim: bool) -> String {
 /// The parser plus our hooks. Every accessor leaves the scrollback view at 0.
 struct Term {
     parser: vt100::Parser<Hooks>,
-    /// The last byte processed, to spot RIS (`ESC c`) split across reads.
-    last: u8,
+    /// Where we are in an escape sequence, carried across reads.
+    esc: EscState,
 }
 
-/// Bytes after which the parser may have dispatched something we act on: CSI finals `p`
-/// (DECSTR), `h`/`l` (`?1047`) and `c` (RIS). The chunk is cut right after each one, so an
-/// injected sequence lands exactly where the parser is back in its ground state, whichever read
-/// the sequence was split over.
-fn is_cut(b: u8) -> bool {
-    matches!(b, b'p' | b'h' | b'l' | b'c')
+/// A deliberately small escape-sequence tracker, run alongside the parser to find the bytes
+/// after which vt100 may have dispatched something we act on: a CSI final `p` (DECSTR) or
+/// `h`/`l` (`?1047`, modes), or `c` right after ESC (RIS). The chunk is cut right after those,
+/// so an injected sequence lands exactly where the parser is back in its ground state, however
+/// the sequence was split over reads. Plain text is never cut. Strings (OSC, DCS) are treated as
+/// ground; if the tracker ever misses a cut, injections wait for the next cut or for a chunk
+/// that ends in ground (see `Term::process`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum EscState {
+    #[default]
+    Ground,
+    Esc,
+    Csi,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cut {
+    Csi,
+    Ris,
+}
+
+impl EscState {
+    fn step(&mut self, b: u8) -> Option<Cut> {
+        let (next, cut) = match (*self, b) {
+            (_, 0x1b) => (EscState::Esc, None),
+            (EscState::Ground, _) => (EscState::Ground, None),
+            (EscState::Esc, b'[') => (EscState::Csi, None),
+            (EscState::Esc, b'c') => (EscState::Ground, Some(Cut::Ris)),
+            (EscState::Esc, _) => (EscState::Ground, None),
+            // parameters and intermediates
+            (EscState::Csi, 0x20..=0x3F) => (EscState::Csi, None),
+            (EscState::Csi, b'p' | b'h' | b'l') => (EscState::Ground, Some(Cut::Csi)),
+            (EscState::Csi, 0x40..=0x7E) => (EscState::Ground, None),
+            // CAN / SUB abort; other C0 controls execute inside a CSI without ending it
+            (EscState::Csi, 0x18 | 0x1a) => (EscState::Ground, None),
+            (EscState::Csi, 0x00..=0x1F) => (EscState::Csi, None),
+            (EscState::Csi, _) => (EscState::Ground, None),
+        };
+        *self = next;
+        cut
+    }
 }
 
 impl Term {
     fn new(rows: u16, cols: u16) -> Self {
         Self {
             parser: vt100::Parser::new_with_callbacks(rows, cols, SCROLLBACK, Hooks::default()),
-            last: 0,
+            esc: EscState::Ground,
         }
     }
 
     /// Parse output; returns the replies to the queries it contained, in order.
     fn process(&mut self, data: &[u8]) -> Vec<u8> {
-        let mut rest = data;
-        while !rest.is_empty() {
-            let end = rest
-                .iter()
-                .position(|&b| is_cut(b))
-                .map_or(rest.len(), |i| i + 1);
-            let (head, tail) = rest.split_at(end);
-            self.parser.process(head);
-            let ris = head.ends_with(b"c")
-                && (head.len() >= 2 && head[head.len() - 2] == 0x1b
-                    || head.len() == 1 && self.last == 0x1b);
-            self.last = head[head.len() - 1];
-            if ris {
+        let mut start = 0;
+        for (i, &b) in data.iter().enumerate() {
+            let Some(cut) = self.esc.step(b) else {
+                continue;
+            };
+            self.parser.process(&data[start..=i]);
+            start = i + 1;
+            if cut == Cut::Ris {
                 self.parser.callbacks_mut().modes = ExtraModes::default();
             }
-            for inject in std::mem::take(&mut self.parser.callbacks_mut().inject) {
-                self.parser.process(match inject {
-                    Inject::ShowCursor => b"\x1b[?25h",
-                    Inject::AltOn => b"\x1b[?47h",
-                    Inject::AltOff => b"\x1b[?47l",
-                });
-            }
-            rest = tail;
+            self.inject();
+        }
+        self.parser.process(&data[start..]);
+        if self.esc == EscState::Ground {
+            self.inject();
         }
         std::mem::take(&mut self.parser.callbacks_mut().replies)
+    }
+
+    /// Feed vt100 what the callbacks asked for. Only called where the parser is in ground state.
+    fn inject(&mut self) {
+        for inject in std::mem::take(&mut self.parser.callbacks_mut().inject) {
+            self.parser.process(match inject {
+                Inject::ShowCursor => b"\x1b[?25h",
+                Inject::AltOn => b"\x1b[?47h",
+                Inject::AltOff => b"\x1b[?47l",
+            });
+        }
     }
 
     fn screen(&mut self) -> &vt100::Screen {
@@ -511,7 +552,9 @@ impl Term {
             *normal.screen_mut() = screen.clone();
             normal.process(b"\x1b[?47l"); // back to the normal grid, untouched since we left it
             out.extend(serialize_screen(normal.screen_mut()));
-            out.extend_from_slice(b"\x1b[?1049h");
+            // Default SGR first: `?1049h` saves it with the cursor, and `?1049l` must not bring
+            // back the alternate screen's attributes.
+            out.extend_from_slice(b"\x1b[m\x1b[?1049h");
             out.extend(screen.state_formatted());
         } else {
             out.extend(serialize_screen(screen));
@@ -1201,20 +1244,29 @@ fn waiter(
         }
     };
     session.close();
-    // Unix: no EOF after the child exited means something else (a surviving grandchild) holds
-    // the PTY slave. The reader thread and its master fd stay until that process exits or
-    // closes it; free the screen, its history and the subscribers now so only those remain.
-    // (On Windows the timeout is normal: the reader ends once `close` shut the ConPTY.)
-    if cfg!(unix) && drain_timed_out {
-        *lock(&session.term) = Term::new(1, 1);
-        lock(&session.subs).items.clear();
-    }
     if removed {
         for f in listeners(&inner.exits) {
             let _ = catch_unwind(AssertUnwindSafe(|| f(&id, code)));
         }
     }
     inner.publish_count();
+    drop(inner);
+    // Unix: still no EOF well after the exit means something else (a surviving grandchild)
+    // holds the PTY slave. The reader thread and its master fd stay until that process exits or
+    // closes it; free the screen, its history and the subscribers so only those remain. The
+    // extra grace lets a reader still parsing a large final burst finish it for attached
+    // terminals. (On Windows the first timeout is normal: the reader ends once `close` shut the
+    // ConPTY.)
+    if cfg!(unix)
+        && drain_timed_out
+        && matches!(
+            drained.recv_timeout(LINGER),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        )
+    {
+        *lock(&session.term) = Term::new(1, 1);
+        lock(&session.subs).items.clear();
+    }
 }
 
 #[cfg(test)]
@@ -1519,6 +1571,73 @@ mod tests {
         assert_eq!(
             windows_command_line(&r),
             "\"C:\\Program Files\\cmd.exe\" /d /s /c C:\\npm\\claude.cmd x"
+        );
+    }
+
+    fn cuts(data: &[u8]) -> Vec<(usize, Cut)> {
+        let mut st = EscState::default();
+        data.iter()
+            .enumerate()
+            .filter_map(|(i, &b)| st.step(b).map(|c| (i, c)))
+            .collect()
+    }
+
+    #[test]
+    fn cuts_only_after_csi_finals_and_ris_never_in_text() {
+        assert!(cuts(b"help, hello, clap: plain text with p h l c").is_empty());
+        assert!(cuts(b"\x1b]0;title with h and p\x07ok").is_empty());
+        assert!(cuts(b"\x1b[31mred\x1b[c\x1b[6n").is_empty());
+        assert_eq!(cuts(b"a\x1b[!pb"), [(4, Cut::Csi)]);
+        assert_eq!(
+            cuts(b"\x1b[?1047h\x1b[?7l"),
+            [(7, Cut::Csi), (12, Cut::Csi)]
+        );
+        assert_eq!(cuts(b"x\x1bcy"), [(2, Cut::Ris)]);
+        // ESC restarts, CAN aborts, C0 inside a CSI doesn't end it
+        assert_eq!(cuts(b"\x1b[?\x1b[!p"), [(6, Cut::Csi)]);
+        assert!(cuts(b"\x1b[?10\x1847h").is_empty());
+        assert_eq!(cuts(b"\x1b[?10\r47h"), [(8, Cut::Csi)]);
+    }
+
+    #[test]
+    fn sequences_split_mid_params_are_still_acted_on() {
+        let mut t = term(3, 10);
+        t.process(b"\x1b[?25l\x1b[3");
+        t.process(b"1m\x1b[");
+        t.process(b"!");
+        t.process(b"pX\x1b[?1");
+        assert!(!t.parser.screen().hide_cursor());
+        t.process(b"04");
+        t.process(b"7hALT\x1b[?10");
+        assert!(t.parser.screen().alternate_screen());
+        assert_eq!(t.screen_lines()[0], "ALT");
+        t.process(b"47l");
+        assert!(!t.parser.screen().alternate_screen());
+        assert_eq!(t.screen_lines()[0], "X");
+        assert_eq!(
+            t.parser.screen().cell(0, 0).unwrap().fgcolor(),
+            vt100::Color::Idx(1)
+        );
+    }
+
+    #[test]
+    fn leaving_a_replayed_alternate_screen_does_not_keep_its_attributes() {
+        let mut t = term(3, 10);
+        t.process(b"norm\x1b[?1049h\x1b[1mBOLD");
+        let s = t.serialize();
+        let mut fresh = term(3, 10);
+        fresh.process(s.as_bytes());
+        for x in [&mut t, &mut fresh] {
+            x.process(b"\x1b[?1049lx");
+        }
+        let (row, col) = fresh.parser.screen().cursor_position();
+        let cell = fresh.parser.screen().cell(row, col - 1).unwrap();
+        assert_eq!(cell.contents(), "x");
+        assert!(!cell.bold());
+        assert_eq!(snapshot(&mut fresh.parser), snapshot(&mut t.parser));
+        assert_eq!(
+            fresh.parser.screen().contents_formatted(),
+            t.parser.screen().contents_formatted()
         );
     }
 
