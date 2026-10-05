@@ -12,7 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 od-core = { path = "../od-core" }
-od-orca = { path = "../od-orca" }
 od-server = { path = "../od-server" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
 

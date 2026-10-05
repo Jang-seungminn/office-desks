@@ -958,7 +958,6 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "od-core",
- "od-orca",
  "od-server",
  "serde_json",
  "tempfile",

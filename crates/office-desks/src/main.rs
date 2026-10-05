@@ -1,5 +1,6 @@
-//! `office-desks`: the Office Desks server (native backend) in one binary. Port of
-//! `bin/office-desks.mjs` plus the server start in `server.ts`.
+//! `office-desks`: the Office Desks server in one binary, on the Orca, native or demo backend
+//! (`od_server::create_backend` picks it). Port of `bin/office-desks.mjs` plus the server start
+//! in `server.ts`.
 
 mod cli;
 
@@ -62,14 +63,7 @@ async fn run(cli: cli::Cli, env: od_core::native::env::EnvMap) -> i32 {
     let signals = Signals::install();
     // Node probes before it binds; here a busy port fails first, before anything is spawned.
     let mut cfg = ServerConfig::from_env(&env);
-    let probe_env = env.clone();
-    let probe = async move {
-        od_orca::probe_orca(&od_orca::OrcaCli::from_env(
-            &probe_env,
-            od_orca::PROBE_TIMEOUT,
-        ))
-        .await
-    };
+    let probe = od_server::default_probe(&env);
     let created = match od_server::create_backend(cli.backend, &env, port, &mut cfg, probe).await {
         Ok(c) => c,
         Err(e) => {

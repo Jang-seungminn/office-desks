@@ -64,22 +64,15 @@ pub fn parse(args: &[String], env: &EnvMap) -> Result<Cli, String> {
             _ => DEFAULT_PORT,
         },
     };
-    let env_backend = env
-        .get("OFFICE_DESKS_BACKEND")
-        .map(|v| v.trim())
-        .filter(|v| !v.is_empty());
-    let backend = if let Some(v) = value_of("--backend") {
-        Some(v.and_then(BackendKind::parse).ok_or(BACKEND_ERROR)?)
-    } else if let Some(v) = env_backend {
-        Some(BackendKind::parse(v).ok_or_else(|| {
-            format!("Unknown OFFICE_DESKS_BACKEND \"{v}\" (use orca, native or demo)")
-        })?)
-    } else if args.iter().any(|a| a == "--demo")
-        || env.get("OFFICE_DESKS_DEMO").is_some_and(|v| !v.is_empty())
-    {
-        Some(BackendKind::Demo)
-    } else {
-        None
+    // `--backend` > the env (`BackendKind::from_env`, not read when the flag is given) >
+    // `--demo` > the probe. `--demo` ranks with OFFICE_DESKS_DEMO, below OFFICE_DESKS_BACKEND.
+    let backend = match value_of("--backend") {
+        Some(v) => Some(v.and_then(BackendKind::parse).ok_or(BACKEND_ERROR)?),
+        None => match BackendKind::from_env(env)? {
+            Some(k) => Some(k),
+            None if args.iter().any(|a| a == "--demo") => Some(BackendKind::Demo),
+            None => None,
+        },
     };
     Ok(Cli {
         port,
@@ -149,6 +142,14 @@ mod tests {
             p(&["--backend", "native", "--demo"], &[]).unwrap().backend,
             Some(BackendKind::Native)
         );
+        assert_eq!(p(&["--backend", "x"], &[]), Err(BACKEND_ERROR.to_string()));
+        assert_eq!(p(&["--no-tui"], &[]).unwrap().backend, None);
+    }
+
+    /// The env cases themselves are `BackendKind::from_env`'s tests in od-server; here only
+    /// that the binary uses it, and where the flags rank around it.
+    #[test]
+    fn env_selection_comes_from_od_server() {
         assert_eq!(
             p(&[], &[("OFFICE_DESKS_BACKEND", "demo")]).unwrap().backend,
             Some(BackendKind::Demo)
@@ -157,12 +158,22 @@ mod tests {
             p(&[], &[("OFFICE_DESKS_DEMO", "1")]).unwrap().backend,
             Some(BackendKind::Demo)
         );
-        assert_eq!(p(&["--backend", "x"], &[]), Err(BACKEND_ERROR.to_string()));
         assert_eq!(
             p(&[], &[("OFFICE_DESKS_BACKEND", "x")]),
-            Err("Unknown OFFICE_DESKS_BACKEND \"x\" (use orca, native or demo)".to_string())
+            Err(od_server::unknown_backend("x"))
         );
-        assert_eq!(p(&["--no-tui"], &[]).unwrap().backend, None);
+        // `--backend` wins and the env is not read, so a bad env value is no error.
+        assert_eq!(
+            p(&["--backend", "orca"], &[("OFFICE_DESKS_BACKEND", "x")])
+                .unwrap()
+                .backend,
+            Some(BackendKind::Orca)
+        );
+        // `--demo` does not hide a bad OFFICE_DESKS_BACKEND (Node reads the env first).
+        assert_eq!(
+            p(&["--demo"], &[("OFFICE_DESKS_BACKEND", "x")]),
+            Err(od_server::unknown_backend("x"))
+        );
         assert_eq!(p(&[], &[("OFFICE_DESKS_DEMO", "")]).unwrap().backend, None);
     }
 

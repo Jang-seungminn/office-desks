@@ -1,5 +1,9 @@
-//! Backend selection (port of `createBackend` in `bridge/src/backend/index.ts`, plus the demo
-//! server files from `server.ts`).
+//! Backend selection (port of `createBackend` and `probeOrca` in `bridge/src/backend/index.ts`,
+//! plus the demo server files from `server.ts`).
+//!
+//! The order is Node's: an explicit kind (the binary's `--backend`) > `OFFICE_DESKS_BACKEND` >
+//! `--demo`/`OFFICE_DESKS_DEMO` > the `orca status` probe, else native. Callers turn their own
+//! flags into a kind and use [`BackendKind::from_env`] for the env part.
 
 use std::future::Future;
 use std::io;
@@ -7,7 +11,8 @@ use std::sync::Arc;
 
 use od_core::backend::OfficeBackend;
 use od_orca::{
-    resolve_orca_command, DemoBackend, DemoOptions, OrcaBackend, OrcaCli, OrcaOptions, ORCA_TIMEOUT,
+    probe_orca, resolve_orca_command, DemoBackend, DemoOptions, OrcaBackend, OrcaCli, OrcaOptions,
+    ORCA_TIMEOUT, PROBE_TIMEOUT,
 };
 
 use crate::{native_backend, EnvMap, ServerConfig};
@@ -36,11 +41,46 @@ impl BackendKind {
             BackendKind::Demo => "demo",
         }
     }
+
+    /// The env part of Node's selection: `OFFICE_DESKS_BACKEND` (trimmed; empty counts as
+    /// unset) wins, else a non-empty `OFFICE_DESKS_DEMO` means demo, else None (probe). An
+    /// unknown `OFFICE_DESKS_BACKEND` is an error with Node's text.
+    pub fn from_env(env: &EnvMap) -> Result<Option<BackendKind>, String> {
+        let backend = env
+            .get("OFFICE_DESKS_BACKEND")
+            .map(|v| od_core::jsstr::trim(v))
+            .filter(|v| !v.is_empty());
+        if let Some(v) = backend {
+            return BackendKind::parse(v)
+                .map(Some)
+                .ok_or_else(|| unknown_backend(v));
+        }
+        if env.get("OFFICE_DESKS_DEMO").is_some_and(|v| !v.is_empty()) {
+            return Ok(Some(BackendKind::Demo));
+        }
+        Ok(None)
+    }
 }
 
-/// A backend and the label of the startup line.
+/// Node's `createBackend` error, verbatim.
+pub fn unknown_backend(value: &str) -> String {
+    format!("Unknown OFFICE_DESKS_BACKEND \"{value}\" (use orca, native or demo)")
+}
+
+/// The default probe for [`create_backend`]: `orca status` with [`PROBE_TIMEOUT`] (TS
+/// `probeOrca()`). The runner is built only when the future is polled, so a caller that picks a
+/// kind never builds it.
+pub async fn default_probe(env: &EnvMap) -> bool {
+    probe_orca(&OrcaCli::from_env(env, PROBE_TIMEOUT)).await
+}
+
+/// A backend, which kind it is, and the label of the startup line.
 pub struct CreatedBackend {
     pub backend: Arc<dyn OfficeBackend>,
+    /// The kind that was built: the one asked for, or what the probe chose. Auto mode picks
+    /// Orca whenever it is running, and an Orca backend has no `/term` panes; the desktop app
+    /// and the TUI should ask for [`BackendKind::Native`].
+    pub kind: BackendKind,
     /// `DEMO data`, `orca backend, orca cli: <command>` or `native backend`.
     pub label: String,
 }
@@ -69,6 +109,7 @@ pub async fn create_backend(
     match kind {
         BackendKind::Native => Ok(CreatedBackend {
             backend: Arc::new(native_backend(env, port).await),
+            kind,
             label: "native backend".into(),
         }),
         BackendKind::Orca => {
@@ -82,6 +123,7 @@ pub async fn create_backend(
             );
             Ok(CreatedBackend {
                 backend: Arc::new(backend),
+                kind,
                 label: format!("orca backend, orca cli: {}", resolve_orca_command(env)),
             })
         }
@@ -99,6 +141,7 @@ pub async fn create_backend(
             cfg.default_org = Some(files.default_org);
             Ok(CreatedBackend {
                 backend: Arc::new(demo),
+                kind,
                 label: "DEMO data".into(),
             })
         }
@@ -139,7 +182,7 @@ mod tests {
         c
     }
 
-    async fn name_of(kind: Option<BackendKind>, probe: bool) -> String {
+    async fn name_of(kind: Option<BackendKind>, probe: bool) -> (String, BackendKind) {
         let sc = scratch();
         let mut c = cfg(&sc);
         let created = create_backend(kind, &sc.env, 0, &mut c, async move { probe })
@@ -147,7 +190,55 @@ mod tests {
             .unwrap();
         let name = created.backend.name().to_string();
         created.backend.dispose().await;
-        name
+        (name, created.kind)
+    }
+
+    fn env_of(pairs: &[(&str, &str)]) -> EnvMap {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn from_env_follows_node() {
+        let k = |pairs: &[(&str, &str)]| BackendKind::from_env(&env_of(pairs));
+        assert_eq!(k(&[]), Ok(None));
+        assert_eq!(
+            k(&[("OFFICE_DESKS_BACKEND", "demo")]),
+            Ok(Some(BackendKind::Demo))
+        );
+        assert_eq!(
+            k(&[("OFFICE_DESKS_BACKEND", " orca\n")]),
+            Ok(Some(BackendKind::Orca))
+        );
+        assert_eq!(
+            k(&[
+                ("OFFICE_DESKS_BACKEND", "native"),
+                ("OFFICE_DESKS_DEMO", "1")
+            ]),
+            Ok(Some(BackendKind::Native))
+        );
+        assert_eq!(
+            k(&[("OFFICE_DESKS_DEMO", "1")]),
+            Ok(Some(BackendKind::Demo))
+        );
+        assert_eq!(
+            k(&[("OFFICE_DESKS_BACKEND", "  "), ("OFFICE_DESKS_DEMO", "1")]),
+            Ok(Some(BackendKind::Demo))
+        );
+        assert_eq!(k(&[("OFFICE_DESKS_DEMO", "")]), Ok(None));
+        assert_eq!(
+            k(&[("OFFICE_DESKS_BACKEND", "x")]),
+            Err("Unknown OFFICE_DESKS_BACKEND \"x\" (use orca, native or demo)".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn default_probe_is_false_without_orca() {
+        // ORCA_CLI_COMMAND points at a missing file in the scratch dir: no real orca runs.
+        let sc = scratch();
+        assert!(!default_probe(&sc.env).await);
     }
 
     #[tokio::test]
@@ -165,14 +256,21 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(created.backend.name(), name);
+            assert_eq!(created.kind, kind);
             created.backend.dispose().await;
         }
     }
 
     #[tokio::test]
     async fn auto_follows_the_probe() {
-        assert_eq!(name_of(None, true).await, "orca");
-        assert_eq!(name_of(None, false).await, "native");
+        assert_eq!(
+            name_of(None, true).await,
+            ("orca".into(), BackendKind::Orca)
+        );
+        assert_eq!(
+            name_of(None, false).await,
+            ("native".into(), BackendKind::Native)
+        );
     }
 
     #[tokio::test]

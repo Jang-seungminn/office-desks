@@ -35,7 +35,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{watch, OnceCell};
 
 pub use assets::{Assets, MemAssets, WebDist};
-pub use backends::{create_backend, BackendKind, CreatedBackend};
+pub use backends::{create_backend, default_probe, unknown_backend, BackendKind, CreatedBackend};
 pub use hub::{Hub, ServerMessageJson};
 pub use poller::Poller;
 
