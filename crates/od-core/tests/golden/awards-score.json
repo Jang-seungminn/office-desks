@@ -1,0 +1,560 @@
+[
+  {
+    "name": "best of three, idle skipped",
+    "desks": [
+      {
+        "id": "r::/w",
+        "repoId": "r",
+        "isMain": true,
+        "parentId": null,
+        "name": "w",
+        "repo": "web",
+        "branch": "main",
+        "path": "/w",
+        "status": "active",
+        "workspaceStatus": null,
+        "comment": "",
+        "preview": "",
+        "isActive": false,
+        "unread": false,
+        "lastActivityAt": null,
+        "changes": null,
+        "pr": null,
+        "agents": [
+          {
+            "id": "a",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": "a 작업",
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": {
+              "instructions": 50,
+              "instructionsToday": 3,
+              "toolCalls": 100,
+              "toolCallsToday": 5,
+              "subagents": 0,
+              "hiredAt": null
+            },
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          },
+          {
+            "id": "b",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": "b 작업",
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": {
+              "instructions": 50,
+              "instructionsToday": 2,
+              "toolCalls": 100,
+              "toolCallsToday": 40,
+              "subagents": 0,
+              "hiredAt": null
+            },
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          },
+          {
+            "id": "c",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": "c 작업",
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": {
+              "instructions": 50,
+              "instructionsToday": 0,
+              "toolCalls": 100,
+              "toolCallsToday": 900,
+              "subagents": 0,
+              "hiredAt": null
+            },
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          }
+        ]
+      }
+    ],
+    "date": "2026-10-03",
+    "expected": {
+      "date": "2026-10-03",
+      "agentId": "b",
+      "deskId": "r::/w",
+      "name": "b 작업",
+      "repo": "web",
+      "repoId": "r",
+      "agentType": "claude",
+      "instructions": 2,
+      "toolCalls": 40,
+      "score": 60
+    }
+  },
+  {
+    "name": "only idle",
+    "desks": [
+      {
+        "id": "r::/w",
+        "repoId": "r",
+        "isMain": true,
+        "parentId": null,
+        "name": "w",
+        "repo": "web",
+        "branch": "main",
+        "path": "/w",
+        "status": "active",
+        "workspaceStatus": null,
+        "comment": "",
+        "preview": "",
+        "isActive": false,
+        "unread": false,
+        "lastActivityAt": null,
+        "changes": null,
+        "pr": null,
+        "agents": [
+          {
+            "id": "c",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": "c 작업",
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": {
+              "instructions": 50,
+              "instructionsToday": 0,
+              "toolCalls": 100,
+              "toolCallsToday": 900,
+              "subagents": 0,
+              "hiredAt": null
+            },
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          }
+        ]
+      }
+    ],
+    "date": "2026-10-03",
+    "expected": null
+  },
+  {
+    "name": "no desks",
+    "desks": [],
+    "date": "2026-10-03",
+    "expected": null
+  },
+  {
+    "name": "tie keeps the first",
+    "desks": [
+      {
+        "id": "r::/w",
+        "repoId": "r",
+        "isMain": true,
+        "parentId": null,
+        "name": "w",
+        "repo": "web",
+        "branch": "main",
+        "path": "/w",
+        "status": "active",
+        "workspaceStatus": null,
+        "comment": "",
+        "preview": "",
+        "isActive": false,
+        "unread": false,
+        "lastActivityAt": null,
+        "changes": null,
+        "pr": null,
+        "agents": [
+          {
+            "id": "a",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": "a 작업",
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": {
+              "instructions": 50,
+              "instructionsToday": 1,
+              "toolCalls": 100,
+              "toolCallsToday": 0,
+              "subagents": 0,
+              "hiredAt": null
+            },
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          },
+          {
+            "id": "b",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": "b 작업",
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": {
+              "instructions": 50,
+              "instructionsToday": 1,
+              "toolCalls": 100,
+              "toolCallsToday": 0,
+              "subagents": 0,
+              "hiredAt": null
+            },
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          }
+        ]
+      }
+    ],
+    "date": "2026-10-03",
+    "expected": {
+      "date": "2026-10-03",
+      "agentId": "a",
+      "deskId": "r::/w",
+      "name": "a 작업",
+      "repo": "web",
+      "repoId": "r",
+      "agentType": "claude",
+      "instructions": 1,
+      "toolCalls": 0,
+      "score": 10
+    }
+  },
+  {
+    "name": "across desks",
+    "desks": [
+      {
+        "id": "r::/x",
+        "repoId": "r",
+        "isMain": true,
+        "parentId": null,
+        "name": "x",
+        "repo": "web",
+        "branch": "main",
+        "path": "/x",
+        "status": "active",
+        "workspaceStatus": null,
+        "comment": "",
+        "preview": "",
+        "isActive": false,
+        "unread": false,
+        "lastActivityAt": null,
+        "changes": null,
+        "pr": null,
+        "agents": [
+          {
+            "id": "a",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": "a 작업",
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": {
+              "instructions": 50,
+              "instructionsToday": 1,
+              "toolCalls": 100,
+              "toolCallsToday": 5,
+              "subagents": 0,
+              "hiredAt": null
+            },
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          }
+        ]
+      },
+      {
+        "id": "r::/y",
+        "repoId": "r",
+        "isMain": true,
+        "parentId": null,
+        "name": "y",
+        "repo": "",
+        "branch": "main",
+        "path": "/y",
+        "status": "active",
+        "workspaceStatus": null,
+        "comment": "",
+        "preview": "",
+        "isActive": false,
+        "unread": false,
+        "lastActivityAt": null,
+        "changes": null,
+        "pr": null,
+        "agents": [
+          {
+            "id": "b",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": "b 작업",
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": {
+              "instructions": 50,
+              "instructionsToday": 1,
+              "toolCalls": 100,
+              "toolCallsToday": 6,
+              "subagents": 0,
+              "hiredAt": null
+            },
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          }
+        ]
+      }
+    ],
+    "date": "2026-10-03",
+    "expected": {
+      "date": "2026-10-03",
+      "agentId": "b",
+      "deskId": "r::/y",
+      "name": "b 작업",
+      "repo": "y",
+      "repoId": "r",
+      "agentType": "claude",
+      "instructions": 1,
+      "toolCalls": 6,
+      "score": 16
+    }
+  },
+  {
+    "name": "no title falls back to desk name",
+    "desks": [
+      {
+        "id": "r::/w",
+        "repoId": "r",
+        "isMain": true,
+        "parentId": null,
+        "name": "w",
+        "repo": "web",
+        "branch": "main",
+        "path": "/w",
+        "status": "active",
+        "workspaceStatus": null,
+        "comment": "",
+        "preview": "",
+        "isActive": false,
+        "unread": false,
+        "lastActivityAt": null,
+        "changes": null,
+        "pr": null,
+        "agents": [
+          {
+            "id": "a",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": null,
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": {
+              "instructions": 50,
+              "instructionsToday": 2,
+              "toolCalls": 100,
+              "toolCallsToday": 2,
+              "subagents": 0,
+              "hiredAt": null
+            },
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          }
+        ]
+      }
+    ],
+    "date": "2026-10-03",
+    "expected": {
+      "date": "2026-10-03",
+      "agentId": "a",
+      "deskId": "r::/w",
+      "name": "w",
+      "repo": "web",
+      "repoId": "r",
+      "agentType": "claude",
+      "instructions": 2,
+      "toolCalls": 2,
+      "score": 22
+    }
+  },
+  {
+    "name": "empty title is kept",
+    "desks": [
+      {
+        "id": "r::/w",
+        "repoId": "r",
+        "isMain": true,
+        "parentId": null,
+        "name": "w",
+        "repo": "web",
+        "branch": "main",
+        "path": "/w",
+        "status": "active",
+        "workspaceStatus": null,
+        "comment": "",
+        "preview": "",
+        "isActive": false,
+        "unread": false,
+        "lastActivityAt": null,
+        "changes": null,
+        "pr": null,
+        "agents": [
+          {
+            "id": "a",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": "",
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": {
+              "instructions": 50,
+              "instructionsToday": 2,
+              "toolCalls": 100,
+              "toolCallsToday": 2,
+              "subagents": 0,
+              "hiredAt": null
+            },
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          }
+        ]
+      }
+    ],
+    "date": "2026-10-03",
+    "expected": {
+      "date": "2026-10-03",
+      "agentId": "a",
+      "deskId": "r::/w",
+      "name": "",
+      "repo": "web",
+      "repoId": "r",
+      "agentType": "claude",
+      "instructions": 2,
+      "toolCalls": 2,
+      "score": 22
+    }
+  },
+  {
+    "name": "no stats",
+    "desks": [
+      {
+        "id": "r::/w",
+        "repoId": "r",
+        "isMain": true,
+        "parentId": null,
+        "name": "w",
+        "repo": "web",
+        "branch": "main",
+        "path": "/w",
+        "status": "active",
+        "workspaceStatus": null,
+        "comment": "",
+        "preview": "",
+        "isActive": false,
+        "unread": false,
+        "lastActivityAt": null,
+        "changes": null,
+        "pr": null,
+        "agents": [
+          {
+            "id": "a",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": "a 작업",
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": null,
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          },
+          {
+            "id": "b",
+            "terminalHandle": null,
+            "agentType": "claude",
+            "terminalTitle": "b 작업",
+            "subagentsRunning": 0,
+            "model": null,
+            "effort": null,
+            "stats": {
+              "instructions": 50,
+              "instructionsToday": 1,
+              "toolCalls": 100,
+              "toolCallsToday": 2,
+              "subagents": 0,
+              "hiredAt": null
+            },
+            "state": "done",
+            "rawState": "done",
+            "activity": "",
+            "prompt": null,
+            "lastMessage": null,
+            "since": null
+          }
+        ]
+      }
+    ],
+    "date": "2026-10-03",
+    "expected": {
+      "date": "2026-10-03",
+      "agentId": "b",
+      "deskId": "r::/w",
+      "name": "b 작업",
+      "repo": "web",
+      "repoId": "r",
+      "agentType": "claude",
+      "instructions": 1,
+      "toolCalls": 2,
+      "score": 12
+    }
+  }
+]

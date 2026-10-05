@@ -210,13 +210,13 @@ fn retry_delay(attempt: u32) -> Duration {
 }
 
 /// Windows: a virus scanner or indexer can hold the target for a moment (EPERM/EBUSY).
-fn is_transient_rename_error(e: &io::Error) -> bool {
+pub(crate) fn is_transient_rename_error(e: &io::Error) -> bool {
     // 5 ACCESS_DENIED, 32 SHARING_VIOLATION, 33 LOCK_VIOLATION
     e.kind() == io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(5 | 32 | 33))
 }
 
 /// Run `op`, retrying up to 4 more times (50 ms, 100 ms, ...) while `retryable` says so.
-fn retry_io(
+pub(crate) fn retry_io(
     mut op: impl FnMut() -> io::Result<()>,
     retryable: impl Fn(&io::Error) -> bool,
     sleep: impl Fn(Duration),

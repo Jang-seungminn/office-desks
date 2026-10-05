@@ -1,0 +1,709 @@
+[
+  {
+    "name": "normalised",
+    "input": {
+      "departments": [
+        {
+          "id": "d-a",
+          "name": "  개발   팀 ",
+          "theme": "dev",
+          "repoIds": [
+            "r1",
+            "r2"
+          ]
+        },
+        {
+          "id": "d-a",
+          "name": "디자인",
+          "theme": "nope",
+          "repoIds": [
+            "r2",
+            "r3",
+            42
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "departments": [
+        {
+          "id": "d-a",
+          "name": "개발 팀",
+          "theme": "dev",
+          "repoIds": [
+            "r1",
+            "r2"
+          ]
+        },
+        {
+          "id": "<generated>",
+          "name": "디자인",
+          "theme": "etc",
+          "repoIds": [
+            "r3"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "all themes and a duplicate repo",
+    "input": {
+      "departments": [
+        {
+          "id": "t-0",
+          "name": "dev",
+          "theme": "dev",
+          "repoIds": [
+            "same",
+            "own0",
+            "same"
+          ]
+        },
+        {
+          "id": "t-1",
+          "name": "design",
+          "theme": "design",
+          "repoIds": [
+            "same",
+            "own1",
+            "same"
+          ]
+        },
+        {
+          "id": "t-2",
+          "name": "research",
+          "theme": "research",
+          "repoIds": [
+            "same",
+            "own2",
+            "same"
+          ]
+        },
+        {
+          "id": "t-3",
+          "name": "ops",
+          "theme": "ops",
+          "repoIds": [
+            "same",
+            "own3",
+            "same"
+          ]
+        },
+        {
+          "id": "t-4",
+          "name": "etc",
+          "theme": "etc",
+          "repoIds": [
+            "same",
+            "own4",
+            "same"
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "departments": [
+        {
+          "id": "t-0",
+          "name": "dev",
+          "theme": "dev",
+          "repoIds": [
+            "same",
+            "own0"
+          ]
+        },
+        {
+          "id": "t-1",
+          "name": "design",
+          "theme": "design",
+          "repoIds": [
+            "own1"
+          ]
+        },
+        {
+          "id": "t-2",
+          "name": "research",
+          "theme": "research",
+          "repoIds": [
+            "own2"
+          ]
+        },
+        {
+          "id": "t-3",
+          "name": "ops",
+          "theme": "ops",
+          "repoIds": [
+            "own3"
+          ]
+        },
+        {
+          "id": "t-4",
+          "name": "etc",
+          "theme": "etc",
+          "repoIds": [
+            "own4"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "empty list",
+    "input": {
+      "departments": []
+    },
+    "expected": {
+      "departments": []
+    }
+  },
+  {
+    "name": "ids",
+    "input": {
+      "departments": [
+        {
+          "id": "UPPER",
+          "name": "a"
+        },
+        {
+          "id": "ok-1\n",
+          "name": "b"
+        },
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "c"
+        },
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "d"
+        },
+        {
+          "id": 5,
+          "name": "e"
+        },
+        {
+          "id": "keep-me",
+          "name": "f"
+        }
+      ]
+    },
+    "expected": {
+      "departments": [
+        {
+          "id": "<generated>",
+          "name": "a",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "<generated>",
+          "name": "b",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "<generated>",
+          "name": "c",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "d",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "<generated>",
+          "name": "e",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "keep-me",
+          "name": "f",
+          "theme": "etc",
+          "repoIds": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "repoIds filters",
+    "input": {
+      "departments": [
+        {
+          "id": "x",
+          "name": "a",
+          "repoIds": [
+            "",
+            "a",
+            "a",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            null,
+            {},
+            "c"
+          ]
+        },
+        {
+          "id": "y",
+          "name": "b",
+          "repoIds": "nope"
+        }
+      ]
+    },
+    "expected": {
+      "departments": [
+        {
+          "id": "x",
+          "name": "a",
+          "theme": "etc",
+          "repoIds": [
+            "a",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "c"
+          ]
+        },
+        {
+          "id": "y",
+          "name": "b",
+          "theme": "etc",
+          "repoIds": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "astral name 10",
+    "input": {
+      "departments": [
+        {
+          "id": "x",
+          "name": "😀😀😀😀😀😀😀😀😀😀"
+        }
+      ]
+    },
+    "expected": {
+      "departments": [
+        {
+          "id": "x",
+          "name": "😀😀😀😀😀😀😀😀😀😀",
+          "theme": "etc",
+          "repoIds": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "astral name 11",
+    "input": {
+      "departments": [
+        {
+          "id": "x",
+          "name": "😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      ]
+    },
+    "expected": {
+      "error": "부서 이름은 1~20자로 지어 주세요"
+    }
+  },
+  {
+    "name": "null",
+    "input": null,
+    "expected": {
+      "error": "departments must be a list"
+    }
+  },
+  {
+    "name": "number",
+    "input": 5,
+    "expected": {
+      "error": "departments must be a list"
+    }
+  },
+  {
+    "name": "array",
+    "input": [],
+    "expected": {
+      "error": "departments must be a list"
+    }
+  },
+  {
+    "name": "departments not a list",
+    "input": {
+      "departments": "x"
+    },
+    "expected": {
+      "error": "departments must be a list"
+    }
+  },
+  {
+    "name": "null entry",
+    "input": {
+      "departments": [
+        null
+      ]
+    },
+    "expected": {
+      "error": "부서 이름은 1~20자로 지어 주세요"
+    }
+  },
+  {
+    "name": "empty name",
+    "input": {
+      "departments": [
+        {
+          "name": ""
+        }
+      ]
+    },
+    "expected": {
+      "error": "부서 이름은 1~20자로 지어 주세요"
+    }
+  },
+  {
+    "name": "blank name",
+    "input": {
+      "departments": [
+        {
+          "name": " \t "
+        }
+      ]
+    },
+    "expected": {
+      "error": "부서 이름은 1~20자로 지어 주세요"
+    }
+  },
+  {
+    "name": "numeric name",
+    "input": {
+      "departments": [
+        {
+          "name": 5
+        }
+      ]
+    },
+    "expected": {
+      "error": "부서 이름은 1~20자로 지어 주세요"
+    }
+  },
+  {
+    "name": "name 21",
+    "input": {
+      "departments": [
+        {
+          "name": "xxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    "expected": {
+      "error": "부서 이름은 1~20자로 지어 주세요"
+    }
+  },
+  {
+    "name": "name 20",
+    "input": {
+      "departments": [
+        {
+          "name": "xxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    "expected": {
+      "departments": [
+        {
+          "id": "<generated>",
+          "name": "xxxxxxxxxxxxxxxxxxxx",
+          "theme": "etc",
+          "repoIds": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "20 departments",
+    "input": {
+      "departments": [
+        {
+          "id": "d0",
+          "name": "d0"
+        },
+        {
+          "id": "d1",
+          "name": "d1"
+        },
+        {
+          "id": "d2",
+          "name": "d2"
+        },
+        {
+          "id": "d3",
+          "name": "d3"
+        },
+        {
+          "id": "d4",
+          "name": "d4"
+        },
+        {
+          "id": "d5",
+          "name": "d5"
+        },
+        {
+          "id": "d6",
+          "name": "d6"
+        },
+        {
+          "id": "d7",
+          "name": "d7"
+        },
+        {
+          "id": "d8",
+          "name": "d8"
+        },
+        {
+          "id": "d9",
+          "name": "d9"
+        },
+        {
+          "id": "d10",
+          "name": "d10"
+        },
+        {
+          "id": "d11",
+          "name": "d11"
+        },
+        {
+          "id": "d12",
+          "name": "d12"
+        },
+        {
+          "id": "d13",
+          "name": "d13"
+        },
+        {
+          "id": "d14",
+          "name": "d14"
+        },
+        {
+          "id": "d15",
+          "name": "d15"
+        },
+        {
+          "id": "d16",
+          "name": "d16"
+        },
+        {
+          "id": "d17",
+          "name": "d17"
+        },
+        {
+          "id": "d18",
+          "name": "d18"
+        },
+        {
+          "id": "d19",
+          "name": "d19"
+        }
+      ]
+    },
+    "expected": {
+      "departments": [
+        {
+          "id": "d0",
+          "name": "d0",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d1",
+          "name": "d1",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d2",
+          "name": "d2",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d3",
+          "name": "d3",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d4",
+          "name": "d4",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d5",
+          "name": "d5",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d6",
+          "name": "d6",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d7",
+          "name": "d7",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d8",
+          "name": "d8",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d9",
+          "name": "d9",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d10",
+          "name": "d10",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d11",
+          "name": "d11",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d12",
+          "name": "d12",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d13",
+          "name": "d13",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d14",
+          "name": "d14",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d15",
+          "name": "d15",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d16",
+          "name": "d16",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d17",
+          "name": "d17",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d18",
+          "name": "d18",
+          "theme": "etc",
+          "repoIds": []
+        },
+        {
+          "id": "d19",
+          "name": "d19",
+          "theme": "etc",
+          "repoIds": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "21 departments",
+    "input": {
+      "departments": [
+        {
+          "name": "d0"
+        },
+        {
+          "name": "d1"
+        },
+        {
+          "name": "d2"
+        },
+        {
+          "name": "d3"
+        },
+        {
+          "name": "d4"
+        },
+        {
+          "name": "d5"
+        },
+        {
+          "name": "d6"
+        },
+        {
+          "name": "d7"
+        },
+        {
+          "name": "d8"
+        },
+        {
+          "name": "d9"
+        },
+        {
+          "name": "d10"
+        },
+        {
+          "name": "d11"
+        },
+        {
+          "name": "d12"
+        },
+        {
+          "name": "d13"
+        },
+        {
+          "name": "d14"
+        },
+        {
+          "name": "d15"
+        },
+        {
+          "name": "d16"
+        },
+        {
+          "name": "d17"
+        },
+        {
+          "name": "d18"
+        },
+        {
+          "name": "d19"
+        },
+        {
+          "name": "d20"
+        }
+      ]
+    },
+    "expected": {
+      "error": "부서는 20개까지 만들 수 있어요"
+    }
+  }
+]

@@ -271,7 +271,7 @@ fn primary(c: char) -> (u8, u32) {
 /// Stand-in for JS `localeCompare` on desk ids, following ICU's levels: base characters first,
 /// then accents (via NFD), then case (lowercase first). Exact for ASCII and accented Latin;
 /// other scripts sort by code point after the Latin letters.
-fn locale_cmp(a: &str, b: &str) -> Ordering {
+pub(crate) fn locale_cmp(a: &str, b: &str) -> Ordering {
     let base = |s: &str| {
         s.nfd()
             .filter(|c| !is_combining_mark(*c))

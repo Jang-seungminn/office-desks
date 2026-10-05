@@ -1,7 +1,7 @@
 // Writes crates/od-core/tests/golden/*.json from the real TS code. The Rust tests
 // deserialize and re-serialize each file, so wire shapes stay identical to the bridge.
 // Run: npm run golden
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { agentStats } from '../src/stats.js';
@@ -9,8 +9,15 @@ import { subagentInfos } from '../src/subagents.js';
 import { readTranscript, resetTranscriptCache, type TranscriptResult } from '../src/transcript.js';
 import { validateHire } from '../src/hire.js';
 import { charBytes, KEY_BYTES, keyBytes } from '../src/keys.js';
-import type { AwardBoard, ConversationResponse, BackendInfo, HireRequest, OfficeDesk, OrgChart, ServerMessage, UsageSnapshot } from '../src/model.js';
+import type { AnswerRequest, AskedQuestion, SendRequest, TerminalKey, AwardBoard, ConversationResponse, BackendInfo, HireRequest, OfficeDesk, OrgChart, ServerMessage, UsageSnapshot } from '../src/model.js';
 import { composerState, screenSupport } from '../src/screen.js';
+
+import { tmpdir } from 'node:os';
+import { answerQuestions, currentQuestion, isReviewScreen, validateChoices } from '../src/answer.js';
+import { AwardBook, bestToday, localDate } from '../src/awards.js';
+import { frontMatter, listCommands } from '../src/commands.js';
+import { sanitizeOrg } from '../src/org.js';
+import { composePrompt, IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGES, uploadPath } from '../src/uploads.js';
 import { cleanTitle, orcaDeskName, toSnapshot } from '../src/stateMapper.js';
 
 // Stats count "today" in local time; pin the zone so the goldens are the same on every machine.
@@ -325,5 +332,277 @@ write('conversation', [
   conv('subagent view', conversationOf(rich, transcripts['claude-rich-sidechain'], 'claude', 1), { kind: 'found', main: 'claude-rich', sub: 'claude-rich-sidechain', agentType: 'claude', after: 1 }),
   conv('codex session', conversationOf(transcripts['codex-session'], null, 'codex', 0), { kind: 'found', main: 'codex-session', agentType: 'codex', after: 0 }),
 ]);
+
+
+// ---- Task 10: org, awards, uploads, commands, answer ----
+
+// sanitizeOrg: generated ids are random, so pin them to a placeholder before comparing (Rust
+// checks the "d-" + 8 base-36 shape separately).
+const orgInputs: { name: string; input: unknown }[] = [
+  { name: 'normalised', input: { departments: [{ id: 'd-a', name: '  개발   팀 ', theme: 'dev', repoIds: ['r1', 'r2'] }, { id: 'd-a', name: '디자인', theme: 'nope', repoIds: ['r2', 'r3', 42] }] } },
+  { name: 'all themes and a duplicate repo', input: { departments: ['dev', 'design', 'research', 'ops', 'etc'].map((theme, i) => ({ id: `t-${i}`, name: theme, theme, repoIds: ['same', `own${i}`, 'same'] })) } },
+  { name: 'empty list', input: { departments: [] } },
+  { name: 'ids', input: { departments: [{ id: 'UPPER', name: 'a' }, { id: 'ok-1\n', name: 'b' }, { id: 'a'.repeat(41), name: 'c' }, { id: 'a'.repeat(40), name: 'd' }, { id: 5, name: 'e' }, { id: 'keep-me', name: 'f' }] } },
+  { name: 'repoIds filters', input: { departments: [{ id: 'x', name: 'a', repoIds: ['', 'a', 'a', 'b'.repeat(201), 'b'.repeat(200), null, {}, 'c'] }, { id: 'y', name: 'b', repoIds: 'nope' }] } },
+  { name: 'astral name 10', input: { departments: [{ id: 'x', name: '😀'.repeat(10) }] } },
+  { name: 'astral name 11', input: { departments: [{ id: 'x', name: '😀'.repeat(11) }] } },
+  { name: 'null', input: null },
+  { name: 'number', input: 5 },
+  { name: 'array', input: [] },
+  { name: 'departments not a list', input: { departments: 'x' } },
+  { name: 'null entry', input: { departments: [null] } },
+  { name: 'empty name', input: { departments: [{ name: '' }] } },
+  { name: 'blank name', input: { departments: [{ name: ' \t ' }] } },
+  { name: 'numeric name', input: { departments: [{ name: 5 }] } },
+  { name: 'name 21', input: { departments: [{ name: 'x'.repeat(21) }] } },
+  { name: 'name 20', input: { departments: [{ name: 'x'.repeat(20) }] } },
+  { name: '20 departments', input: { departments: Array.from({ length: 20 }, (_, i) => ({ id: `d${i}`, name: `d${i}` })) } },
+  { name: '21 departments', input: { departments: Array.from({ length: 21 }, (_, i) => ({ name: `d${i}` })) } },
+];
+const pinIds = (v: unknown, input: unknown): unknown => {
+  const out = structuredClone(v) as { departments?: { id: string }[] };
+  const list = (input as { departments?: unknown } | null)?.departments;
+  const given = new Set(Array.isArray(list) ? list.map((d: { id?: unknown } | null) => d?.id) : []);
+  for (const d of out.departments ?? []) if (/^d-[0-9a-z]{1,8}$/.test(d.id) && !given.has(d.id)) d.id = '<generated>';
+  return out;
+};
+write('org-sanitize', orgInputs.map((c) => ({ ...c, expected: pinIds(sanitizeOrg(c.input), c.input) })));
+
+// Award scoring. Agents and desks are complete model objects so Rust can deserialize them.
+const stat = (instructionsToday: number, toolCallsToday: number) => ({ instructions: 50, instructionsToday, toolCalls: 100, toolCallsToday, subagents: 0, hiredAt: null });
+const awardAgent = (id: string, instructionsToday: number, toolCallsToday: number, over: object = {}) => ({
+  id, terminalHandle: null, agentType: 'claude', terminalTitle: `${id} 작업`, subagentsRunning: 0, model: null, effort: null,
+  stats: stat(instructionsToday, toolCallsToday), state: 'done', rawState: 'done', activity: '', prompt: null, lastMessage: null, since: null, ...over,
+});
+const awardDesk = (id: string, agents: unknown[], over: object = {}) => ({
+  id: `r::/${id}`, repoId: 'r', isMain: true, parentId: null, name: id, repo: 'web', branch: 'main', path: `/${id}`, status: 'active',
+  workspaceStatus: null, comment: '', preview: '', isActive: false, unread: false, lastActivityAt: null, changes: null, pr: null, agents, ...over,
+}) as unknown as OfficeDesk;
+const scoreCases: { name: string; desks: OfficeDesk[] }[] = [
+  { name: 'best of three, idle skipped', desks: [awardDesk('w', [awardAgent('a', 3, 5), awardAgent('b', 2, 40), awardAgent('c', 0, 900)])] },
+  { name: 'only idle', desks: [awardDesk('w', [awardAgent('c', 0, 900)])] },
+  { name: 'no desks', desks: [] },
+  { name: 'tie keeps the first', desks: [awardDesk('w', [awardAgent('a', 1, 0), awardAgent('b', 1, 0)])] },
+  { name: 'across desks', desks: [awardDesk('x', [awardAgent('a', 1, 5)]), awardDesk('y', [awardAgent('b', 1, 6)], { repo: '' })] },
+  { name: 'no title falls back to desk name', desks: [awardDesk('w', [awardAgent('a', 2, 2, { terminalTitle: null })])] },
+  { name: 'empty title is kept', desks: [awardDesk('w', [awardAgent('a', 2, 2, { terminalTitle: '' })])] },
+  { name: 'no stats', desks: [awardDesk('w', [awardAgent('a', 1, 1, { stats: null }), awardAgent('b', 1, 2)])] },
+];
+write('awards-score', scoreCases.map((c) => ({ ...c, date: '2026-10-03', expected: bestToday(c.desks, '2026-10-03') })));
+
+// AwardBook: a day-by-day script (TZ is pinned to UTC above, so `new Date(iso)` has UTC local fields).
+const bookDir = mkdtempSync(path.join(tmpdir(), 'od-golden-'));
+const bookSteps: { now: string; desks: OfficeDesk[] }[] = [
+  { now: '2026-10-03T10:00:00Z', desks: [awardDesk('w', [awardAgent('a', 3, 5)])] },
+  { now: '2026-10-03T10:00:30Z', desks: [awardDesk('w', [awardAgent('b', 1, 1)])] },
+  { now: '2026-10-03T11:00:00Z', desks: [awardDesk('w', [awardAgent('a', 3, 9)])] },
+  { now: '2026-10-03T11:30:00Z', desks: [awardDesk('w', [awardAgent('a', 3, 2)])] },
+  { now: '2026-10-03T12:00:00Z', desks: [awardDesk('w', [awardAgent('b', 4, 0)])] },
+  { now: '2026-10-03T23:59:59Z', desks: [] },
+  { now: '2026-10-04T00:00:00Z', desks: [] },
+  { now: '2026-10-04T09:00:00Z', desks: [awardDesk('w', [awardAgent('c', 1, 1)])] },
+  { now: '2026-10-05T09:00:00Z', desks: [awardDesk('w', [awardAgent('d', 2, 2)])] },
+  { now: '2026-10-05T09:01:00Z', desks: [] },
+];
+const book = new AwardBook(path.join(bookDir, 'awards.json'));
+await book.load();
+write('awards-book', {
+  steps: bookSteps.map((s) => {
+    const changed = book.update(s.desks, new Date(s.now));
+    return { ...s, expected: { changed, board: structuredClone(book.current) } };
+  }),
+});
+// A full hall (90) and the file formats AwardBook.load accepts.
+const award90 = (i: number) => ({ date: `2020-01-${String(i).padStart(3, '0')}`, agentId: 'a', deskId: 'r::/w', name: 'n', repo: 'web', repoId: 'r', agentType: 'claude', instructions: 1, toolCalls: 0, score: 10 });
+const capBook = new AwardBook(path.join(bookDir, 'cap.json'));
+const capInitial = { leader: award90(999), hall: Array.from({ length: 95 }, (_, i) => award90(i)) };
+writeFileSync(path.join(bookDir, 'cap.json'), JSON.stringify(capInitial));
+await capBook.load();
+const capChanged = capBook.update([], new Date('2026-10-03T00:00:00Z'));
+write('awards-cap', { initial: capInitial, now: '2026-10-03T00:00:00Z', changed: capChanged, board: capBook.current });
+write('awards-local-date', ['2026-10-03T00:00:00Z', '2026-10-03T23:59:59.999Z', '2026-12-31T23:59:59Z', '2027-01-01T00:00:00Z', '2024-02-29T12:00:00Z', '2026-03-29T01:30:00Z'].map((iso) => ({ iso, expected: localDate(new Date(iso)) })));
+
+// Request/response samples (the wire types the new modules serve).
+write('wire-answer', {
+  request: { agentId: 'tab1:leaf1', toolUseId: 'toolu_1', choices: [[1], [0, 2]] } satisfies AnswerRequest,
+  ok: { ok: true },
+  errors: [
+    { error: '질문을 찾지 못했습니다' },
+    { error: '이미 답했거나 취소된 질문입니다' },
+    { error: '답을 입력하는 중입니다' },
+    { error: 'unknown agent' },
+    { error: '에이전트가 지금 새 메시지를 받을 수 없는 상태예요 (질문·권한 확인 중이거나 화면 전환 중). 잠시 후 다시 보내기를 눌러 주세요', code: 'agent_busy', requestId: 'req-1' },
+    { error: '에이전트 터미널에 메뉴가 열려 있어 메시지가 전달되지 않습니다', code: 'menu_open' },
+  ],
+  hireOk: { ok: true, warning: 'worktree 생성 후 시작 지연' },
+});
+write('wire-upload', {
+  sends: [
+    { terminalHandle: 'h1', text: 'look' } satisfies SendRequest,
+    { terminalHandle: 'h1', text: '', images: [{ mediaType: 'image/png', data: 'iVBORw==' }], force: true } satisfies SendRequest,
+    { terminalHandle: 'h1', text: 'x', images: [], force: false } satisfies SendRequest,
+  ],
+  imageTypes: IMAGE_TYPES,
+  limits: { maxImages: MAX_IMAGES, maxImageBytes: MAX_IMAGE_BYTES },
+  uploadPath: ['123-abcd1234.png', 'a_b-C9.jpg', '1.gif', 'x.webp', '../secret.png', 'a.exe', '', '.png', 'a/b.png', 'a\\b.png', 'a.png\n', 'a b.png', 'a.PNG', 'a.jpeg', '한글.png', 'a.b.png'].map((name) => ({ name, expected: uploadPath(name, '/up') === null ? null : name })),
+  compose: [['  look at this ', ['/p/a.png']], ['', ['/p/a.png']], ['  hi  ', []], ['a', ['/p/1.png', '/p/2.png']], ['', []], [' x ', ['/p/a.png']]].map(([text, paths]) => ({ text, paths, expected: composePrompt(text as string, paths as string[]) })),
+  // Decoded bytes of base64 strings (Node's lenient decoder) as hex.
+  base64: ['aGVsbG8=', 'aGVs\nbG8', '-_-_', '+/+/', 'aGVsbG8=junk', 'a', 'a$b!c', '', 'iVBORw==', '////'].map((data) => ({ data, expectedHex: Buffer.from(data, 'base64').toString('hex') })),
+  errors: [
+    { error: '이미지는 한 번에 6장까지 보낼 수 있습니다' },
+    { error: '지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)' },
+    { error: '이미지가 비어 있거나 10MB를 넘습니다' },
+    { error: '업로드 폴더가 올바르지 않습니다' },
+    { error: '업로드 폴더의 소유자가 다릅니다' },
+  ],
+});
+
+// listCommands over a fixture home. Everything is created in a temp dir; paths inside
+// installed_plugins.json are written as "<HOME>/..." and expanded by the Rust test.
+const cmdHome = mkdtempSync(path.join(tmpdir(), 'od-golden-home-'));
+const cmdProj = mkdtempSync(path.join(tmpdir(), 'od-golden-proj-'));
+const put = (file: string, text: string) => {
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, text);
+};
+const fixtureFiles: Record<string, string> = {
+  'home/.claude/commands/git/push.md': '---\ndescription: Push it\n---',
+  'home/.claude/commands/git/deep/nested.md': '# Nested heading\n\nbody',
+  'home/.claude/commands/plain.md': 'Just a first line',
+  'home/.claude/commands/quoted.md': '---\r\ndescription: \'single "quoted"\'\r\n---\r\n',
+  'home/.claude/commands/folded.md': '---\ndescription: >-\n  line one\n  line two\nother: 1\n---',
+  'home/.claude/commands/empty.md': '',
+  'home/.claude/commands/Zeta.md': 'upper case',
+  'home/.claude/commands/alpha_beta.md': 'underscore',
+  'home/.claude/commands/alpha-beta.md': 'dash',
+  'home/.claude/commands/help.md': 'shadowed by the built-in',
+  'home/.claude/commands/notes.txt': 'not a command',
+  'home/.claude/commands/한글.md': '한글 설명',
+  'home/.claude/commands/éclair.md': 'accent',
+  'home/.claude/commands/eclair.md': 'plain e',
+  'home/.claude/commands/10-ten.md': 'ten',
+  'home/.claude/commands/2-two.md': 'two',
+  'home/.claude/skills/browse/SKILL.md': '---\nname: browse\ndescription: Browser\n---',
+  'home/.claude/skills/dirname-only/SKILL.md': '---\ndescription: uses the dir name\n---',
+  'home/.claude/skills/empty-skill/SKILL.md': '',
+  'home/.claude/skills/no-skill-file/README.md': 'x',
+  'proj/.claude/commands/same.md': 'from project',
+  'home/.claude/commands/same.md': 'from user',
+  'proj/.claude/skills/deploy/SKILL.md': '---\nname: deploy\ndescription: Ship\n---',
+  'home/plugins/sp/skills/brainstorming/SKILL.md': '---\nname: brainstorming\ndescription: Think\n---',
+  'home/plugins/sp/commands/go.md': '---\ndescription: Go plugin\n---',
+  'home/plugins/off/skills/hidden/SKILL.md': '---\nname: hidden\n---',
+  'home/.codex/prompts/fix.md': 'Fix the failing test',
+  'home/.codex/prompts/review/deep.md': '---\ndescription: nested prompt\n---',
+};
+for (const [rel, text] of Object.entries(fixtureFiles)) put(path.join(rel.startsWith('home/') ? cmdHome : cmdProj, rel.replace(/^(home|proj)\//, '')), text);
+const pluginsJson = { plugins: { 'superpowers@x': [{ installPath: '<HOME>/plugins/sp' }], 'off@x': [{ installPath: '<HOME>/plugins/off' }] } };
+const expandHome = (s: string) => s.replaceAll('<HOME>', cmdHome.replaceAll('\\', '/'));
+put(path.join(cmdHome, '.claude/plugins/installed_plugins.json'), expandHome(JSON.stringify(pluginsJson)));
+put(path.join(cmdHome, '.claude/settings.json'), JSON.stringify({ enabledPlugins: { 'off@x': false } }));
+const listCases = [['claude', 'proj'], ['codex', 'proj'], ['gemini', 'proj'], ['claude', 'nowhere'], ['codex', 'nowhere']].map(([agentType, where]) => ({
+  agentType,
+  project: where,
+  expected: [] as unknown[],
+}));
+for (const c of listCases) c.expected = await listCommands(c.agentType, c.project === 'proj' ? cmdProj : path.join(cmdProj, 'nowhere'), cmdHome);
+const emptyHome = mkdtempSync(path.join(tmpdir(), 'od-golden-empty-'));
+write('commands-list', {
+  files: fixtureFiles,
+  installedPlugins: pluginsJson,
+  settings: { enabledPlugins: { 'off@x': false } },
+  cases: listCases,
+  emptyHome: { claude: await listCommands('claude', path.join(emptyHome, 'p'), emptyHome), codex: await listCommands('codex', path.join(emptyHome, 'p'), emptyHome) },
+  frontMatter: [
+    '---\nname: browse\ndescription: "Fast browser"\n---\n',
+    '---\nname: x\ndescription: >-\n  line one\n  line two\nother: 1\n---',
+    '# Deploy the app\n\nsteps',
+    "---\r\nname: 'a b'\r\ndescription: |\r\n  x\r\n  y\r\n---\r\n",
+    '---\nname: a\nname: b\n---',
+    '---\nname:\n---',
+    '---\nname: "a\'\n---',
+    '---\nname: "\n---',
+    '---\n---\nx',
+    '\n  \n##   Title  \nbody',
+    '',
+    '   \n\n',
+    '---\n  name: no\nother: 1\n---',
+    '---\ndescription: >\nname: n\n---',
+    '---\nname: a # comment\ndescription:   spaced   \n---',
+  ].map((text) => ({ text, expected: frontMatter(text) })),
+});
+
+// Dialog screens: currentQuestion / isReviewScreen / validateChoices, and the full key sequence
+// answerQuestions presses against a scripted terminal.
+const aq = (header: string, question: string, multiSelect: boolean, labels: string[]): AskedQuestion => ({ header, question, multiSelect, options: labels.map((label) => ({ label, description: '' })) });
+const ansQs = [aq('Color', 'Which color?', false, ['Red', 'Blue']), aq('Sizes', 'Which sizes?', true, ['Small', 'Medium', 'Large'])];
+const arule = '─'.repeat(40);
+const aq1 = ['❯ Use AskUserQuestion: Which color? Which sizes?', arule, '←  ☐ Color  ☐ Sizes  ✔ Submit  →', 'Which color?', '❯ 1. Red', '     warm', '  2. Blue', '  3. Type something.', arule, '  4. Chat about this'];
+const aq2 = [arule, '←  ☒ Color  ☐ Sizes  ✔ Submit  →', 'Which sizes?', '❯ 1. [ ] Small', '  2. [ ] Medium', '  3. [ ] Large', '     Submit', arule];
+const areview = ['←  ☒ Color  ☒ Sizes  ✔ Submit  →', 'Review your answers', ' ● Which color?', '   → Blue', 'Ready to submit your answers?', '❯ 1. Submit answers', '  2. Cancel'];
+const adone = ['⏺ Blue; Small, Large', arule, '❯ ', arule];
+const asingle = [
+  '──────────────────────────────     +— they stay on the top floor. */',
+  ' ☐ 캡처 테스트                                                  37 +export function zoneOf(desk',
+  '│ [화면 캡처용 테스트] 질문이 하나일 때의 터미널 화면을 저장하는 중입니다. 30초 뒤에       38 +  if (desk.agents',
+  '│ 터미널에서 아무거나 골라 주세요.                                  +d))) return',
+  '                                                                   39    return desk',
+  '❯ 1. 확인                                                          40  }',
+  '  2. 다시                                                          39 -export function recency',
+  '  3. Type something.',
+];
+const screensForAnswer: Record<string, string[]> = {
+  q1: aq1, q2: aq2, review: areview, done: adone, single: asingle,
+  'header without options': [' ☐ Header', 'Question?'],
+  'header with option': [' ☐ Header', 'Question?', '  1. Yes'],
+  'wrapped and indented': ['←  ☐ A  →', '│ first  line', '      other pane', 'second', '1. x'],
+  'review half': ['Ready to submit your answers?'],
+  'review spaced': ['Ready to submit your answers?', '  12.Submit answers'],
+  empty: [],
+};
+const choiceCases: { name: string; choices: unknown }[] = [
+  { name: 'ok', choices: [[1], [0, 2]] }, { name: 'short', choices: [[1]] }, { name: 'two on single', choices: [[0, 1], [0]] }, { name: 'empty multi', choices: [[1], []] },
+  { name: 'out of range', choices: [[5], [0]] }, { name: 'duplicate', choices: [[1], [0, 0]] }, { name: 'not a list', choices: 'x' }, { name: 'null', choices: null },
+  { name: 'entry not a list', choices: [1, [0]] }, { name: 'string index', choices: [['0'], [0]] }, { name: 'negative', choices: [[-1], [0]] }, { name: 'fraction', choices: [[0.5], [0]] },
+  { name: 'null index', choices: [[null], [0]] }, { name: 'whole float', choices: [[1.0], [0.0, 2]] }, { name: 'empty single', choices: [[], [0]] },
+];
+const wide = aq('', 'Pick?', false, Array.from({ length: 10 }, (_, i) => String(i)));
+const scripted = async (questions: AskedQuestion[], choices: number[][], first: string[], step: (screen: string[], key: TerminalKey) => string[] | null) => {
+  let screen = first;
+  const pressed: TerminalKey[] = [];
+  const slept: number[] = [];
+  let t = 0;
+  const realNow = Date.now;
+  Date.now = () => (t += 1000);
+  let error: string | null = null;
+  try {
+    await answerQuestions(
+      { readScreen: async () => screen, sleep: async (ms) => void slept.push(ms), press: async (k) => { pressed.push(k); screen = step(screen, k) ?? screen; } },
+      questions,
+      choices,
+    );
+  } catch (e) {
+    error = (e as Error).message;
+  } finally {
+    Date.now = realNow;
+  }
+  return { pressed, slept, error };
+};
+const walkDialog = (screen: string[], k: TerminalKey) => (screen === aq1 && /^\d$/.test(k) ? aq2 : screen === aq2 && k === 'right' ? areview : screen === areview && k === '1' ? adone : null);
+write('answer-driver', {
+  questions: ansQs,
+  screens: Object.entries(screensForAnswer).map(([name, lines]) => ({ name, lines, currentQuestion: currentQuestion(lines), isReview: isReviewScreen(lines) })),
+  validate: [
+    ...choiceCases.map((c) => ({ name: c.name, questions: ansQs, choices: c.choices, expected: validateChoices(ansQs, c.choices) })),
+    { name: 'wide empty', questions: [wide], choices: [[]], expected: validateChoices([wide], [[]]) },
+    { name: 'wide', questions: [wide], choices: [[0]], expected: validateChoices([wide], [[0]]) },
+  ],
+  runs: [
+    { name: 'full walk', questions: ansQs, choices: [[1], [0, 2]], first: 'q1', result: await scripted(ansQs, [[1], [0, 2]], aq1, walkDialog) },
+    { name: 'question not on screen', questions: ansQs, choices: [[1], [0]], first: 'done', result: await scripted(ansQs, [[1], [0]], adone, () => null) },
+    { name: 'never reaches review', questions: [ansQs[0]], choices: [[0]], first: 'q1', result: await scripted([ansQs[0]], [[0]], aq1, () => null) },
+    { name: 'single question submits at once', questions: [aq('캡처 테스트', '[화면 캡처용 테스트] 질문이 하나일 때의 터미널 화면을 저장하는 중입니다. 30초 뒤에 터미널에서 아무거나 골라 주세요.', false, ['확인', '다시'])], choices: [[1]], first: 'single', result: await scripted([aq('캡처 테스트', '[화면 캡처용 테스트] 질문이 하나일 때의 터미널 화면을 저장하는 중입니다. 30초 뒤에 터미널에서 아무거나 골라 주세요.', false, ['확인', '다시'])], [[1]], asingle, () => adone) },
+  ],
+});
 
 console.log(`golden: wrote ${readdirSync(fileURLToPath(outDir)).length} files to ${fileURLToPath(outDir)}`);

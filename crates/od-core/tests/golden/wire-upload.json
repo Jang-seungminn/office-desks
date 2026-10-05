@@ -1,0 +1,201 @@
+{
+  "sends": [
+    {
+      "terminalHandle": "h1",
+      "text": "look"
+    },
+    {
+      "terminalHandle": "h1",
+      "text": "",
+      "images": [
+        {
+          "mediaType": "image/png",
+          "data": "iVBORw=="
+        }
+      ],
+      "force": true
+    },
+    {
+      "terminalHandle": "h1",
+      "text": "x",
+      "images": [],
+      "force": false
+    }
+  ],
+  "imageTypes": {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp"
+  },
+  "limits": {
+    "maxImages": 6,
+    "maxImageBytes": 10485760
+  },
+  "uploadPath": [
+    {
+      "name": "123-abcd1234.png",
+      "expected": "123-abcd1234.png"
+    },
+    {
+      "name": "a_b-C9.jpg",
+      "expected": "a_b-C9.jpg"
+    },
+    {
+      "name": "1.gif",
+      "expected": "1.gif"
+    },
+    {
+      "name": "x.webp",
+      "expected": "x.webp"
+    },
+    {
+      "name": "../secret.png",
+      "expected": null
+    },
+    {
+      "name": "a.exe",
+      "expected": null
+    },
+    {
+      "name": "",
+      "expected": null
+    },
+    {
+      "name": ".png",
+      "expected": null
+    },
+    {
+      "name": "a/b.png",
+      "expected": null
+    },
+    {
+      "name": "a\\b.png",
+      "expected": null
+    },
+    {
+      "name": "a.png\n",
+      "expected": null
+    },
+    {
+      "name": "a b.png",
+      "expected": null
+    },
+    {
+      "name": "a.PNG",
+      "expected": null
+    },
+    {
+      "name": "a.jpeg",
+      "expected": null
+    },
+    {
+      "name": "한글.png",
+      "expected": null
+    },
+    {
+      "name": "a.b.png",
+      "expected": null
+    }
+  ],
+  "compose": [
+    {
+      "text": "  look at this ",
+      "paths": [
+        "/p/a.png"
+      ],
+      "expected": "look at this\n/p/a.png"
+    },
+    {
+      "text": "",
+      "paths": [
+        "/p/a.png"
+      ],
+      "expected": "/p/a.png"
+    },
+    {
+      "text": "  hi  ",
+      "paths": [],
+      "expected": "hi"
+    },
+    {
+      "text": "a",
+      "paths": [
+        "/p/1.png",
+        "/p/2.png"
+      ],
+      "expected": "a\n/p/1.png\n/p/2.png"
+    },
+    {
+      "text": "",
+      "paths": [],
+      "expected": ""
+    },
+    {
+      "text": " x ",
+      "paths": [
+        "/p/a.png"
+      ],
+      "expected": "x\n/p/a.png"
+    }
+  ],
+  "base64": [
+    {
+      "data": "aGVsbG8=",
+      "expectedHex": "68656c6c6f"
+    },
+    {
+      "data": "aGVs\nbG8",
+      "expectedHex": "68656c6c6f"
+    },
+    {
+      "data": "-_-_",
+      "expectedHex": "fbffbf"
+    },
+    {
+      "data": "+/+/",
+      "expectedHex": "fbffbf"
+    },
+    {
+      "data": "aGVsbG8=junk",
+      "expectedHex": "68656c6c6f"
+    },
+    {
+      "data": "a",
+      "expectedHex": ""
+    },
+    {
+      "data": "a$b!c",
+      "expectedHex": "69b7"
+    },
+    {
+      "data": "",
+      "expectedHex": ""
+    },
+    {
+      "data": "iVBORw==",
+      "expectedHex": "89504e47"
+    },
+    {
+      "data": "////",
+      "expectedHex": "ffffff"
+    }
+  ],
+  "errors": [
+    {
+      "error": "이미지는 한 번에 6장까지 보낼 수 있습니다"
+    },
+    {
+      "error": "지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)"
+    },
+    {
+      "error": "이미지가 비어 있거나 10MB를 넘습니다"
+    },
+    {
+      "error": "업로드 폴더가 올바르지 않습니다"
+    },
+    {
+      "error": "업로드 폴더의 소유자가 다릅니다"
+    }
+  ]
+}

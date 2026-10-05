@@ -577,3 +577,24 @@ pub struct SearchResult {
     pub agent_id: Option<String>,
     pub resume_command: Option<String>,
 }
+
+/// The `{ "ok": true }` body most POST endpoints answer with (`/api/answer`, `/api/send`, ...).
+/// `warning` is only set by `/api/hire`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OkResponse {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+/// An error body: `{ "error" }`, plus `code` (and `requestId` for `agent_busy`) when there is one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorResponse {
+    pub error: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
