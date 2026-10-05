@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use crate::fsio;
 use crate::model::ImageUpload;
@@ -157,17 +157,11 @@ pub fn decode_base64_lenient(s: &str) -> Vec<u8> {
     out
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
-}
-
 /// 8 random hex characters (the TS `randomUUID().slice(0, 8)`).
 pub fn random_file_id() -> String {
     let mut b = [0u8; 4];
     if getrandom::fill(&mut b).is_err() {
-        b = (now_ms() as u32).to_le_bytes();
+        b = (crate::util::epoch_ms() as u32).to_le_bytes();
     }
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
@@ -217,7 +211,7 @@ pub fn parse_images(raw: &serde_json::Value) -> Result<Vec<ImageUpload>, UploadE
 
 /// Write the images into `dir` and return their paths, in order.
 pub fn save_images(images: &[ImageUpload], dir: &Path) -> Result<Vec<String>, UploadError> {
-    save_images_with(images, dir, now_ms, random_file_id)
+    save_images_with(images, dir, crate::util::epoch_ms, random_file_id)
 }
 
 /// [`save_images`] with the clock and the random part of the file name injected.

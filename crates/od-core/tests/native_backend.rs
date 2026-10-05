@@ -18,7 +18,7 @@ use od_core::model::{CharacterState, HireRequest, OfficeSnapshot};
 use od_core::native::env::EnvMap;
 use od_core::native::pty_host::{PtyHost, PtyOptions, Subscription};
 use od_core::native::registry::{DeskMeta, Registry, RepoRecord};
-use od_core::native::worktrees::normalize_path;
+use od_core::nodepath::normalize_path;
 use serde_json::json;
 
 const RULE: &str = "────────────────────────────────────────";

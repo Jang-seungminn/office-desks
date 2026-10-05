@@ -8,7 +8,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs::FileType;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 use serde::de::{MapAccess, Visitor};
@@ -373,7 +372,11 @@ pub struct CommandCatalog {
 impl CommandCatalog {
     /// 30 s TTL over the user's real home.
     pub fn new() -> Self {
-        Self::with(30_000, crate::home::os_home(), Box::new(system_ms))
+        Self::with(
+            30_000,
+            crate::home::os_home(),
+            Box::new(crate::util::epoch_ms),
+        )
     }
 
     /// Everything injected, for tests.
@@ -411,12 +414,6 @@ impl Default for CommandCatalog {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn system_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
 }
 
 #[cfg(test)]

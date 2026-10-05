@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -24,21 +24,22 @@ use super::{
 };
 use crate::git::{GitError, GitRunner, SystemGit};
 use crate::model::{ComposerState, OfficeAgent, OfficeDesk, OfficeSnapshot, UsageSnapshot};
-use crate::native::env::{agent_env, find_command, node_is_absolute, process_env, EnvMap};
+use crate::native::env::{agent_env, find_command, process_env, EnvMap};
 use crate::native::hooks::{
     apply_hook, hook_settings, initial_hook_state, relay_command, HookState,
 };
 use crate::native::pty_host::{PtyHost, PtyOptions, Subscription};
 use crate::native::registry::{DeskMeta, Registry};
 use crate::native::worktrees::{
-    add_worktree, list_worktrees, normalize_path, remove_worktree, resolve_repo, worktree_dest,
-    WorktreeInfo,
+    add_worktree, list_worktrees, remove_worktree, resolve_repo, worktree_dest, WorktreeInfo,
 };
+use crate::nodepath::{node_basename, node_is_absolute, resolve_lexical, slash};
 use crate::screen::composer_state;
 use crate::security::same_token;
 use crate::state_mapper::{
     native_desk_name, to_snapshot, OrcaAgentRow, OrcaTerminalRow, OrcaWorktreeRow,
 };
+use crate::util::{epoch_ms, lock};
 
 const WORKTREES_TTL_MS: i64 = 5000;
 /// How long the agent's TUI gets to take in a bracketed paste before Enter.
@@ -178,10 +179,6 @@ impl State {
     }
 }
 
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 fn agent_key(id: &str) -> String {
     format!("{id}:main")
 }
@@ -190,22 +187,8 @@ fn strip_main(agent_id: &str) -> &str {
     agent_id.strip_suffix(":main").unwrap_or(agent_id)
 }
 
-/// Desk ids use forward slashes on every OS (git prints them that way on Windows too).
-fn slash(p: &str) -> String {
-    p.replace('\\', "/")
-}
-
 fn pty_id(handle: &str) -> &str {
     handle.strip_prefix("pty_").unwrap_or(handle)
-}
-
-/// `path.basename` of a string (either separator on Windows).
-fn basename(p: &str) -> &str {
-    let trimmed = p.trim_end_matches(|c| c == '/' || (cfg!(windows) && c == '\\'));
-    trimmed
-        .rsplit(|c| c == '/' || (cfg!(windows) && c == '\\'))
-        .next()
-        .unwrap_or("")
 }
 
 /// Node's fs calls throw a plain `Error`.
@@ -244,23 +227,6 @@ fn plausible_session_id(s: &str) -> bool {
     (8..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
 }
 
-/// `path.resolve`: absolute against the working directory, then a lexical normalize. No
-/// filesystem access beyond reading the working directory for a relative path.
-fn resolve_lexical(p: &Path) -> Option<PathBuf> {
-    let abs = if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        std::env::current_dir().ok()?.join(p)
-    };
-    let norm = normalize_path(&abs.to_string_lossy());
-    // Windows paths compare without case, like `path.win32.relative`.
-    Some(PathBuf::from(if cfg!(windows) {
-        norm.to_lowercase()
-    } else {
-        norm
-    }))
-}
-
 /// Only `<our session id>.jsonl` under Claude's projects folder; anything else falls back to the
 /// scan. Lexical like the TS (`path.relative` from the root must not climb out), so it is cheap
 /// enough to run under the state lock: `..` can't escape, a symlink inside the root can.
@@ -268,7 +234,7 @@ fn own_transcript(session_id: Option<&str>, p: &str, root: &Path) -> bool {
     let Some(sid) = session_id else {
         return false;
     };
-    if basename(p) != format!("{sid}.jsonl") {
+    if node_basename(p) != format!("{sid}.jsonl") {
         return false;
     }
     let (Some(file), Some(root)) = (resolve_lexical(Path::new(p)), resolve_lexical(root)) else {
@@ -331,9 +297,7 @@ impl<P: PtyLike> NativeBackend<P> {
             git: deps.git.unwrap_or_else(|| Arc::new(SystemGit)),
             claude_projects: deps.claude_projects,
             env: deps.env.unwrap_or_else(process_env),
-            now: deps
-                .now
-                .unwrap_or_else(|| Arc::new(|| chrono::Utc::now().timestamp_millis())),
+            now: deps.now.unwrap_or_else(|| Arc::new(epoch_ms)),
             relay,
             sleep: deps
                 .sleep
@@ -619,7 +583,7 @@ impl<P: PtyLike> OfficeBackend for NativeBackend<P> {
                     worktree_id: Some(desk_id.clone()),
                     repo_id: Some(repo.id.clone()),
                     repo: Some(repo.name.clone()),
-                    display_name: Some(basename(&wt.path).to_string()),
+                    display_name: Some(node_basename(&wt.path).to_string()),
                     branch: Some(wt.branch.clone()),
                     is_main_worktree: wt.is_main,
                     workspace_status: meta.workspace_status,
