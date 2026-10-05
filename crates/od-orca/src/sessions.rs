@@ -278,7 +278,8 @@ impl SessionResolver {
         let shared = {
             let mut inflight = lock(&self.inflight);
             if let Some((_, running)) = inflight.get(&agent.id) {
-                // Lost the race: drop `go`, so our task ends without searching.
+                // Lost the race: drop `go` now, so our task ends without searching.
+                drop(go);
                 running.clone()
             } else {
                 inflight.insert(agent.id.clone(), (gen, shared.clone()));

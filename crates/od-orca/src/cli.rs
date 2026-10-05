@@ -341,7 +341,7 @@ impl OrcaRunner for OrcaCli {
 /// child leaves the grandchild running with our pipes, so the reader threads stay parked. The
 /// child is put in a job of its own right after the spawn; on a timeout or an over-cap stream
 /// the job is terminated (`TerminateJobObject`), which ends our own child and every process it
-/// started, and nothing else.
+/// started that did not break away. Nothing outside our own process tree is touched.
 ///
 /// - **The race window.** Between `spawn` and `AssignProcessToJobObject` the child already
 ///   runs. A process it starts in that window (microseconds; cmd.exe has to parse the script
