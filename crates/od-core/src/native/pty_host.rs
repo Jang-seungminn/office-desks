@@ -1,0 +1,1370 @@
+//! Agent processes in pseudo-terminals, each mirrored into a headless screen we can read
+//! (port of `bridge/src/native/ptyHost.ts`).
+//!
+//! Every PTY has three plain threads (portable-pty reads and writes block):
+//! - a **reader** feeds the output into the [`vt100`] parser and fans the raw bytes out to the
+//!   `on_data` subscribers; terminal queries the parser sees (DA1, DSR) are answered here;
+//! - a **writer** drains a queue of input (`write` and query replies), so a child that stops
+//!   reading can never block the reader;
+//! - a **waiter** waits for the child, reaps it, removes the session and fires `on_exit`.
+//!
+//! Locks never nest except `term → subs` (reader, attach) and `term → master` (resize); every
+//! lock recovers from poisoning, so one panicking subscriber cannot cascade.
+
+use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsString;
+use std::io::{Read, Write};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{mpsc, Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::thread;
+use std::time::Duration;
+
+use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
+
+use crate::backend::BackendError;
+use crate::native::env::{resolve_windows_command, EnvMap, ResolvedCommand};
+
+/// Default PTY width.
+pub const COLS: u16 = 120;
+/// Default PTY height.
+pub const ROWS: u16 = 40;
+/// Lines of history kept per agent.
+pub const SCROLLBACK: usize = 1000;
+/// `write` to a PTY that is gone.
+pub const GONE: &str = "이 에이전트 터미널은 이미 종료됐어요";
+
+/// After this long, `dispose` force-kills survivors (SIGKILL on unix).
+const DISPOSE_FORCE_AFTER: Duration = Duration::from_millis(1500);
+/// `dispose` never waits longer than this in total.
+const DISPOSE_WAIT: Duration = Duration::from_secs(2);
+/// After the child exits, how long the waiter lets the reader drain the remaining output before
+/// the exit event. Unix readers see EOF at once; a ConPTY reader only after the console closes.
+const DRAIN: Duration = Duration::from_millis(200);
+const READ_BUF: usize = 64 * 1024;
+
+fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Spawning (Windows .cmd shims)
+
+/// Characters cmd.exe interprets even inside quotes. A `.cmd` shim that forwards `%*`
+/// re-parses its arguments, so these could break out and run commands (BatBadBut).
+/// Same set as `unsafeForCmdShim` in `bridge/src/orcaCli.ts`.
+pub fn unsafe_for_cmd_shim(arg: &str) -> bool {
+    arg.chars().any(|c| {
+        matches!(
+            c,
+            '"' | '%' | '&' | '|' | '<' | '>' | '^' | '!' | '\r' | '\n' | '`'
+        )
+    })
+}
+
+/// Whether portable-pty's Windows quoting (`append_quoted`) wraps `arg` in quotes.
+fn quoted_on_windows(arg: &str) -> bool {
+    arg.is_empty()
+        || arg
+            .chars()
+            .any(|c| matches!(c, ' ' | '\t' | '\n' | '\x0b' | '"'))
+}
+
+/// The argv to spawn (program first). Port of `resolveSpawn`.
+///
+/// Off Windows: `[file, ...args]`. On Windows a `.cmd`/`.bat` shim must run through cmd.exe,
+/// and arguments cmd could reinterpret are refused (`unsafe_for_cmd`). TS hands node-pty one
+/// finished command line, `cmd.exe /d /s /c "<shim> <args>"`; portable-pty has no raw
+/// command-line API and quotes each argv element itself (MSVC rules, `"` → `\"`, which cmd does
+/// not understand), so the outer quote pair cannot be produced. Instead the parts go as separate
+/// elements: `cmd.exe /d /s /c <shim> <args...>`, each element with a space (or empty) quoted by
+/// portable-pty. With `/s`, cmd strips a leading and the last quote only when the text after
+/// `/c` *starts* with a quote, so when the shim path itself needs quotes it is preceded by
+/// `call` (whose `%` re-expansion and `^` doubling are moot: both are refused).
+/// The produced command line is [`windows_command_line`].
+pub fn resolve_spawn(
+    file: &str,
+    args: &[String],
+    windows: bool,
+    resolve_win: &dyn Fn(&str) -> ResolvedCommand,
+) -> Result<Vec<String>, BackendError> {
+    if !windows {
+        return Ok(std::iter::once(file.to_string())
+            .chain(args.iter().cloned())
+            .collect());
+    }
+    let r = resolve_win(file);
+    if !r.via_cmd {
+        return Ok(std::iter::once(r.file)
+            .chain(args.iter().cloned())
+            .collect());
+    }
+    if std::iter::once(&r.file)
+        .chain(args)
+        .any(|a| unsafe_for_cmd_shim(a))
+    {
+        return Err(BackendError::with_code(
+            format!("{file}.cmd로는 이 인자를 안전하게 넘길 수 없어요"),
+            "unsafe_for_cmd",
+        ));
+    }
+    let mut argv: Vec<String> = ["cmd.exe", "/d", "/s", "/c"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    if quoted_on_windows(&r.file) {
+        argv.push("call".to_string());
+    }
+    argv.push(r.file);
+    argv.extend(args.iter().cloned());
+    Ok(argv)
+}
+
+/// The Windows command line portable-pty builds from `argv` (its `cmdline`/`append_quoted`,
+/// minus the PATH search of `argv[0]`). Pure, so the quoting is testable on any host.
+pub fn windows_command_line(argv: &[String]) -> String {
+    let mut out = String::new();
+    for (i, arg) in argv.iter().enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        if !quoted_on_windows(arg) {
+            out.push_str(arg);
+            continue;
+        }
+        out.push('"');
+        let chars: Vec<char> = arg.chars().collect();
+        let mut j = 0;
+        while j < chars.len() {
+            let mut backslashes = 0;
+            while j < chars.len() && chars[j] == '\\' {
+                j += 1;
+                backslashes += 1;
+            }
+            if j == chars.len() {
+                out.extend(std::iter::repeat_n('\\', backslashes * 2));
+                break;
+            } else if chars[j] == '"' {
+                out.extend(std::iter::repeat_n('\\', backslashes * 2 + 1));
+                out.push('"');
+            } else {
+                out.extend(std::iter::repeat_n('\\', backslashes));
+                out.push(chars[j]);
+            }
+            j += 1;
+        }
+        out.push('"');
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------------------------
+// Subscriptions
+
+type DataFn = dyn Fn(&[u8]) + Send + Sync;
+type ExitFn = dyn Fn(&str, u32) + Send + Sync;
+
+struct Registry<F: ?Sized> {
+    next: u64,
+    items: BTreeMap<u64, Arc<F>>,
+}
+
+type Shared<F> = Arc<Mutex<Registry<F>>>;
+
+fn registry<F: ?Sized>() -> Shared<F> {
+    Arc::new(Mutex::new(Registry {
+        next: 0,
+        items: BTreeMap::new(),
+    }))
+}
+
+fn subscribe<F: ?Sized + Send + Sync + 'static>(reg: &Shared<F>, f: Arc<F>) -> Subscription {
+    let key = {
+        let mut r = lock(reg);
+        r.next += 1;
+        let key = r.next;
+        r.items.insert(key, f);
+        key
+    };
+    let weak = Arc::downgrade(reg);
+    Subscription {
+        off: Some(Box::new(move || {
+            if let Some(reg) = weak.upgrade() {
+                lock(&reg).items.remove(&key);
+            }
+        })),
+    }
+}
+
+fn listeners<F: ?Sized>(reg: &Shared<F>) -> Vec<Arc<F>> {
+    lock(reg).items.values().cloned().collect()
+}
+
+/// A registered `on_data`/`on_exit` callback. `unsubscribe()` (or dropping it) removes the
+/// callback; it holds only a weak reference, so it never keeps a session or the host alive.
+/// A delivery already running on the reader thread may still finish after it returns.
+#[must_use = "dropping a Subscription unsubscribes at once"]
+pub struct Subscription {
+    off: Option<Box<dyn FnOnce() + Send + Sync>>,
+}
+
+impl Subscription {
+    pub fn unsubscribe(mut self) {
+        if let Some(off) = self.off.take() {
+            off();
+        }
+    }
+}
+
+impl Drop for Subscription {
+    fn drop(&mut self) {
+        if let Some(off) = self.off.take() {
+            off();
+        }
+    }
+}
+
+impl std::fmt::Debug for Subscription {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Subscription")
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The headless screen
+
+/// What vt100 leaves to us: answering queries, and DECSTR (which it ignores).
+#[derive(Default)]
+struct Hooks {
+    replies: Vec<u8>,
+    decstr: bool,
+}
+
+fn first_param(params: &[&[u16]]) -> u16 {
+    params.first().and_then(|p| p.first()).copied().unwrap_or(0)
+}
+
+impl vt100::Callbacks for Hooks {
+    fn unhandled_csi(
+        &mut self,
+        screen: &mut vt100::Screen,
+        i1: Option<u8>,
+        _i2: Option<u8>,
+        params: &[&[u16]],
+        c: char,
+    ) {
+        match (i1, c) {
+            // DA1: `CSI c` / `CSI 0 c`, answered as xterm.js does (VT100 with advanced video).
+            (None, 'c') if params.len() <= 1 && first_param(params) == 0 => {
+                self.replies.extend_from_slice(b"\x1b[?1;2c");
+            }
+            (None, 'n') => match first_param(params) {
+                // DSR cursor position, 1-based, at the moment of the query.
+                6 => {
+                    let (row, col) = screen.cursor_position();
+                    let reply = format!("\x1b[{};{}R", row + 1, col + 1);
+                    self.replies.extend_from_slice(reply.as_bytes());
+                }
+                5 => self.replies.extend_from_slice(b"\x1b[0n"),
+                _ => {}
+            },
+            (Some(b'!'), 'p') => self.decstr = true,
+            _ => {}
+        }
+    }
+}
+
+/// Input modes an attached keyboard must encode for (xterm's `bracketedPasteMode` and
+/// `applicationCursorKeysMode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TermModes {
+    pub bracketed_paste: bool,
+    pub application_cursor: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TermSize {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// A row as xterm's `translateToString(trim)`: empty cells read as spaces, the second half of a
+/// wide char is skipped, and `trim` drops trailing cells that were never written (erased cells),
+/// while explicitly written spaces stay.
+pub fn row_text(screen: &vt100::Screen, row: u16, trim: bool) -> String {
+    let (_, cols) = screen.size();
+    let width = |c: &vt100::Cell| if c.is_wide() { 2 } else { 1 };
+    let end = if trim {
+        (0..cols)
+            .filter_map(|col| {
+                let c = screen.cell(row, col)?;
+                c.has_contents().then(|| col + width(c))
+            })
+            .next_back()
+            .unwrap_or(0)
+            .min(cols)
+    } else {
+        cols
+    };
+    let mut out = String::new();
+    let mut col = 0;
+    while col < end {
+        let Some(c) = screen.cell(row, col) else {
+            break;
+        };
+        if c.is_wide_continuation() {
+            col += 1;
+            continue;
+        }
+        if c.has_contents() {
+            out.push_str(c.contents());
+        } else {
+            out.push(' ');
+        }
+        col += width(c);
+    }
+    out
+}
+
+/// The parser plus our hooks. Every accessor leaves the scrollback view at 0.
+struct Term {
+    parser: vt100::Parser<Hooks>,
+}
+
+impl Term {
+    fn new(rows: u16, cols: u16) -> Self {
+        Self {
+            parser: vt100::Parser::new_with_callbacks(rows, cols, SCROLLBACK, Hooks::default()),
+        }
+    }
+
+    /// Parse output; returns the replies to the queries it contained, in order.
+    fn process(&mut self, data: &[u8]) -> Vec<u8> {
+        // DECSTR resets the cursor to visible; vt100 ignores it and its mode setters are private,
+        // so we feed `CSI ? 25 h` right after each one (cut at every `!p`, so a later `?25l` in
+        // the same chunk still wins).
+        let mut rest = data;
+        while let Some(i) = rest.windows(2).position(|w| w == b"!p") {
+            let (head, tail) = rest.split_at(i + 2);
+            self.parser.process(head);
+            self.after_decstr();
+            rest = tail;
+        }
+        self.parser.process(rest);
+        self.after_decstr();
+        std::mem::take(&mut self.parser.callbacks_mut().replies)
+    }
+
+    fn after_decstr(&mut self) {
+        if std::mem::take(&mut self.parser.callbacks_mut().decstr) {
+            self.parser.process(b"\x1b[?25h");
+        }
+    }
+
+    fn screen(&mut self) -> &vt100::Screen {
+        self.parser.screen_mut().set_scrollback(0);
+        self.parser.screen()
+    }
+
+    fn size(&self) -> TermSize {
+        let (rows, cols) = self.parser.screen().size();
+        TermSize { cols, rows }
+    }
+
+    fn screen_lines(&mut self) -> Vec<String> {
+        let screen = self.screen();
+        let (rows, _) = screen.size();
+        (0..rows).map(|r| row_text(screen, r, true)).collect()
+    }
+
+    fn scrollback_len(&mut self) -> usize {
+        let screen = self.parser.screen_mut();
+        screen.set_scrollback(usize::MAX);
+        let n = screen.scrollback();
+        screen.set_scrollback(0);
+        n
+    }
+
+    /// History (oldest first) followed by the screen, each line as in `screen_lines`.
+    fn scroll_lines(&mut self) -> Vec<String> {
+        let n = self.scrollback_len();
+        let screen = self.parser.screen_mut();
+        let mut out = Vec::with_capacity(n + usize::from(screen.size().0));
+        for j in 0..n {
+            screen.set_scrollback(n - j);
+            out.push(row_text(screen, 0, true));
+        }
+        out.extend(self.screen_lines());
+        out
+    }
+
+    fn view<R>(&mut self, scroll: usize, f: impl FnOnce(&vt100::Screen) -> R) -> R {
+        self.parser.screen_mut().set_scrollback(scroll);
+        let r = catch_unwind(AssertUnwindSafe(|| f(self.parser.screen())));
+        self.parser.screen_mut().set_scrollback(0);
+        r.unwrap_or_else(|p| std::panic::resume_unwind(p))
+    }
+
+    /// Escape sequences that repaint a fresh terminal of the same size: history (pushed into its
+    /// scrollback), then the screen, cursor and input modes. On the alternate screen only that
+    /// screen is replayed (vt100 does not expose the normal one while it is hidden).
+    fn serialize(&mut self) -> String {
+        let n = self.scrollback_len();
+        let screen = self.parser.screen_mut();
+        let (rows, cols) = screen.size();
+        let mut out = Vec::new();
+        if screen.alternate_screen() {
+            out.extend_from_slice(b"\x1b[?1049h");
+        } else if n > 0 {
+            // History rows are printed from the top, one per line, then blank lines scroll the
+            // last of them off the screen; the screen itself is repainted after that.
+            out.extend_from_slice(b"\x1b[m\x1b[H\x1b[2J");
+            for j in 0..n {
+                screen.set_scrollback(n - j);
+                if let Some(row) = screen.rows_formatted(0, cols).next() {
+                    out.extend_from_slice(&row);
+                }
+                out.extend_from_slice(b"\x1b[m\r\n");
+            }
+            for _ in 1..rows {
+                out.extend_from_slice(b"\r\n");
+            }
+            screen.set_scrollback(0);
+        }
+        out.extend_from_slice(&screen.state_formatted());
+        String::from_utf8_lossy(&out).into_owned()
+    }
+}
+
+/// How many leading bytes of `buf` end on a UTF-8 character boundary (an incomplete trailing
+/// sequence is held back for the next read, so every chunk subscribers see decodes cleanly).
+fn utf8_complete_len(buf: &[u8]) -> usize {
+    let len = buf.len();
+    for back in 1..=len.min(4) {
+        let b = buf[len - back];
+        if b & 0xC0 == 0x80 {
+            continue; // continuation byte
+        }
+        let need = match b {
+            0x00..=0x7F => 1,
+            0xC0..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF7 => 4,
+            _ => 1, // invalid lead: let it through
+        };
+        return if back < need { len - back } else { len };
+    }
+    len
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sessions
+
+struct Proc {
+    exited: bool,
+    pid: Option<u32>,
+    killer: Box<dyn ChildKiller + Send + Sync>,
+}
+
+struct Session {
+    seq: u64,
+    term: Mutex<Term>,
+    subs: Shared<DataFn>,
+    replies: AtomicBool,
+    input: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
+    master: Mutex<Option<Box<dyn MasterPty + Send>>>,
+    proc: Mutex<Proc>,
+}
+
+impl Session {
+    fn send(&self, data: Vec<u8>) -> bool {
+        lock(&self.input)
+            .as_ref()
+            .is_some_and(|tx| tx.send(data).is_ok())
+    }
+
+    /// Output (or `feed`): parse, answer queries, then hand the bytes to subscribers outside
+    /// the locks (the subscriber list is taken under the screen lock, so `attach` is atomic).
+    fn output(&self, chunk: &[u8], broadcast: bool) {
+        let (replies, subs) = {
+            let mut term = lock(&self.term);
+            let replies = term.process(chunk);
+            let subs = if broadcast {
+                listeners(&self.subs)
+            } else {
+                Vec::new()
+            };
+            (replies, subs)
+        };
+        if !replies.is_empty() && self.replies.load(Ordering::SeqCst) {
+            self.send(replies);
+        }
+        for f in subs {
+            let _ = catch_unwind(AssertUnwindSafe(|| f(chunk)));
+        }
+    }
+
+    /// Signal the child unless it has already exited. The waiter marks `exited` before it reaps,
+    /// under this lock, so a pid is never signalled after it could have been reused.
+    fn signal(&self, force: bool) {
+        let mut p = lock(&self.proc);
+        if p.exited {
+            return;
+        }
+        #[cfg(unix)]
+        if let Some(pid) = p.pid {
+            let sig = if force { libc::SIGKILL } else { libc::SIGHUP };
+            // SAFETY: plain syscall; `pid` is our unreaped child.
+            unsafe { libc::kill(pid as libc::pid_t, sig) };
+            return;
+        }
+        let _ = force;
+        let _ = p.killer.kill();
+    }
+
+    /// Stop input and close the PTY (on Windows this closes the ConPTY, ending the reader).
+    fn close(&self) {
+        let tx = lock(&self.input).take();
+        drop(tx);
+        let master = lock(&self.master).take();
+        drop(master);
+    }
+}
+
+/// Block until the child has exited, without reaping it.
+#[cfg(unix)]
+fn wait_exited_unreaped(pid: u32) {
+    loop {
+        // SAFETY: zeroed siginfo_t is a valid out-parameter for waitid.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let r = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                &mut info,
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        };
+        if r == 0 || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            return;
+        }
+    }
+}
+
+/// What to run in a PTY.
+#[derive(Debug, Clone, Default)]
+pub struct PtyOptions {
+    pub file: String,
+    pub args: Vec<String>,
+    pub cwd: PathBuf,
+    /// The complete environment (the parent's is not inherited).
+    pub env: EnvMap,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+}
+
+struct Inner {
+    sessions: Mutex<HashMap<String, Arc<Session>>>,
+    exits: Shared<ExitFn>,
+    live: tokio::sync::watch::Sender<usize>,
+    seq: AtomicU64,
+}
+
+impl Inner {
+    fn publish_count(&self) {
+        let n = lock(&self.sessions).len();
+        self.live.send_replace(n);
+    }
+}
+
+/// Agent processes in pseudo-terminals, each mirrored into a headless screen.
+///
+/// Dropping the host sends every remaining child SIGHUP (TerminateProcess on Windows) without
+/// waiting; `dispose().await` kills and reaps them.
+pub struct PtyHost {
+    inner: Arc<Inner>,
+}
+
+impl Default for PtyHost {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn spawn_error(e: impl std::fmt::Display) -> BackendError {
+    BackendError::new(e.to_string())
+}
+
+impl PtyHost {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                sessions: Mutex::new(HashMap::new()),
+                exits: registry(),
+                live: tokio::sync::watch::channel(0).0,
+                seq: AtomicU64::new(0),
+            }),
+        }
+    }
+
+    fn get(&self, id: &str) -> Option<Arc<Session>> {
+        lock(&self.inner.sessions).get(id).cloned()
+    }
+
+    fn all(&self) -> Vec<Arc<Session>> {
+        lock(&self.inner.sessions).values().cloned().collect()
+    }
+
+    /// Start `opts.file` in a new PTY under `id`. Fails for an id that is still live (TS would
+    /// silently orphan the old process), for arguments a Windows .cmd shim can't carry safely
+    /// (`unsafe_for_cmd`), and when the PTY or process can't be created.
+    pub fn spawn(&self, id: &str, opts: PtyOptions) -> Result<(), BackendError> {
+        if self.has(id) {
+            return Err(BackendError::new(format!(
+                "이미 실행 중인 에이전트 터미널이에요: {id}"
+            )));
+        }
+        let cols = opts.cols.unwrap_or(COLS);
+        let rows = opts.rows.unwrap_or(ROWS);
+        let argv = resolve_spawn(&opts.file, &opts.args, cfg!(windows), &|f| {
+            resolve_windows_command(f, &opts.env, &|p| Path::new(p).exists())
+        })?;
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(spawn_error)?;
+        let mut cmd = CommandBuilder::from_argv(argv.into_iter().map(OsString::from).collect());
+        cmd.env_clear();
+        for (k, v) in &opts.env {
+            cmd.env(k, v);
+        }
+        if !cfg!(windows) {
+            cmd.env("TERM", "xterm-256color"); // node-pty sets TERM from its `name`
+        }
+        cmd.cwd(&opts.cwd);
+        let mut child = pair.slave.spawn_command(cmd).map_err(spawn_error)?;
+        drop(pair.slave); // or the reader never sees EOF
+        let master = pair.master;
+        let io = master
+            .try_clone_reader()
+            .and_then(|r| Ok((r, master.take_writer()?)));
+        let (reader, writer) = match io {
+            Ok(io) => io,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(spawn_error(e));
+            }
+        };
+
+        let (input_tx, input_rx) = mpsc::channel::<Vec<u8>>();
+        let session = Arc::new(Session {
+            seq: self.inner.seq.fetch_add(1, Ordering::SeqCst),
+            term: Mutex::new(Term::new(rows, cols)),
+            subs: registry(),
+            replies: AtomicBool::new(true),
+            input: Mutex::new(Some(input_tx)),
+            master: Mutex::new(Some(master)),
+            proc: Mutex::new(Proc {
+                exited: false,
+                pid: child.process_id(),
+                killer: child.clone_killer(),
+            }),
+        });
+        {
+            let mut map = lock(&self.inner.sessions);
+            map.insert(id.to_string(), session.clone());
+        }
+        self.inner.publish_count();
+
+        // Writer and reader start before we return: ConPTY asks for the cursor position at
+        // startup (PSEUDOCONSOLE_INHERIT_CURSOR) and waits for our answer.
+        let started = thread::Builder::new()
+            .name(format!("pty-write-{id}"))
+            .spawn(move || writer_loop(writer, input_rx))
+            .and_then(|_| {
+                let (done_tx, done_rx) = mpsc::channel::<()>();
+                let s = session.clone();
+                thread::Builder::new()
+                    .name(format!("pty-read-{id}"))
+                    .spawn(move || reader_loop(reader, s, done_tx))?;
+                let s = session.clone();
+                let weak = Arc::downgrade(&self.inner);
+                let id = id.to_string();
+                thread::Builder::new()
+                    .name(format!("pty-wait-{id}"))
+                    .spawn(move || waiter(child, s, weak, id, done_rx))
+            });
+        if let Err(e) = started {
+            // Without a waiter nothing would reap it: take it down by hand.
+            session.signal(true);
+            session.close();
+            lock(&self.inner.sessions).remove(id);
+            self.inner.publish_count();
+            return Err(spawn_error(e));
+        }
+        Ok(())
+    }
+
+    pub fn has(&self, id: &str) -> bool {
+        lock(&self.inner.sessions).contains_key(id)
+    }
+
+    /// Queue input for the process. `terminal_not_writable` once the PTY is gone.
+    pub fn write(&self, id: &str, data: impl AsRef<[u8]>) -> Result<(), BackendError> {
+        let gone = || BackendError::with_code(GONE, "terminal_not_writable");
+        let s = self.get(id).ok_or_else(gone)?;
+        if s.send(data.as_ref().to_vec()) {
+            Ok(())
+        } else {
+            Err(gone())
+        }
+    }
+
+    /// The visible screen, one string per row (`rows` of them), each as xterm's
+    /// `translateToString(true)`. Empty for an unknown id.
+    pub fn screen_lines(&self, id: &str) -> Vec<String> {
+        self.get(id)
+            .map(|s| lock(&s.term).screen_lines())
+            .unwrap_or_default()
+    }
+
+    /// History (oldest first, up to [`SCROLLBACK`] lines) followed by the screen.
+    pub fn scroll_lines(&self, id: &str) -> Vec<String> {
+        self.get(id)
+            .map(|s| lock(&s.term).scroll_lines())
+            .unwrap_or_default()
+    }
+
+    /// Lines of history above the screen (xterm's `baseY`, the TUI's max scroll).
+    pub fn scrollback_len(&self, id: &str) -> usize {
+        self.get(id)
+            .map(|s| lock(&s.term).scrollback_len())
+            .unwrap_or(0)
+    }
+
+    /// Read the screen as it looks scrolled back `scroll` lines (0 = live; clamped), for drawing
+    /// and selection. Runs under the screen lock: keep `f` short.
+    pub fn with_screen<R>(
+        &self,
+        id: &str,
+        scroll: usize,
+        f: impl FnOnce(&vt100::Screen) -> R,
+    ) -> Option<R> {
+        let s = self.get(id)?;
+        let mut term = lock(&s.term);
+        Some(term.view(scroll, f))
+    }
+
+    /// Live output of one agent; `None` for an unknown id.
+    pub fn on_data(
+        &self,
+        id: &str,
+        f: impl Fn(&[u8]) + Send + Sync + 'static,
+    ) -> Option<Subscription> {
+        let s = self.get(id)?;
+        Some(subscribe(&s.subs, Arc::new(f) as Arc<DataFn>))
+    }
+
+    /// `serialize` and `on_data` in one step, so no output falls between the snapshot and the
+    /// stream or appears in both. `f` may run (on the reader thread) before this returns: queue
+    /// what it gets and send the snapshot first.
+    pub fn attach(
+        &self,
+        id: &str,
+        f: impl Fn(&[u8]) + Send + Sync + 'static,
+    ) -> Option<(String, Subscription)> {
+        let s = self.get(id)?;
+        let mut term = lock(&s.term);
+        let snapshot = term.serialize();
+        let sub = subscribe(&s.subs, Arc::new(f) as Arc<DataFn>);
+        Some((snapshot, sub))
+    }
+
+    /// Resize the PTY and the screen. Ignored for unknown ids, sizes under 2, the current size,
+    /// and when the PTY refuses (the process exited and its exit event is on the way).
+    pub fn resize(&self, id: &str, cols: u16, rows: u16) {
+        let Some(s) = self.get(id) else {
+            return;
+        };
+        if cols < 2 || rows < 2 {
+            return;
+        }
+        let mut term = lock(&s.term);
+        if term.size() == (TermSize { cols, rows }) {
+            return;
+        }
+        let ok = lock(&s.master).as_ref().is_some_and(|m| {
+            m.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .is_ok()
+        });
+        if ok {
+            term.parser.screen_mut().set_size(rows, cols);
+        }
+    }
+
+    /// Whether the agent hid its cursor (DECTCEM; reset by RIS and DECSTR).
+    pub fn cursor_hidden(&self, id: &str) -> bool {
+        self.get(id)
+            .is_some_and(|s| lock(&s.term).parser.screen().hide_cursor())
+    }
+
+    /// The input modes the agent asked for.
+    pub fn modes(&self, id: &str) -> Option<TermModes> {
+        let s = self.get(id)?;
+        let term = lock(&s.term);
+        let screen = term.parser.screen();
+        Some(TermModes {
+            bracketed_paste: screen.bracketed_paste(),
+            application_cursor: screen.application_cursor(),
+        })
+    }
+
+    /// Live PTY ids, oldest first.
+    pub fn ids(&self) -> Vec<String> {
+        let map = lock(&self.inner.sessions);
+        let mut v: Vec<(u64, String)> = map.iter().map(|(k, s)| (s.seq, k.clone())).collect();
+        v.sort();
+        v.into_iter().map(|(_, k)| k).collect()
+    }
+
+    pub fn size(&self, id: &str) -> Option<TermSize> {
+        self.get(id).map(|s| lock(&s.term).size())
+    }
+
+    /// The process id of the agent (None once it is gone).
+    pub fn pid(&self, id: &str) -> Option<u32> {
+        self.get(id).and_then(|s| lock(&s.proc).pid)
+    }
+
+    /// The current screen as escape sequences, to repaint a real terminal losslessly
+    /// (empty for an unknown id). See [`PtyHost::attach`] for a gap-free attach.
+    pub fn serialize(&self, id: &str) -> String {
+        self.get(id)
+            .map(|s| lock(&s.term).serialize())
+            .unwrap_or_default()
+    }
+
+    /// While a real terminal is attached it answers the agent's terminal queries itself;
+    /// the headless copy must stay quiet or the agent gets every answer twice.
+    pub fn set_replies(&self, id: &str, on: bool) {
+        if let Some(s) = self.get(id) {
+            s.replies.store(on, Ordering::SeqCst);
+        }
+    }
+
+    /// Feed bytes to the headless screen as if the process printed them (not passed to
+    /// `on_data`; queries in it are answered). For tests.
+    #[doc(hidden)]
+    pub fn feed(&self, id: &str, data: impl AsRef<[u8]>) {
+        if let Some(s) = self.get(id) {
+            s.output(data.as_ref(), false);
+        }
+    }
+
+    /// Called with `(id, exit_code)` after a PTY's process exited and it was removed.
+    pub fn on_exit(&self, f: impl Fn(&str, u32) + Send + Sync + 'static) -> Subscription {
+        subscribe(&self.inner.exits, Arc::new(f) as Arc<ExitFn>)
+    }
+
+    /// Hang up the agent (SIGHUP, as node-pty; TerminateProcess on Windows).
+    pub fn kill(&self, id: &str) {
+        if let Some(s) = self.get(id) {
+            s.signal(false);
+        }
+    }
+
+    /// Kill every agent and wait (at most 2 s) until all have exited and been reaped.
+    /// Survivors of the hang-up are force-killed after 1.5 s.
+    pub async fn dispose(&self) {
+        let sessions = self.all();
+        if sessions.is_empty() {
+            return;
+        }
+        let mut live = self.inner.live.subscribe();
+        for s in &sessions {
+            s.signal(false);
+        }
+        let all_gone = tokio::time::timeout(DISPOSE_FORCE_AFTER, live.wait_for(|n| *n == 0))
+            .await
+            .is_ok_and(|r| r.is_ok());
+        if !all_gone {
+            for s in self.all() {
+                s.signal(true);
+            }
+            let rest = DISPOSE_WAIT - DISPOSE_FORCE_AFTER;
+            let _ = tokio::time::timeout(rest, live.wait_for(|n| *n == 0))
+                .await
+                .is_ok_and(|r| r.is_ok());
+        }
+    }
+}
+
+impl Drop for PtyHost {
+    fn drop(&mut self) {
+        for s in self.all() {
+            s.signal(false);
+            s.close();
+        }
+    }
+}
+
+fn writer_loop(mut writer: Box<dyn Write + Send>, rx: mpsc::Receiver<Vec<u8>>) {
+    for data in rx {
+        if writer
+            .write_all(&data)
+            .and_then(|_| writer.flush())
+            .is_err()
+        {
+            break;
+        }
+    }
+}
+
+fn reader_loop(mut reader: Box<dyn Read + Send>, session: Arc<Session>, _done: mpsc::Sender<()>) {
+    let mut buf = vec![0u8; READ_BUF];
+    let mut pending: Vec<u8> = Vec::new();
+    loop {
+        let n = match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        };
+        pending.extend_from_slice(&buf[..n]);
+        let cut = utf8_complete_len(&pending);
+        if cut == 0 {
+            continue;
+        }
+        let chunk: Vec<u8> = pending.drain(..cut).collect();
+        session.output(&chunk, true);
+    }
+    if !pending.is_empty() {
+        session.output(&pending, true);
+    }
+    // `_done` drops here: the waiter stops waiting for the drain.
+}
+
+fn waiter(
+    mut child: Box<dyn Child + Send + Sync>,
+    session: Arc<Session>,
+    host: Weak<Inner>,
+    id: String,
+    drained: mpsc::Receiver<()>,
+) {
+    #[cfg(unix)]
+    if let Some(pid) = child.process_id() {
+        wait_exited_unreaped(pid);
+    }
+    // Unix: still a zombie here, so its pid can't be reused while we flip the flag.
+    // Windows: the killer holds a process handle, which pins the process object.
+    #[cfg(unix)]
+    {
+        lock(&session.proc).exited = true;
+    }
+    let code = child.wait().map(|s| s.exit_code()).unwrap_or(1);
+    {
+        let mut p = lock(&session.proc);
+        p.exited = true;
+        p.pid = None;
+    }
+    // Let the reader take in the last output before we report the exit.
+    let _ = drained.recv_timeout(DRAIN);
+    let Some(inner) = host.upgrade() else {
+        session.close();
+        return;
+    };
+    let removed = {
+        let mut map = lock(&inner.sessions);
+        if map.get(&id).is_some_and(|s| Arc::ptr_eq(s, &session)) {
+            map.remove(&id);
+            true
+        } else {
+            false
+        }
+    };
+    session.close();
+    if removed {
+        for f in listeners(&inner.exits) {
+            let _ = catch_unwind(AssertUnwindSafe(|| f(&id, code)));
+        }
+    }
+    inner.publish_count();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn term(rows: u16, cols: u16) -> Term {
+        Term::new(rows, cols)
+    }
+
+    // --- screen text ---
+
+    #[test]
+    fn screen_lines_match_translate_to_string_trim() {
+        let mut t = term(4, 10);
+        // explicit trailing spaces stay; erased tail is trimmed; wide chars take one string slot
+        t.process("ab  \r\n".as_bytes());
+        t.process("한글x\r\n".as_bytes());
+        t.process("✅ok\x1b[K".as_bytes());
+        t.process(b"\r\n\x1b[5Cz");
+        let lines = t.screen_lines();
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0], "ab  ");
+        assert_eq!(lines[1], "한글x");
+        assert_eq!(lines[2], "✅ok");
+        assert_eq!(lines[3], "     z"); // skipped (never written) cells read as spaces
+    }
+
+    #[test]
+    fn erased_trailing_cells_are_trimmed() {
+        let mut t = term(2, 10);
+        t.process(b"hello world\x1b[1;6H\x1b[K");
+        assert_eq!(t.screen_lines()[0], "hello");
+    }
+
+    #[test]
+    fn row_text_untrimmed_is_full_width() {
+        let mut t = term(2, 6);
+        t.process("a한".as_bytes());
+        let s = t.screen();
+        assert_eq!(row_text(s, 0, false), "a한   ");
+    }
+
+    #[test]
+    fn scroll_lines_returns_history_then_screen() {
+        let mut t = term(3, 10);
+        for i in 0..6 {
+            t.process(format!("line{i}\r\n").as_bytes());
+        }
+        assert_eq!(t.scrollback_len(), 4);
+        let all = t.scroll_lines();
+        assert_eq!(
+            all[..6],
+            ["line0", "line1", "line2", "line3", "line4", "line5"]
+        );
+        assert_eq!(all.len(), 7);
+        // and the live view is untouched
+        assert_eq!(t.screen_lines(), ["line4", "line5", ""]);
+        let first = t.view(4, |s| row_text(s, 0, true));
+        assert_eq!(first, "line0");
+        assert_eq!(t.screen_lines()[0], "line4");
+    }
+
+    // --- query responder ---
+
+    #[test]
+    fn answers_device_attributes_and_status_reports() {
+        let mut t = term(5, 20);
+        assert_eq!(t.process(b"\x1b[c"), b"\x1b[?1;2c");
+        assert_eq!(t.process(b"\x1b[0c"), b"\x1b[?1;2c");
+        assert_eq!(t.process(b"\x1b[5n"), b"\x1b[0n");
+        assert_eq!(t.process(b"\x1b[3;7H\x1b[6n"), b"\x1b[3;7R");
+        // cursor read at the moment of the query, not after the whole chunk
+        assert_eq!(t.process(b"\x1b[1;1H\x1b[6nabc"), b"\x1b[1;1R");
+        // two queries in one chunk, answered in order
+        assert_eq!(t.process(b"\x1b[5n\x1b[c"), b"\x1b[0n\x1b[?1;2c");
+    }
+
+    #[test]
+    fn ignores_queries_it_does_not_implement() {
+        let mut t = term(5, 20);
+        assert!(t.process(b"\x1b[>c").is_empty()); // DA2
+        assert!(t.process(b"\x1b[?6n").is_empty()); // DECXCPR
+        assert!(t.process(b"\x1b[1c").is_empty());
+        assert!(t.process(b"\x1b[7n").is_empty());
+        assert!(t.process(b"plain c and 6n").is_empty());
+    }
+
+    #[test]
+    fn answers_queries_split_across_reads() {
+        let mut t = term(5, 20);
+        t.process(b"ab");
+        assert!(t.process(b"\x1b").is_empty());
+        assert!(t.process(b"[").is_empty());
+        assert!(t.process(b"6").is_empty());
+        assert_eq!(t.process(b"n"), b"\x1b[1;3R");
+        assert!(t.process(b"\x1b[").is_empty());
+        assert_eq!(t.process(b"c"), b"\x1b[?1;2c");
+    }
+
+    // --- cursor visibility and modes ---
+
+    #[test]
+    fn follows_dectcem_among_other_modes_and_resets() {
+        let mut t = term(4, 20);
+        let hidden = |t: &mut Term| t.parser.screen().hide_cursor();
+        assert!(!hidden(&mut t));
+        t.process(b"\x1b[?25l");
+        assert!(hidden(&mut t));
+        t.process(b"\x1b[?2004;25h");
+        assert!(!hidden(&mut t));
+        assert!(t.parser.screen().bracketed_paste());
+        t.process(b"\x1b[?1;25l");
+        assert!(hidden(&mut t));
+        assert!(!t.parser.screen().application_cursor());
+        t.process(b"\x1bc"); // RIS
+        assert!(!hidden(&mut t));
+        t.process(b"\x1b[?25l\x1b[!p"); // DECSTR
+        assert!(!hidden(&mut t));
+        t.process(b"\x1b[!p\x1b[?25l"); // a hide after DECSTR in the same chunk wins
+        assert!(hidden(&mut t));
+        t.process(b"\x1b[?1h");
+        assert!(t.parser.screen().application_cursor());
+    }
+
+    // --- serialize ---
+
+    fn snapshot(p: &mut vt100::Parser<impl vt100::Callbacks>) -> (Vec<String>, (u16, u16), bool) {
+        let screen = p.screen_mut();
+        screen.set_scrollback(0);
+        let (rows, _) = screen.size();
+        let lines = (0..rows).map(|r| row_text(screen, r, false)).collect();
+        (lines, screen.cursor_position(), screen.hide_cursor())
+    }
+
+    #[test]
+    fn serialize_replays_into_an_identical_screen() {
+        let mut t = term(5, 20);
+        for i in 0..8 {
+            t.process(format!("\x1b[3{}mrow {i} 한✅\x1b[m\r\n", i % 8).as_bytes());
+        }
+        t.process(b"\x1b[1mbold\x1b[m tail\x1b[2;4H\x1b[?25l\x1b[?2004h\x1b[?1h");
+        let s = t.serialize();
+        let mut fresh = vt100::Parser::new(5, 20, SCROLLBACK);
+        fresh.process(s.as_bytes());
+
+        assert_eq!(snapshot(&mut fresh), snapshot(&mut t.parser));
+        // per-cell attributes survive too
+        assert_eq!(
+            fresh.screen().contents_formatted(),
+            t.parser.screen().contents_formatted()
+        );
+        assert!(fresh.screen().bracketed_paste());
+        assert!(fresh.screen().application_cursor());
+        // and so does the history
+        let mut replay = Term {
+            parser: vt100::Parser::new_with_callbacks(5, 20, SCROLLBACK, Hooks::default()),
+        };
+        replay.process(s.as_bytes());
+        assert_eq!(replay.scroll_lines(), t.scroll_lines());
+    }
+
+    #[test]
+    fn serialize_replays_the_alternate_screen() {
+        let mut t = term(4, 12);
+        t.process(b"normal\r\n\x1b[?1049h\x1b[2;2Hfull screen");
+        let s = t.serialize();
+        let mut fresh = vt100::Parser::new(4, 12, SCROLLBACK);
+        fresh.process(s.as_bytes());
+        assert!(fresh.screen().alternate_screen());
+        assert_eq!(snapshot(&mut fresh), snapshot(&mut t.parser));
+    }
+
+    // --- utf-8 chunking ---
+
+    #[test]
+    fn holds_back_an_incomplete_utf8_tail() {
+        let s = "a한".as_bytes(); // 'a' + 3 bytes
+        assert_eq!(utf8_complete_len(s), 4);
+        assert_eq!(utf8_complete_len(&s[..3]), 1);
+        assert_eq!(utf8_complete_len(&s[..2]), 1);
+        assert_eq!(utf8_complete_len(b""), 0);
+        let e = "✅".as_bytes();
+        assert_eq!(utf8_complete_len(&e[..2]), 0);
+        assert_eq!(utf8_complete_len(&[0xFF]), 1);
+        assert_eq!(utf8_complete_len("😀".as_bytes()), 4);
+        assert_eq!(utf8_complete_len(&"😀".as_bytes()[..3]), 0);
+    }
+
+    // --- spawn resolution (port of the resolveSpawn tests) ---
+
+    fn sv(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn shim(file: &'static str) -> impl Fn(&str) -> ResolvedCommand {
+        move |_| ResolvedCommand {
+            file: file.to_string(),
+            via_cmd: true,
+        }
+    }
+
+    #[test]
+    fn non_windows_spawns_as_is() {
+        let r = resolve_spawn("claude", &sv(&["x"]), false, &shim("unused")).unwrap();
+        assert_eq!(r, sv(&["claude", "x"]));
+    }
+
+    #[test]
+    fn windows_exe_spawns_directly() {
+        let exe = |_: &str| ResolvedCommand {
+            file: "C:\\c\\claude.exe".into(),
+            via_cmd: false,
+        };
+        let r = resolve_spawn("claude", &sv(&["x"]), true, &exe).unwrap();
+        assert_eq!(r, sv(&["C:\\c\\claude.exe", "x"]));
+        assert_eq!(windows_command_line(&r), "C:\\c\\claude.exe x");
+    }
+
+    #[test]
+    fn windows_cmd_shim_runs_through_cmd() {
+        let r = resolve_spawn(
+            "claude",
+            &sv(&["--session-id", "u"]),
+            true,
+            &shim("C:\\npm\\claude.cmd"),
+        )
+        .unwrap();
+        assert_eq!(
+            r,
+            sv(&[
+                "cmd.exe",
+                "/d",
+                "/s",
+                "/c",
+                "C:\\npm\\claude.cmd",
+                "--session-id",
+                "u"
+            ])
+        );
+        // After cmd's /s handling (nothing to strip) this runs exactly what TS's
+        // `/d /s /c "C:\npm\claude.cmd --session-id u"` runs.
+        assert_eq!(
+            windows_command_line(&r),
+            "cmd.exe /d /s /c C:\\npm\\claude.cmd --session-id u"
+        );
+        let r = resolve_spawn(
+            "claude",
+            &sv(&["--x", ""]),
+            true,
+            &shim("C:\\npm\\claude.cmd"),
+        )
+        .unwrap();
+        assert_eq!(
+            windows_command_line(&r),
+            "cmd.exe /d /s /c C:\\npm\\claude.cmd --x \"\""
+        );
+    }
+
+    #[test]
+    fn windows_cmd_shim_refuses_what_cmd_would_reinterpret() {
+        for bad in [
+            "a&b", "50%", "a|b", "<x", "x>", "^", "hi!", "q\"", "a\rb", "a\nb", "`",
+        ] {
+            let e = resolve_spawn("claude", &sv(&[bad]), true, &shim("C:\\npm\\claude.cmd"))
+                .unwrap_err();
+            assert_eq!(e.code, "unsafe_for_cmd", "{bad:?}");
+            assert_eq!(
+                e.message,
+                "claude.cmd로는 이 인자를 안전하게 넘길 수 없어요"
+            );
+        }
+        // the shim path itself is checked too
+        let e = resolve_spawn("claude", &[], true, &shim("C:\\100%\\claude.cmd")).unwrap_err();
+        assert_eq!(e.code, "unsafe_for_cmd");
+        // .exe targets are not cmd's business
+        let exe = |_: &str| ResolvedCommand {
+            file: "C:\\c\\claude.exe".into(),
+            via_cmd: false,
+        };
+        assert!(resolve_spawn("claude", &sv(&["a&b"]), true, &exe).is_ok());
+    }
+
+    #[test]
+    fn windows_cmd_shim_with_spaces_keeps_parts_whole() {
+        let args = sv(&[
+            "--session-id",
+            "u",
+            "--settings",
+            "C:\\Users\\First Last\\.office-desks\\agents\\a.json",
+        ]);
+        let r = resolve_spawn(
+            "claude",
+            &args,
+            true,
+            &shim("C:\\Users\\First Last\\npm\\claude.cmd"),
+        )
+        .unwrap();
+        // The text after /c must not start with a quote, or /s would strip it: `call` leads.
+        assert_eq!(
+            windows_command_line(&r),
+            "cmd.exe /d /s /c call \"C:\\Users\\First Last\\npm\\claude.cmd\" --session-id u \
+             --settings \"C:\\Users\\First Last\\.office-desks\\agents\\a.json\""
+        );
+        // A trailing backslash in a quoted part is doubled, so it can't escape the closing quote.
+        let r = resolve_spawn(
+            "claude",
+            &sv(&["C:\\a b\\"]),
+            true,
+            &shim("C:\\npm\\claude.cmd"),
+        )
+        .unwrap();
+        assert_eq!(
+            windows_command_line(&r),
+            "cmd.exe /d /s /c C:\\npm\\claude.cmd \"C:\\a b\\\\\""
+        );
+    }
+
+    #[test]
+    fn windows_command_line_follows_msvc_quoting() {
+        assert_eq!(
+            windows_command_line(&sv(&["a", "b c", "", "d\\e"])),
+            "a \"b c\" \"\" d\\e"
+        );
+        assert_eq!(
+            windows_command_line(&sv(&["x", "say \"hi\""])),
+            "x \"say \\\"hi\\\"\""
+        );
+        assert_eq!(
+            windows_command_line(&sv(&["x", "a\\\\\"b"])),
+            "x \"a\\\\\\\\\\\"b\""
+        );
+    }
+
+    #[test]
+    fn unsafe_for_cmd_shim_matches_ts_set() {
+        for c in ['"', '%', '&', '|', '<', '>', '^', '!', '\r', '\n', '`'] {
+            assert!(unsafe_for_cmd_shim(&format!("a{c}b")), "{c:?}");
+        }
+        assert!(!unsafe_for_cmd_shim("C:\\Users\\First Last\\x.json"));
+        assert!(!unsafe_for_cmd_shim("--flag=value,(x);'y'"));
+    }
+
+    #[test]
+    fn host_and_subscriptions_can_be_shared_across_threads() {
+        fn send_sync<T: Send + Sync>() {}
+        send_sync::<PtyHost>();
+        send_sync::<Subscription>();
+    }
+
+    // --- subscriptions ---
+
+    #[test]
+    fn subscriptions_unsubscribe_explicitly_and_on_drop() {
+        let reg: Shared<DataFn> = registry();
+        let a = subscribe(&reg, Arc::new(|_: &[u8]| {}) as Arc<DataFn>);
+        let b = subscribe(&reg, Arc::new(|_: &[u8]| {}) as Arc<DataFn>);
+        assert_eq!(listeners(&reg).len(), 2);
+        a.unsubscribe();
+        assert_eq!(listeners(&reg).len(), 1);
+        drop(b);
+        assert!(listeners(&reg).is_empty());
+        // outliving the registry is fine
+        let c = subscribe(&reg, Arc::new(|_: &[u8]| {}) as Arc<DataFn>);
+        drop(reg);
+        c.unsubscribe();
+    }
+}

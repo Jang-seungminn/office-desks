@@ -3,5 +3,6 @@
 pub mod env;
 pub mod hook_relay;
 pub mod hooks;
+pub mod pty_host;
 pub mod registry;
 pub mod worktrees;
