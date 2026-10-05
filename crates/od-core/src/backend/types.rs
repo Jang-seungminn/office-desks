@@ -71,3 +71,28 @@ pub enum KeyInput {
     Bytes(String),
     Enter,
 }
+
+/// One conversation search hit (Orca's `orca session search`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationHit {
+    pub agent: String,
+    pub title: String,
+    pub cwd: String,
+    pub updated_at: Option<String>,
+    /// Matched text with [[highlights]].
+    pub snippet: String,
+    pub role: Option<String>,
+    pub file_path: Option<String>,
+    pub resume_command: Option<String>,
+}
+
+/// Board fields to change (`setBoard`); `None` leaves a field as is, an empty comment clears it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardUpdate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}

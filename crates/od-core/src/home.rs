@@ -9,7 +9,7 @@ use crate::jsstr;
 /// absolute path, else the platform's home lookup. If neither yields an absolute path (a
 /// stripped-down environment), falls back to the system temp dir so the result is never empty
 /// or relative.
-fn os_home() -> PathBuf {
+pub(crate) fn os_home() -> PathBuf {
     let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     let from_env = std::env::var_os(key)
         .map(PathBuf::from)

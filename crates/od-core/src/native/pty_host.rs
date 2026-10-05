@@ -233,6 +233,14 @@ pub struct Subscription {
 }
 
 impl Subscription {
+    /// A subscription that runs `off` once, on `unsubscribe()` or drop. For other
+    /// implementations of the same callbacks (test doubles of the host).
+    pub fn new(off: impl FnOnce() + Send + Sync + 'static) -> Self {
+        Self {
+            off: Some(Box::new(off)),
+        }
+    }
+
     pub fn unsubscribe(mut self) {
         if let Some(off) = self.off.take() {
             off();
