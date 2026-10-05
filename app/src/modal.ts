@@ -1,3 +1,5 @@
+import { focusSelector } from './focus';
+
 // In-page modals (never window.confirm: unverified under wry/WKWebView). Every string goes in via textContent.
 export interface ConfirmOpts { title: string; body: string; confirm: string; danger?: boolean }
 export interface WorkValues { name: string; baseBranch: string; agent: string; prompt: string }
@@ -10,6 +12,14 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   if (cls) e.className = cls;
   if (text !== undefined) e.textContent = text;
   return e;
+}
+
+let active: { cancel(): void } | null = null;
+let seq = 0;
+
+/** True while a modal is open (Task 8's shortcuts must not fire then). */
+export function isModalOpen(): boolean {
+  return active !== null;
 }
 
 function modalRoot(): HTMLElement {
@@ -58,8 +68,9 @@ function open<T>(
   submitLabel: string,
   build: (form: HTMLElement) => void,
   read: () => T | null,
-  opts: { danger?: boolean; noForm?: boolean } = {},
+  opts: { danger?: boolean; backdropCancel?: boolean } = {},
 ): Promise<T | null> {
+  if (active) return Promise.resolve(null); // one modal at a time
   return new Promise((resolve) => {
     const root = modalRoot();
     const backdrop = el('div', 'modal-backdrop');
@@ -70,7 +81,10 @@ function open<T>(
     const close = el('button', 'modal-close', '✕');
     close.type = 'button';
     close.title = '닫기';
-    head.append(el('h2', undefined, title), close);
+    const h2 = el('h2', undefined, title);
+    h2.id = `modal-title-${++seq}`;
+    box.setAttribute('aria-labelledby', h2.id);
+    head.append(h2, close);
     const form = el('form', 'modal-form');
     form.noValidate = true; // submit() trims, then validates itself
     build(form);
@@ -85,15 +99,19 @@ function open<T>(
     backdrop.append(box);
 
     const prevFocus = document.activeElement as HTMLElement | null;
+    const prevSel = focusSelector(prevFocus); // the sidebar may have re-rendered meanwhile
     let done = false;
     const finish = (v: T | null): void => {
       if (done) return;
       done = true;
+      active = null;
       document.removeEventListener('keydown', onKey, true);
       backdrop.remove();
-      prevFocus?.focus?.();
+      const target = prevFocus?.isConnected ? prevFocus : prevSel ? document.querySelector<HTMLElement>(prevSel) : null;
+      target?.focus?.();
       resolve(v);
     };
+    active = { cancel: () => finish(null) };
     const submit = (): void => {
       for (const i of form.querySelectorAll<HTMLInputElement>('input')) i.value = i.value.trim();
       if (!form.checkValidity()) {
@@ -104,10 +122,26 @@ function open<T>(
       if (v !== null) finish(v);
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !e.isComposing) {
         e.preventDefault();
         e.stopPropagation();
         finish(null);
+      } else if (e.key === 'Tab') {
+        const items = [...box.querySelectorAll<HTMLElement>('button, input, select, textarea')].filter((x) => !x.hasAttribute('disabled'));
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        const cur = document.activeElement;
+        if (!box.contains(cur)) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+        } else if (e.shiftKey && cur === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && cur === last) {
+          e.preventDefault();
+          first.focus();
+        }
       }
     };
     document.addEventListener('keydown', onKey, true);
@@ -131,7 +165,7 @@ function open<T>(
     cancel.addEventListener('click', () => finish(null));
     close.addEventListener('click', () => finish(null));
     backdrop.addEventListener('mousedown', (e) => {
-      if (e.target === backdrop) finish(null);
+      if (opts.backdropCancel && e.target === backdrop) finish(null);
     });
     root.append(backdrop);
     const first = form.querySelector<HTMLElement>('input, textarea, select');
@@ -145,7 +179,7 @@ export async function confirmModal(o: ConfirmOpts): Promise<boolean> {
     o.confirm,
     (f) => f.append(el('p', 'modal-body', o.body)),
     () => true,
-    { danger: o.danger },
+    { danger: o.danger, backdropCancel: true },
   );
   return r === true;
 }
@@ -190,9 +224,12 @@ export function toast(text: string, kind: 'info' | 'error' = 'info'): void {
   if (!host) {
     host = el('div');
     host.id = 'toast-root';
+    host.setAttribute('role', 'status');
     document.body.append(host);
   }
   const t = el('div', kind === 'error' ? 'toast error' : 'toast', text);
+  if (kind === 'error') t.setAttribute('role', 'alert');
   host.append(t);
+  while (host.children.length > 5) host.firstElementChild!.remove();
   setTimeout(() => t.remove(), 4000);
 }

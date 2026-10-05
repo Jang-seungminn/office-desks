@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sidebar, type SidebarDeps } from '../src/sidebar';
-import { agent, desk, snap } from './tree.test';
+import { agent, desk, snap } from './fixtures';
 
 let deps: { [K in keyof SidebarDeps]: ReturnType<typeof vi.fn> };
 let root: HTMLElement;
@@ -33,8 +33,9 @@ describe('Sidebar', () => {
     expect(root.textContent).toContain('<img src=x onerror=alert(1)>');
   });
   it('clicks', () => {
-    const row = root.querySelector<HTMLElement>('[data-agent="a1"]')!;
-    row.click();
+    const open = root.querySelector<HTMLElement>('button[data-agent="a1"]')!;
+    const row = open.closest<HTMLElement>('.agent')!;
+    open.click();
     expect(deps.openAgent).toHaveBeenCalledWith(wt, wt.agents[0]);
     deps.openAgent.mockClear();
     btn('⏹ 중지', row).click();
@@ -64,5 +65,20 @@ describe('Sidebar', () => {
     expect(root.textContent).toContain('공방 서버에 다시 연결하는 중…');
     sb.setConnected(true);
     expect(root.textContent).not.toContain('다시 연결하는 중');
+  });
+  it('keeps focus across a re-render and skips unchanged snapshots', () => {
+    const stop = root.querySelector<HTMLElement>('button.stop-agent')!;
+    stop.focus();
+    const treeBefore = root.querySelector('section');
+    sb.render({ ...snap([main, wt]), updatedAt: 999 });
+    expect(root.querySelector('section')).toBe(treeBefore); // unchanged: no rebuild
+    expect(document.activeElement).toBe(stop);
+    sb.render(snap([main, desk({ ...wt, comment: 'x', agents: [agent({ id: 'a1', state: 'typing' })] })]));
+    expect(root.querySelector('section')).not.toBe(treeBefore);
+    const now = document.activeElement as HTMLElement;
+    expect(now).not.toBe(stop);
+    expect(now.classList.contains('stop-agent')).toBe(true);
+    expect(now.dataset.stop).toBe('a1');
+    expect(root.textContent).toContain('작업 중');
   });
 });

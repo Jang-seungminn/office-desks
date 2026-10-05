@@ -10,10 +10,13 @@ import * as api from '../src/api';
 import { pickFolder } from '../src/host';
 import { addAgentFlow, addProjectFlow, hooks, newWorkFlow, onSnapshot, removeFlow, stopFlow } from '../src/actions';
 import * as modal from '../src/modal';
-import { agent, desk, snap } from './tree.test';
+import { agent, desk, snap } from './fixtures';
 
 const d = desk({ id: 'w', name: 'wt1', branch: 'wt1' });
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.useRealTimers();
+});
 const toasts = () => (modal.toast as any).mock.calls;
 
 describe('flows', () => {
@@ -89,5 +92,46 @@ describe('flows', () => {
     const after = desk({ id: 'w', agents: [agent({ id: 'old' }), agent({ id: 'new' })] });
     onSnapshot(snap([after]));
     expect(open).toHaveBeenCalledWith(after, after.agents[1]);
+  });
+  it('stop: cancel makes no API call; confirm comes before the API', async () => {
+    (modal.confirmModal as any).mockResolvedValueOnce(false);
+    await stopFlow(d, agent({ id: 'a1' }));
+    expect(api.stopAgent).not.toHaveBeenCalled();
+    (modal.confirmModal as any).mockResolvedValueOnce(true);
+    (api.stopAgent as any).mockResolvedValue(undefined);
+    await stopFlow(d, agent({ id: 'a1' }));
+    const c = (modal.confirmModal as any).mock.invocationCallOrder.at(-1);
+    expect(c).toBeLessThan((api.stopAgent as any).mock.invocationCallOrder[0]);
+  });
+  it('double click: the second stop is ignored while the first is in flight', async () => {
+    let release!: (v: boolean) => void;
+    (modal.confirmModal as any).mockReturnValue(new Promise<boolean>((r) => (release = r)));
+    (api.stopAgent as any).mockResolvedValue(undefined);
+    const a = stopFlow(d, agent({ id: 'a1' }));
+    await stopFlow(d, agent({ id: 'a1' }));
+    expect(modal.confirmModal).toHaveBeenCalledTimes(1);
+    release(true);
+    await a;
+    expect(api.stopAgent).toHaveBeenCalledTimes(1);
+    (modal.confirmModal as any).mockResolvedValue(false);
+    await stopFlow(d, agent({ id: 'a1' })); // key cleared in finally
+    expect(modal.confirmModal).toHaveBeenCalledTimes(2);
+  });
+  it('pending open expires after 30 s; hire error clears it', async () => {
+    vi.useFakeTimers();
+    const open = vi.fn();
+    hooks.openAgent = open;
+    hooks.snapshot = () => snap([]);
+    (modal.workModal as any).mockResolvedValue({ name: 'fix', baseBranch: '', agent: 'claude', prompt: '' });
+    (api.hire as any).mockResolvedValue({ ok: true });
+    await newWorkFlow('r1');
+    vi.advanceTimersByTime(31_000);
+    onSnapshot(snap([desk({ name: 'fix', agents: [agent({ id: 'n' })] })]));
+    expect(open).not.toHaveBeenCalled();
+    await newWorkFlow('r1');
+    (api.hire as any).mockRejectedValue(new ApiError('안 돼요', 400));
+    await newWorkFlow('r1');
+    onSnapshot(snap([desk({ name: 'fix', agents: [agent({ id: 'n' })] })]));
+    expect(open).not.toHaveBeenCalled();
   });
 });

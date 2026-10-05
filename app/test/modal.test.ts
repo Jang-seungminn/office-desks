@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
-import { agentModal, confirmModal, workModal } from '../src/modal';
+import { agentModal, confirmModal, isModalOpen, workModal } from '../src/modal';
 
 beforeEach(() => {
   document.body.innerHTML = '';
@@ -66,5 +66,63 @@ describe('modals', () => {
     expect(document.querySelector('.modal')).not.toBeNull();
     inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(await p).toEqual({ agent: 'codex', prompt: 'hi' });
+  });
+  it('does not stack modals', async () => {
+    const p = workModal('repo');
+    expect(isModalOpen()).toBe(true);
+    expect(await confirmModal(opts)).toBe(false);
+    expect(await agentModal('x')).toBeNull();
+    expect(document.querySelectorAll('.modal')).toHaveLength(1);
+    expect(q('.modal').getAttribute('aria-labelledby')).toBe(q('h2').id);
+    byText('취소').click();
+    await p;
+    expect(isModalOpen()).toBe(false);
+  });
+  it('traps Tab inside the box', async () => {
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    const p = confirmModal(opts);
+    const ok = q<HTMLElement>('.modal-ok');
+    const close = byText('✕');
+    ok.focus();
+    const tab = (shiftKey = false) => {
+      const e = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+      document.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(tab()).toBe(true);
+    expect(document.activeElement).toBe(close);
+    expect(tab(true)).toBe(true);
+    expect(document.activeElement).toBe(ok);
+    outside.focus();
+    tab();
+    expect(q('.modal').contains(document.activeElement)).toBe(true);
+    byText('취소').click();
+    await p;
+  });
+  it('Escape while composing does not close; backdrop cancels confirm only', async () => {
+    const p = workModal('r');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true }));
+    expect(isModalOpen()).toBe(true);
+    q('.modal-backdrop').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(isModalOpen()).toBe(true);
+    byText('취소').click();
+    await p;
+    const c = confirmModal(opts);
+    q('.modal-backdrop').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(await c).toBe(false);
+  });
+  it('returns focus to the opener, or to its replacement after a re-render', async () => {
+    document.body.innerHTML = '<div data-desk="w"><button class="remove-worktree">x</button></div>';
+    const old = q<HTMLElement>('button');
+    old.focus();
+    const p = confirmModal(opts);
+    document.body.innerHTML = '<div data-desk="w"><button class="remove-worktree">x</button></div>';
+    const fresh = q<HTMLElement>('button');
+    // the modal root was wiped too; re-open the modal host the way the app would keep it
+    document.body.append(document.getElementById('modal-root') ?? document.createElement('div'));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await p;
+    expect(document.activeElement).toBe(fresh);
   });
 });

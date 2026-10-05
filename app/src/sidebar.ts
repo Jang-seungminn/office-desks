@@ -1,4 +1,5 @@
 import type { OfficeAgent, OfficeDesk, OfficeSnapshot } from '../../bridge/src/model';
+import { focusSelector } from './focus';
 import { shortcutLabel } from './keymap';
 import { projects, STATE_LABEL } from './tree';
 
@@ -34,7 +35,7 @@ export class Sidebar {
   private banner = el('div', 'sidebar-banner');
   private conn = el('div', 'sidebar-banner');
   private tree = el('div', 'sidebar-body');
-  private last: OfficeSnapshot | null = null;
+  private lastJson: string | null = null;
   private connected = true;
 
   constructor(private root: HTMLElement, private deps: SidebarDeps) {
@@ -61,7 +62,16 @@ export class Sidebar {
   }
 
   render(s: OfficeSnapshot | null): void {
-    this.last = s;
+    // updatedAt changes on every poll; skip the rebuild (and the focus loss) when nothing visible did.
+    const json = JSON.stringify(s ? { ...s, updatedAt: 0 } : null);
+    if (json === this.lastJson) return;
+    this.lastJson = json;
+    const focusSel = this.tree.contains(document.activeElement) ? focusSelector(document.activeElement) : null;
+    this.build(s);
+    if (focusSel) this.tree.querySelector<HTMLElement>(focusSel)?.focus();
+  }
+
+  private build(s: OfficeSnapshot | null): void {
     this.banner.hidden = !s?.error;
     this.banner.textContent = s?.error ? `⚠️ ${s.error}` : '';
     const ps = projects(s);
@@ -105,28 +115,23 @@ export class Sidebar {
         if (d.agents.length === 0) w.append(el('div', 'muted empty-seat', '빈 자리'));
         for (const a of d.agents) {
           const row = el('div', 'agent');
-          row.dataset.agent = a.id;
-          row.tabIndex = 0;
-          row.setAttribute('role', 'button');
-          const open = (): void => {
+          const open = el('button', 'agent-open');
+          open.type = 'button';
+          open.dataset.agent = a.id;
+          open.addEventListener('click', () => {
             this.selectedRepoId = p.repoId;
             this.deps.openAgent(d, a);
-          };
-          row.addEventListener('click', open);
-          row.addEventListener('keydown', (e) => {
-            if (e.target === row && (e.key === 'Enter' || e.key === ' ')) {
-              e.preventDefault();
-              open();
-            }
           });
-          row.append(
+          open.append(
             el('span', 'agent-type', a.agentType),
             el('span', `state state-${a.state}`, STATE_LABEL[a.state] ?? String(a.state)),
-            btn('⏹ 중지', 'stop-agent danger', (e) => {
-              e.stopPropagation();
-              this.deps.stop(d, a);
-            }),
           );
+          const stop = btn('⏹ 중지', 'stop-agent danger', () => {
+            this.selectedRepoId = p.repoId;
+            this.deps.stop(d, a);
+          });
+          stop.dataset.stop = a.id;
+          row.append(open, stop);
           w.append(row);
         }
         sec.append(w);
