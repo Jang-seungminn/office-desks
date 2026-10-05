@@ -905,3 +905,96 @@ async fn org_save_failure_is_502_without_code() {
         0
     );
 }
+
+// ---- Task 4 fix round 1 ----
+
+#[tokio::test]
+async fn repos_path_limit_counts_utf16_units() {
+    let caps = BackendCapabilities {
+        repos: true,
+        ..no_capabilities()
+    };
+    let (fake, s) = with_desk(caps).await;
+    // 500 astral chars are 1000 UTF-16 units; 1001 units is over.
+    let ok = "😀".repeat(500);
+    let r = post(&s, "/api/repos", &format!(r#"{{"path":"{ok}"}}"#)).await;
+    assert_eq!(r.status, 200);
+    let r = post(&s, "/api/repos", &format!(r#"{{"path":"{ok}a"}}"#)).await;
+    assert_eq!(r.status, 400);
+    let ascii = "a".repeat(1000);
+    assert_eq!(
+        post(&s, "/api/repos", &format!(r#"{{"path":"{ascii}"}}"#))
+            .await
+            .status,
+        200
+    );
+    let r = post(&s, "/api/repos", &format!(r#"{{"path":"{ascii}a"}}"#)).await;
+    assert_eq!(r.status, 400);
+    assert_eq!(fake.calls_of("add_repo").len(), 2);
+}
+
+#[tokio::test]
+async fn hire_warning_is_in_the_200() {
+    let caps = BackendCapabilities {
+        hire: true,
+        ..no_capabilities()
+    };
+    let (fake, s) = with_desk(caps).await;
+    *fake.hire_warning.lock().unwrap() = Some("prompt not delivered".into());
+    let r = post(&s, "/api/hire", r#"{"agent":"claude","deskId":"d1"}"#).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.body, br#"{"ok":true,"warning":"prompt not delivered"}"#);
+}
+
+#[tokio::test]
+async fn hire_non_string_name_and_base_branch_count_as_absent() {
+    let caps = BackendCapabilities {
+        hire: true,
+        ..no_capabilities()
+    };
+    let (fake, s) = with_desk(caps).await;
+    // Parked difference: TS coerces a numeric name; here it is dropped, so the name is missing.
+    let r = post(
+        &s,
+        "/api/hire",
+        r#"{"agent":"claude","repoId":"repo1","name":5}"#,
+    )
+    .await;
+    assert_eq!(r.status, 400);
+    let r = post(
+        &s,
+        "/api/hire",
+        r#"{"agent":"claude","repoId":"repo1","name":"w1","baseBranch":7}"#,
+    )
+    .await;
+    assert_eq!(r.status, 200, "{}", r.text());
+    let call = &fake.calls_of("hire")[0];
+    assert!(
+        call.contains(r#""name":"w1""#) && !call.contains("7"),
+        "{call}"
+    );
+}
+
+#[tokio::test]
+async fn worktree_status_null_is_stored_as_the_string_null() {
+    let caps = BackendCapabilities {
+        board: true,
+        ..no_capabilities()
+    };
+    let (fake, s) = with_desk(caps).await;
+    let r = post(
+        &s,
+        "/api/worktree",
+        r#"{"deskId":"d1","workspaceStatus":null}"#,
+    )
+    .await;
+    assert_eq!(r.status, 200);
+    assert_eq!(
+        fake.calls_of("set_board")[0],
+        r#"set_board d1 {"workspaceStatus":"null"}"#
+    );
+    err_of(&fake, "set_board", BackendError::plain("disk"));
+    let r = post(&s, "/api/worktree", r#"{"deskId":"d1","comment":"x"}"#).await;
+    assert_eq!(r.status, 502);
+    assert_eq!(r.body, br#"{"error":"disk"}"#);
+}

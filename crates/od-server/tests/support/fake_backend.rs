@@ -38,6 +38,8 @@ pub struct FakeBackend {
     pub calls: Mutex<Vec<String>>,
     /// What `hook` returns.
     pub hook: Mutex<bool>,
+    /// The `warning` `hire` answers with.
+    pub hire_warning: Mutex<Option<String>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -114,6 +116,7 @@ impl Default for FakeBackend {
             blocked: Mutex::new(HashMap::new()),
             calls: Mutex::new(Vec::new()),
             hook: Mutex::new(false),
+            hire_warning: Mutex::new(None),
         }
     }
 }
@@ -201,7 +204,9 @@ impl OfficeBackend for FakeBackend {
     async fn hire(&self, spec: HireSpec) -> Result<HireResult, BackendError> {
         let spec = serde_json::to_string(&spec).expect("spec");
         self.call("hire", &[&spec])?;
-        Ok(HireResult::default())
+        Ok(HireResult {
+            warning: lock(&self.hire_warning).clone(),
+        })
     }
     async fn set_board(&self, desk_id: &str, update: BoardUpdate) -> Result<(), BackendError> {
         let update = serde_json::to_string(&update).expect("update");

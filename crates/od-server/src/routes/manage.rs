@@ -51,8 +51,8 @@ pub(crate) async fn hire(st: &AppState, req: Request) -> Result<Response, ApiErr
         name: str_of(field(&body, "name")?),
         desk_id: field(&body, "deskId")?.map(|v| v.as_str().map(str::to_string)),
     };
-    let desks = st.poller.current().desks.clone();
-    let spec = match od_core::hire::validate_hire(&hire_req, &desks) {
+    let snap = st.poller.current();
+    let spec = match od_core::hire::validate_hire(&hire_req, &snap.desks) {
         Ok(s) => s,
         Err(msg) => return Ok(json(StatusCode::BAD_REQUEST, &json!({ "error": msg }))),
     };
@@ -93,7 +93,8 @@ fn unknown_worktree() -> Response {
 /// `POST /api/worktree`.
 pub(crate) async fn worktree(st: &AppState, req: Request) -> Result<Response, ApiError> {
     let body = post_body(req, CAP).await?;
-    let desks = st.poller.current().desks.clone();
+    let snap = st.poller.current();
+    let desks = &snap.desks;
     // `find` only reads `body.deskId` when there is a desk to test.
     let desk_id = if desks.is_empty() {
         None
@@ -117,10 +118,7 @@ pub(crate) async fn worktree(st: &AppState, req: Request) -> Result<Response, Ap
                 &json!({ "error": "invalid status" }),
             ));
         }
-        update.workspace_status = Some(match v {
-            Value::String(s) => s.clone(),
-            other => js::string(other),
-        });
+        update.workspace_status = Some(js::string(v));
     }
     if let Some(v) = field(&body, "comment")? {
         let c = js::trim(&js::collapse_spaces(&js::string(v))).to_string();
