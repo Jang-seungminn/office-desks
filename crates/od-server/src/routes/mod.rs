@@ -77,19 +77,19 @@ pub(crate) async fn dispatch(st: Arc<AppState>, req: Request, url: RequestUrl) -
         return not_found(); // Task 7
     }
     if get && (p == "/api/changes" || p == "/api/diff") {
-        return not_found(); // Task 6
+        return done(read::changes(&st, &url, p == "/api/diff").await);
     }
     if get && p == "/api/search" {
-        return not_found(); // Task 6
+        return done(read::search(&st, &url).await);
     }
     if get && p == "/api/commands" {
-        return not_found(); // Task 6
+        return done(read::commands(&st, &url).await);
     }
     if get && p == "/api/terminal" {
-        return not_found(); // Task 6
+        return done(read::terminal(&st, &url).await);
     }
     if get && p == "/api/conversation" {
-        return not_found(); // Task 6
+        return done(read::conversation_route(&st, &url).await);
     }
 
     // 2. POST /api/org, before the content-type gate.

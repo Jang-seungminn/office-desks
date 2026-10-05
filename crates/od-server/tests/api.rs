@@ -1080,3 +1080,206 @@ async fn worktree_status_null_is_stored_as_the_string_null() {
     assert_eq!(r.status, 502);
     assert_eq!(r.body, br#"{"error":"disk"}"#);
 }
+
+// ---- read routes (Task 6) ----
+
+fn hit(
+    title: &str,
+    cwd: &str,
+    file: Option<&str>,
+    resume: &str,
+) -> od_core::backend::ConversationHit {
+    od_core::backend::ConversationHit {
+        agent: "claude".into(),
+        title: title.into(),
+        cwd: cwd.into(),
+        updated_at: None,
+        snippet: "[[hi]]".into(),
+        role: None,
+        file_path: file.map(str::to_string),
+        resume_command: Some(resume.into()),
+    }
+}
+
+async fn with_agent(caps: BackendCapabilities) -> (Arc<FakeBackend>, support::TestServer) {
+    let fake = with_caps(caps);
+    fake.set_snapshot(Ok(office(vec![desk(
+        "d1",
+        "/nowhere",
+        vec![agent("a1", Some("pty_1")), agent("a2", None)],
+    )])));
+    let s = start_cfg(&fake, |_| {}).await;
+    s.handle.poller().refresh().await;
+    (fake, s)
+}
+
+#[tokio::test]
+async fn search_matches_the_running_session_and_keeps_other_resume_commands() {
+    let caps = BackendCapabilities {
+        search: true,
+        ..no_capabilities()
+    };
+    let (fake, s) = with_agent(caps).await;
+    fake.set_session(Some("/s/live.jsonl".into()));
+    *fake.search.lock().unwrap() = vec![
+        hit(
+            "live",
+            "/work/proj",
+            Some("/s/live.jsonl"),
+            "claude --resume 1",
+        ),
+        hit(
+            "old",
+            "C:\\work\\proj\\",
+            Some("/s/old.jsonl"),
+            "claude --resume 2",
+        ),
+        hit("nofile", "/work/x", None, "claude --resume 3"),
+    ];
+    let r = s.client.get("/api/search?q=%20hi%20").await;
+    assert_eq!(r.status, 200, "{}", r.text());
+    assert_eq!(
+        fake.calls_of("search_conversations"),
+        ["search_conversations hi"]
+    );
+    let v = r.json();
+    let res = v["results"].as_array().unwrap();
+    assert_eq!(res.len(), 3);
+    assert_eq!(res[0]["deskId"], "d1");
+    assert_eq!(res[0]["agentId"], "a1");
+    assert!(res[0]["resumeCommand"].is_null());
+    assert_eq!(res[0]["project"], "proj");
+    assert!(res[1]["deskId"].is_null() && res[1]["agentId"].is_null());
+    assert_eq!(res[1]["resumeCommand"], "claude --resume 2");
+    let want = if cfg!(windows) {
+        "proj"
+    } else {
+        "C:\\work\\proj\\"
+    };
+    assert_eq!(res[1]["project"], want);
+    assert!(res[2]["deskId"].is_null());
+    assert_eq!(res[2]["resumeCommand"], "claude --resume 3");
+}
+
+#[tokio::test]
+async fn search_validates_q_before_the_capability() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    for q in [
+        "",
+        "%20%20",
+        "a".repeat(201).as_str(),
+        "😀".repeat(101).as_str(),
+    ] {
+        let r = s.client.get(&format!("/api/search?q={q}")).await;
+        assert_eq!(r.status, 400, "{q}");
+        assert_eq!(
+            r.body,
+            "{\"error\":\"검색어를 1~200자로 입력해 주세요\"}".as_bytes()
+        );
+    }
+    // 100 emoji are 200 units: in range, and without the capability the list is empty.
+    let r = s
+        .client
+        .get(&format!("/api/search?q={}", "😀".repeat(100)))
+        .await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.body, br#"{"results":[]}"#);
+    assert!(fake.calls_of("search_conversations").is_empty());
+}
+
+#[tokio::test]
+async fn changes_and_diff_need_a_known_desk_and_the_capability() {
+    let (_f, s) = with_agent(no_capabilities()).await;
+    for path in [
+        "/api/changes?deskId=d1",
+        "/api/diff?deskId=d1&file=x",
+        "/api/changes",
+    ] {
+        let r = s.client.get(path).await;
+        assert_eq!(r.status, 404, "{path}");
+        assert_eq!(r.body, br#"{"error":"unknown worktree"}"#);
+    }
+    let caps = BackendCapabilities {
+        changes: true,
+        ..no_capabilities()
+    };
+    let (_f, s) = with_agent(caps).await;
+    let r = s.client.get("/api/changes?deskId=nope").await;
+    assert_eq!(r.status, 404);
+    // d1's path does not exist: a git failure is 502 with no code.
+    let r = s.client.get("/api/changes?deskId=d1").await;
+    assert_eq!(r.status, 502);
+    assert!(r.json().get("code").is_none());
+}
+
+#[tokio::test]
+async fn terminal_route() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    *fake.screen.lock().unwrap() = vec!["hello".into()];
+    let r = s.client.get("/api/terminal?agentId=a2").await;
+    assert_eq!(
+        r.body,
+        br#"{"found":false,"lines":[],"composer":"unknown"}"#
+    );
+    let r = s.client.get("/api/terminal").await;
+    assert_eq!(
+        r.body,
+        br#"{"found":false,"lines":[],"composer":"unknown"}"#
+    );
+    let r = s.client.get("/api/terminal?agentId=a1").await;
+    assert_eq!(r.status, 200);
+    let v = r.json();
+    assert_eq!(
+        (v["found"].clone(), v["lines"][0].clone()),
+        (true.into(), "hello".into())
+    );
+    assert_eq!(fake.calls_of("read_screen"), ["read_screen pty_1"]);
+
+    err_of(
+        &fake,
+        "read_screen",
+        BackendError::with_code("read only", "terminal_not_writable"),
+    );
+    let r = s.client.get("/api/terminal?agentId=a1").await;
+    assert_eq!(r.status, 409);
+    assert_eq!(
+        r.body,
+        br#"{"error":"read only","code":"terminal_not_writable"}"#
+    );
+    err_of(&fake, "read_screen", BackendError::plain("boom"));
+    let r = s.client.get("/api/terminal?agentId=a1").await;
+    assert_eq!(r.status, 502);
+    assert_eq!(r.body, br#"{"error":"boom"}"#);
+}
+
+#[tokio::test]
+async fn commands_route() {
+    let (_f, s) = with_agent(no_capabilities()).await;
+    let r = s.client.get("/api/commands?agentId=nope").await;
+    assert_eq!(r.body, b"[]");
+    let r = s.client.get("/api/commands?agentId=a1").await;
+    assert_eq!(r.status, 200);
+    assert!(r.json().is_array());
+}
+
+#[tokio::test]
+async fn conversation_without_agent_or_session() {
+    let (fake, s) = with_agent(no_capabilities()).await;
+    let r = s.client.get("/api/conversation?agentId=nope").await;
+    assert_eq!(r.status, 200);
+    let v = r.json();
+    assert_eq!(v["found"], false);
+    assert_eq!(v["reason"], "이 에이전트는 더 이상 사무실에 없습니다.");
+    let v = s.client.get("/api/conversation").await.json();
+    assert_eq!(v["found"], false);
+    let v = s.client.get("/api/conversation?agentId=a1").await.json();
+    assert_eq!(v["reason"], "no session");
+    assert_eq!(v["screenSupport"], "unknown");
+    // A transcript that cannot be read is 502.
+    fake.set_session(Some(
+        s.dir.path().join("missing.jsonl").display().to_string(),
+    ));
+    let r = s.client.get("/api/conversation?agentId=a1").await;
+    assert_eq!(r.status, 502);
+    assert!(r.json().get("code").is_none());
+}

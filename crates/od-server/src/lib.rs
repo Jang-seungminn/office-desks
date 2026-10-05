@@ -171,6 +171,15 @@ pub async fn serve(
         }),
         usage: Mutex::new(None),
         awards: Arc::clone(&awards),
+        commands: Arc::new(od_core::commands::CommandCatalog::with(
+            30_000,
+            cfg.commands_home.clone(),
+            Box::new(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as i64)
+            }),
+        )),
         stop: stop_tx.subscribe(),
     });
     start_background(&state);

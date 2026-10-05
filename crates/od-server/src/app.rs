@@ -14,6 +14,7 @@ use tower_http::catch_panic::CatchPanicLayer;
 
 use od_core::awards::{AwardBook, RawBoard};
 use od_core::backend::OfficeBackend;
+use od_core::commands::CommandCatalog;
 use od_core::model::{OfficeAgent, OfficeDesk, OfficeSnapshot, OrgChart, UsageSnapshot};
 use serde_json::Value;
 use tokio::sync::watch;
@@ -39,6 +40,8 @@ pub(crate) struct AppState {
     /// The last plan usage the backend reported (`usage`), None until one is known.
     pub usage: Mutex<Option<UsageSnapshot>>,
     pub awards: Arc<Mutex<AwardBook>>,
+    /// Slash-command scans, cached for 30 s, over `cfg.commands_home`.
+    pub commands: Arc<CommandCatalog>,
     /// Becomes true on `ServerHandle::shutdown` (and errors once every handle is dropped).
     /// Upgraded WS connections outlive the graceful shutdown, so every WS loop and background
     /// task `select!`s on this to end itself.
@@ -64,7 +67,6 @@ impl AppState {
 
     /// `findAgent`: the desk and agent with this id in the current snapshot. A missing id
     /// (`null` in TS) never matches.
-    #[expect(dead_code, reason = "used by the routes of Tasks 6-8")]
     pub fn find_agent(&self, agent_id: Option<&str>) -> Option<(OfficeDesk, OfficeAgent)> {
         find_agent_in(&self.poller.current(), agent_id)
     }
