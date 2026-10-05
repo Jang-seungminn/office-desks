@@ -1,7 +1,11 @@
 // Records crates/od-server/tests/contract/fixtures/*.json from the real Node bridge
 // (bridge/src/server.ts, native backend) in a scratch world. The Rust test
 // `cargo test -p od-server --test native` replays the same steps against od-server and compares.
-// Run (macOS only): npm run contract:record
+// Run (macOS only): npm run contract:record [-- --only native|demo]
+//
+// `--only demo` records fixtures/demo.json from steps-demo.json: the bridge's demo backend
+// (OFFICE_DESKS_BACKEND=demo, a fake Orca) with the demo clock fixed by OFFICE_DESKS_DEMO_EPOCH,
+// replayed by the Rust trial `contract_demo`. No fake agent and no git are needed for it.
 //
 // The step format, the normalizer and the template rules are mirrored in
 // crates/od-server/tests/native/contract.rs; normalize-cases.json pins the normalizer on both sides.
@@ -520,9 +524,75 @@ class Run {
   }
 }
 
-async function main(): Promise<void> {
-  if (process.platform === 'win32') throw new Error('contract: the recorder runs on macOS only (Windows replays the committed fixtures)');
-  checkNormalizeCases();
+/** Spawns the bridge with exactly `env` and waits for `GET /api/snapshot` to answer 200. */
+async function startBridge(env: Vars, port: number, root: string, log: string[]): Promise<ChildProcess> {
+  const bridge = spawn(process.execPath, ['--import', 'tsx', 'bridge/src/server.ts'], { cwd: REPO_ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  console.log(`contract: bridge pid ${bridge.pid} on 127.0.0.1:${port}, scratch ${root}`);
+  bridge.stdout!.on('data', (c: Buffer) => log.push(c.toString()));
+  bridge.stderr!.on('data', (c: Buffer) => log.push(c.toString()));
+  return bridge;
+}
+
+async function waitForBridge(bridge: ChildProcess, port: number): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    if (bridge.exitCode !== null) throw new Error(`contract: the bridge exited with ${bridge.exitCode}`);
+    const ok = await request(port, 'GET', '/api/snapshot', {}, null).then((r) => r.status === 200, () => false);
+    if (ok) return;
+    if (Date.now() >= deadline) throw new Error('contract: the bridge did not answer in 20 s');
+    await sleep(200);
+  }
+}
+
+/** SIGTERM the bridge this script spawned, then SIGKILL that same pid after 5 s. Nothing else. */
+async function stopBridge(bridge: ChildProcess | null): Promise<void> {
+  if (bridge?.pid && bridge.exitCode === null && bridge.signalCode === null) {
+    const exited = new Promise<void>((r) => bridge.once('exit', () => r()));
+    bridge.kill('SIGTERM');
+    const t = await Promise.race([exited.then(() => 'exit'), sleep(5000).then(() => 'timeout')]);
+    if (t === 'timeout') {
+      console.error(`contract: bridge ${bridge.pid} did not exit in 5 s; SIGKILL`);
+      bridge.kill('SIGKILL');
+      await exited;
+    }
+  }
+}
+
+/** Runs `steps` in order and returns each group's fixture entries. */
+async function recordSteps(run: Run, steps: Step[], groups: string[]): Promise<Record<string, JsonObject>> {
+  const fixtures: Record<string, JsonObject> = Object.fromEntries(groups.map((g) => [g, {}]));
+  for (const step of steps) {
+    run.started.set(step.name, performance.now());
+    const before: Vars = { ...run.vars };
+    run.captured = {};
+    let rec: Json | undefined;
+    try {
+      rec = await run.run(step);
+    } catch (err) {
+      throw new Error(`step ${step.name}: ${(err as Error).message}`);
+    }
+    // Normalized with the variables known after this step (its own captures included), so a
+    // fixture never depends on a later step: the Rust replay may stop at any group.
+    // A capturing step also records `captured`: id shapes, normalized with the variables
+    // before the step (never normalized again).
+    const captured = Object.keys(run.captured).length ? capturedBlock(before, run.captured) : null;
+    if (rec !== undefined) {
+      const n = normalize(rec, run.vars) as JsonObject;
+      if (captured) n.captured = captured;
+      fixtures[step.group][step.name] = n;
+    } else if (captured) fixtures[step.group][step.name] = { captured };
+    const status = isObject(rec) && typeof rec.status === 'number' ? rec.status : rec === undefined ? '-' : 'ws';
+    console.log(`  ${step.group.padEnd(6)} ${step.name} ${status}`);
+  }
+  return fixtures;
+}
+
+function writeFixture(group: string, entries: JsonObject): void {
+  writeFileSync(path.join(CONTRACT_DIR, 'fixtures', `${group}.json`), `${JSON.stringify(sortKeys(entries), null, 2)}\n`);
+}
+
+/** steps.json against the native backend: fixtures/<group>.json for every group in GROUPS. */
+async function recordNative(): Promise<void> {
   const doc = JSON.parse(readFileSync(path.join(CONTRACT_DIR, 'steps.json'), 'utf8')) as { version: number; setup: JsonObject; steps: Step[] };
   if (doc.version !== 1) throw new Error(`steps.json version ${doc.version}`);
   const names = new Set<string>();
@@ -545,16 +615,7 @@ async function main(): Promise<void> {
     if (cleaned) return;
     cleaned = true;
     for (const s of run?.sockets.values() ?? []) s.ws.terminate();
-    if (bridge?.pid && bridge.exitCode === null && bridge.signalCode === null) {
-      const exited = new Promise<void>((r) => bridge!.once('exit', () => r()));
-      bridge.kill('SIGTERM');
-      const t = await Promise.race([exited.then(() => 'exit'), sleep(5000).then(() => 'timeout')]);
-      if (t === 'timeout') {
-        console.error(`contract: bridge ${bridge.pid} did not exit in 5 s; SIGKILL`);
-        bridge.kill('SIGKILL');
-        await exited;
-      }
-    }
+    await stopBridge(bridge);
     const ours = path.join(root, 'bin', 'claude');
     for (const line of agentLines(path.join(root, 'out'))) {
       const pid = line.pid as number;
@@ -608,18 +669,8 @@ async function main(): Promise<void> {
     buildSetup(root, doc.setup, env, gitPath);
     preflight(env, root);
 
-    bridge = spawn(process.execPath, ['--import', 'tsx', 'bridge/src/server.ts'], { cwd: REPO_ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
-    console.log(`contract: bridge pid ${bridge.pid} on 127.0.0.1:${port}, scratch ${root}`);
-    bridge.stdout!.on('data', (c: Buffer) => log.push(c.toString()));
-    bridge.stderr!.on('data', (c: Buffer) => log.push(c.toString()));
-    const deadline = Date.now() + 20_000;
-    for (;;) {
-      if (bridge.exitCode !== null) throw new Error(`contract: the bridge exited with ${bridge.exitCode}`);
-      const ok = await request(port, 'GET', '/api/snapshot', {}, null).then((r) => r.status === 200, () => false);
-      if (ok) break;
-      if (Date.now() >= deadline) throw new Error('contract: the bridge did not answer in 20 s');
-      await sleep(200);
-    }
+    bridge = await startBridge(env, port, root, log);
+    await waitForBridge(bridge, port);
 
     const vars: Vars = {
       ROOT: root.replace(/\\/g, '/'),
@@ -629,31 +680,8 @@ async function main(): Promise<void> {
       HOST: `127.0.0.1:${port}`,
     };
     run = new Run(port, root, vars);
-    const fixtures: Record<string, JsonObject> = Object.fromEntries(GROUPS.map((g) => [g, {}]));
-    for (const step of doc.steps) {
-      run.started.set(step.name, performance.now());
-      const before: Vars = { ...run.vars };
-      run.captured = {};
-      let rec: Json | undefined;
-      try {
-        rec = await run.run(step);
-      } catch (err) {
-        throw new Error(`step ${step.name}: ${(err as Error).message}`);
-      }
-      // Normalized with the variables known after this step (its own captures included), so a
-      // fixture never depends on a later step: the Rust replay may stop at any group.
-      // A capturing step also records `captured`: id shapes, normalized with the variables
-      // before the step (never normalized again).
-      const captured = Object.keys(run.captured).length ? capturedBlock(before, run.captured) : null;
-      if (rec !== undefined) {
-        const n = normalize(rec, run.vars) as JsonObject;
-        if (captured) n.captured = captured;
-        fixtures[step.group][step.name] = n;
-      } else if (captured) fixtures[step.group][step.name] = { captured };
-      const status = isObject(rec) && typeof rec.status === 'number' ? rec.status : rec === undefined ? '-' : 'ws';
-      console.log(`  ${step.group.padEnd(6)} ${step.name} ${status}`);
-    }
-    for (const g of GROUPS) writeFileSync(path.join(CONTRACT_DIR, 'fixtures', `${g}.json`), `${JSON.stringify(sortKeys(fixtures[g]), null, 2)}\n`);
+    const fixtures = await recordSteps(run, doc.steps, GROUPS);
+    for (const g of GROUPS) writeFixture(g, fixtures[g]);
     console.log(`wrote ${GROUPS.length} fixture files`);
   } catch (err) {
     if (log.length) console.error(`--- bridge output ---\n${log.join('')}`);
@@ -663,6 +691,90 @@ async function main(): Promise<void> {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
   }
+}
+
+/** steps-demo.json against the demo backend with a fixed clock: fixtures/demo.json. */
+async function recordDemo(): Promise<void> {
+  const doc = JSON.parse(readFileSync(path.join(CONTRACT_DIR, 'steps-demo.json'), 'utf8')) as { version: number; epoch: unknown; steps: Step[] };
+  if (doc.version !== 1) throw new Error(`steps-demo.json version ${doc.version}`);
+  const epoch = doc.epoch;
+  if (typeof epoch !== 'number' || !Number.isSafeInteger(epoch) || epoch <= 0) throw new Error(`steps-demo.json: epoch ${JSON.stringify(epoch)} is not a positive integer`);
+  const names = new Set<string>();
+  for (const st of doc.steps) {
+    if (names.has(st.name)) throw new Error(`steps-demo.json: duplicate step ${st.name}`);
+    names.add(st.name);
+    if (st.group !== 'demo') throw new Error(`steps-demo.json: step ${st.name} is in group ${st.group}, not demo`);
+  }
+
+  const root = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'od-contract-demo-')));
+  let bridge: ChildProcess | null = null;
+  let run: Run | null = null;
+  const log: string[] = [];
+  let cleaned = false;
+  const cleanup = async (): Promise<void> => {
+    if (cleaned) return;
+    cleaned = true;
+    for (const s of run?.sockets.values() ?? []) s.ws.terminate();
+    await stopBridge(bridge);
+    rmSync(root, { recursive: true, force: true });
+  };
+  const onSignal = () => void cleanup().finally(() => process.exit(130));
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+
+  try {
+    for (const d of ['tmp', 'home', 'office', 'claude']) mkdirSync(path.join(root, d), { recursive: true });
+    writeFileSync(path.join(root, 'gitconfig'), '');
+    const port = await freePort();
+    const env: Vars = {
+      PATH: ['/usr/bin', '/bin'].join(path.delimiter),
+      HOME: path.join(root, 'home'),
+      USERPROFILE: path.join(root, 'home'),
+      TMPDIR: path.join(root, 'tmp'),
+      TMP: path.join(root, 'tmp'),
+      TEMP: path.join(root, 'tmp'),
+      CLAUDE_CONFIG_DIR: path.join(root, 'claude'),
+      OFFICE_DESKS_HOME: path.join(root, 'office'),
+      // Explicit, so the bridge never probes Orca.
+      OFFICE_DESKS_BACKEND: 'demo',
+      OFFICE_DESKS_DEMO_EPOCH: String(epoch),
+      OFFICE_DESKS_PORT: String(port),
+      GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'),
+      GIT_CONFIG_NOSYSTEM: '1',
+      LANG: 'C.UTF-8',
+    };
+
+    bridge = await startBridge(env, port, root, log);
+    await waitForBridge(bridge, port);
+
+    const vars: Vars = { ROOT: root.replace(/\\/g, '/'), PORT: String(port), HOST: `127.0.0.1:${port}` };
+    run = new Run(port, root, vars);
+    const fixtures = await recordSteps(run, doc.steps, ['demo']);
+    writeFixture('demo', fixtures.demo);
+    console.log('wrote fixtures/demo.json');
+  } catch (err) {
+    if (log.length) console.error(`--- bridge output ---\n${log.join('')}`);
+    throw err;
+  } finally {
+    await cleanup();
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+  }
+}
+
+/** `--only native|demo`; both when absent. */
+function parseOnly(argv: string[]): 'native' | 'demo' | null {
+  if (!argv.length) return null;
+  if (argv.length === 2 && argv[0] === '--only' && (argv[1] === 'native' || argv[1] === 'demo')) return argv[1];
+  throw new Error(`usage: npm run contract:record [-- --only native|demo] (got ${JSON.stringify(argv)})`);
+}
+
+async function main(): Promise<void> {
+  if (process.platform === 'win32') throw new Error('contract: the recorder runs on macOS only (Windows replays the committed fixtures)');
+  const only = parseOnly(process.argv.slice(2));
+  checkNormalizeCases();
+  if (only !== 'demo') await recordNative();
+  if (only !== 'native') await recordDemo();
 }
 
 main().catch((err: unknown) => {

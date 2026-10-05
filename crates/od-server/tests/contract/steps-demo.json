@@ -1,0 +1,190 @@
+{
+  "version": 1,
+  "epoch": 1790856000000,
+  "steps": [
+    {
+      "name": "demo-wait",
+      "group": "demo",
+      "kind": "waitFor",
+      "path": [
+        "desks",
+        8,
+        "agents"
+      ]
+    },
+    {
+      "name": "demo-org-wait",
+      "group": "demo",
+      "kind": "waitFor",
+      "url": "/api/org",
+      "path": [
+        "departments",
+        0
+      ]
+    },
+    {
+      "name": "demo-snapshot",
+      "group": "demo",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot"
+    },
+    {
+      "name": "demo-org",
+      "group": "demo",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/org"
+    },
+    {
+      "name": "demo-terminal-working",
+      "group": "demo",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/terminal?agentId=p1%3Aleaf"
+    },
+    {
+      "name": "demo-terminal-asking",
+      "group": "demo",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/terminal?agentId=p2%3Aleaf"
+    },
+    {
+      "name": "demo-conversation",
+      "group": "demo",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=p1%3Aleaf"
+    },
+    {
+      "name": "demo-conversation-question",
+      "group": "demo",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=p2%3Aleaf"
+    },
+    {
+      "name": "demo-search",
+      "group": "demo",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/search?q=hello"
+    },
+    {
+      "name": "demo-changes",
+      "group": "demo",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/changes?deskId=demo-shop-web%3A%3A%2Fdemo%2Fshop-web%2Fshop-web"
+    },
+    {
+      "name": "demo-hire",
+      "group": "demo",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/hire",
+      "body": {
+        "agent": "claude",
+        "deskId": "demo-shop-web::/demo/shop-web/shop-web"
+      }
+    },
+    {
+      "name": "demo-worktree",
+      "group": "demo",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/worktree",
+      "body": {
+        "deskId": "demo-shop-web::/demo/shop-web/shop-web",
+        "comment": "x"
+      }
+    },
+    {
+      "name": "demo-repos",
+      "group": "demo",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/repos",
+      "body": {
+        "path": "/x"
+      }
+    },
+    {
+      "name": "demo-send-menu",
+      "group": "demo",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "body": {
+        "terminalHandle": "demo_p2",
+        "text": "hi"
+      }
+    },
+    {
+      "name": "demo-send",
+      "group": "demo",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "body": {
+        "terminalHandle": "demo_p1",
+        "text": "hello"
+      }
+    },
+    {
+      "name": "demo-keys",
+      "group": "demo",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/keys",
+      "body": {
+        "terminalHandle": "demo_p1",
+        "key": "enter"
+      }
+    },
+    {
+      "name": "demo-focus",
+      "group": "demo",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/focus",
+      "body": {
+        "terminalHandle": "demo_p1"
+      }
+    },
+    {
+      "name": "demo-retry-unknown",
+      "group": "demo",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send/retry",
+      "body": {
+        "requestId": "nope"
+      }
+    },
+    {
+      "name": "demo-ws",
+      "group": "demo",
+      "kind": "wsOpen",
+      "id": "w",
+      "count": 2
+    },
+    {
+      "name": "demo-ws-usage",
+      "group": "demo",
+      "kind": "wsExpect",
+      "id": "w",
+      "type": "usage",
+      "after": "demo-ws"
+    },
+    {
+      "name": "demo-ws-org",
+      "group": "demo",
+      "kind": "wsExpect",
+      "id": "w",
+      "type": "org",
+      "after": "demo-ws"
+    }
+  ]
+}
