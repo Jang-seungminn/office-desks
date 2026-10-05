@@ -356,8 +356,16 @@ mod tests {
                 for f in ["alert(", "confirm("] {
                     let mut rest = text.as_str();
                     while let Some(i) = rest.find(f) {
-                        let before = rest[..i].chars().next_back();
-                        if !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '$') {
+                        // A bare call or `window.` / `globalThis.` / `self.`; not `x.confirm(`.
+                        let head = &rest[..i];
+                        let global = ["window.", "globalThis.", "self."]
+                            .iter()
+                            .any(|g| head.ends_with(g));
+                        let bare = !head
+                            .chars()
+                            .next_back()
+                            .is_some_and(|c| c.is_alphanumeric() || "_$.".contains(c));
+                        if global || bare {
                             hits.push(format!("{}: {f}", path.display()));
                         }
                         rest = &rest[i + f.len()..];
