@@ -126,16 +126,15 @@ async fn hook_true_is_204_and_refreshes() {
     let fake = Arc::new(FakeBackend::default());
     *fake.hook.lock().unwrap() = true;
     let s = start_cfg(&fake, |_| {}).await;
+    s.handle.poller().refresh().await; // let the startup poll finish first
     let before = fake.calls_of("snapshot").len();
     let r = hook_post(&s, "/hook/a%2Fb%3Amain?token=tok", br#"{"x":1}"#.to_vec()).await;
     assert_eq!(r.status, 204);
     assert!(r.body.is_empty());
     assert_security_headers(&r);
+    // The refresh was awaited: its poll has already run, with no waiting.
+    assert!(fake.calls_of("snapshot").len() > before);
     assert_eq!(fake.calls_of("hook"), vec![r#"hook a/b:main tok {"x":1}"#]);
-    wait_until("a refresh after the hook", Duration::from_secs(3), || {
-        fake.calls_of("snapshot").len() > before
-    })
-    .await;
 }
 
 #[tokio::test]

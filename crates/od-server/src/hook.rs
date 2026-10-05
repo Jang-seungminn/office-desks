@@ -30,11 +30,10 @@ pub(crate) async fn handle(st: Arc<AppState>, req: Request, url: RequestUrl) -> 
     let token = url.get("token").unwrap_or("");
     // Sync and only locks (the backend constant-time compares the token itself).
     if st.backend.hook(&id, token, &payload) {
-        // TS fires `void poller.refresh()` and answers at once, but there the native poll
-        // finishes within the same few event-loop turns, so the next request already sees the
-        // hook's effect. Here the poll runs on the blocking pool and would lose that race, so
-        // wait for it, bounded so a slow poll cannot stall the agent (the relay gives up at 3 s).
-        // On timeout the poll carries on in its own task.
+        // TS fires `void poller.refresh()` and answers at once. The poll (source + enrichment)
+        // takes a few ms and the client's next GET arrives first, so wait for it, bounded so a
+        // slow poll cannot stall the agent (the relay gives up at 3 s). On timeout the poll
+        // carries on in its own task.
         let _ = tokio::time::timeout(REFRESH_WAIT, st.poller.refresh()).await;
         StatusCode::NO_CONTENT.into_response()
     } else {

@@ -35,8 +35,10 @@ pub struct Poller {
     interval: Duration,
     idle_interval: Duration,
     state: Mutex<State>,
-    /// The running poll, if any: concurrent `refresh` callers wait for the same one.
-    in_flight: Mutex<Option<watch::Receiver<bool>>>,
+    /// Refresh bookkeeping, see [`Gens`].
+    gens: Mutex<Gens>,
+    /// The generation of the last finished poll; `refresh` waits on it.
+    completed: watch::Sender<u64>,
     idle: AtomicBool,
     wake: Notify,
     changes: broadcast::Sender<Arc<OfficeSnapshot>>,
@@ -60,12 +62,26 @@ struct Key<'a> {
     error: &'a Option<String>,
 }
 
-/// Clears `in_flight` when the poll task ends, even by panic, so later refreshes start a new one.
-struct ClearInFlight(Arc<Poller>);
+/// Generations: every `refresh` call bumps `requested`. A poll records `requested` when it
+/// starts and, once done, publishes it as `completed`. A call that arrives while a poll runs
+/// (so possibly after its source ran) leaves `requested` ahead, and the poll task loops once
+/// more: a `refresh` is never satisfied by a poll whose source ran before the call.
+#[derive(Default)]
+struct Gens {
+    requested: u64,
+    running: bool,
+}
 
-impl Drop for ClearInFlight {
+/// Ends the poll task's run, even by panic, so waiters wake and later refreshes start a new one.
+struct EndRun(Arc<Poller>);
+
+impl Drop for EndRun {
     fn drop(&mut self) {
-        lock(&self.0.in_flight).take();
+        let mut g = lock(&self.0.gens);
+        if g.running {
+            g.running = false;
+            self.0.completed.send_replace(g.requested);
+        }
     }
 }
 
@@ -89,7 +105,8 @@ impl Poller {
                 }),
                 last_key: String::new(),
             }),
-            in_flight: Mutex::new(None),
+            gens: Mutex::new(Gens::default()),
+            completed: watch::channel(0).0,
             idle: AtomicBool::new(false),
             wake: Notify::new(),
             changes: broadcast::channel(CHANGE_BUFFER).0,
@@ -119,28 +136,34 @@ impl Poller {
         self.changes.subscribe()
     }
 
-    /// Poll now; concurrent callers share the in-flight poll. The poll runs in its own task, so
-    /// it completes even if every caller stops waiting.
+    /// Poll now and return once a poll that started after this call has finished. Concurrent
+    /// callers share polls. The poll runs in its own task, so it completes even if every caller
+    /// stops waiting.
     pub async fn refresh(self: &Arc<Self>) {
-        let mut done = {
-            let mut g = lock(&self.in_flight);
-            match g.as_ref() {
-                Some(rx) => rx.clone(),
-                None => {
-                    let (tx, rx) = watch::channel(false);
-                    *g = Some(rx.clone());
-                    let me = Arc::clone(self);
-                    tokio::spawn(async move {
-                        let clear = ClearInFlight(Arc::clone(&me));
+        let (target, mut done) = {
+            let mut g = lock(&self.gens);
+            g.requested += 1;
+            if !g.running {
+                g.running = true;
+                let me = Arc::clone(self);
+                tokio::spawn(async move {
+                    let end = EndRun(Arc::clone(&me));
+                    loop {
+                        let gen = lock(&me.gens).requested;
                         me.poll().await;
-                        drop(clear);
-                        tx.send_replace(true);
-                    });
-                    rx
-                }
+                        me.completed.send_replace(gen);
+                        let mut g = lock(&me.gens);
+                        if g.requested == gen {
+                            g.running = false;
+                            break;
+                        }
+                    }
+                    drop(end);
+                });
             }
+            (g.requested, self.completed.subscribe())
         };
-        let _ = done.wait_for(|d| *d).await;
+        let _ = done.wait_for(|c| *c >= target).await;
     }
 
     /// `void poller.refresh()`.
@@ -388,5 +411,54 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(60)).await;
         assert_eq!(polls.load(Ordering::SeqCst), n);
         assert!(lock(&poller.task).is_none());
+    }
+
+    #[tokio::test]
+    async fn refresh_during_a_poll_waits_for_a_later_poll() {
+        let polls = Arc::new(AtomicUsize::new(0));
+        let gate = Arc::new(Notify::new());
+        let (p, g) = (Arc::clone(&polls), Arc::clone(&gate));
+        let source: SourceFn = Arc::new(move || {
+            let n = p.fetch_add(1, Ordering::SeqCst) + 1;
+            let g = Arc::clone(&g);
+            Box::pin(async move {
+                if n == 1 {
+                    g.notified().await;
+                }
+                Ok(office(n))
+            })
+        });
+        let poller = Poller::new(
+            source,
+            no_enrich(),
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+        );
+        let first = tokio::spawn({
+            let p = Arc::clone(&poller);
+            async move { p.refresh().await }
+        });
+        while polls.load(Ordering::SeqCst) < 1 {
+            tokio::task::yield_now().await;
+        }
+        // The first poll's source has run and is held at the gate.
+        let second = tokio::spawn({
+            let p = Arc::clone(&poller);
+            async move { p.refresh().await }
+        });
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!second.is_finished());
+        gate.notify_one();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            first.await.unwrap();
+            second.await.unwrap();
+        })
+        .await
+        .expect("both refreshes return");
+        assert_eq!(polls.load(Ordering::SeqCst), 2);
+        // The second caller saw the second poll's result.
+        assert_eq!(poller.current().desks.len(), 2);
     }
 }
