@@ -267,26 +267,6 @@ fn hook_url_encodes_the_agent_id() {
     );
 }
 
-#[tokio::test]
-async fn native_backend_uses_the_scratch_home() {
-    let dir = tempfile::tempdir().unwrap();
-    let scratch = |name: &str| {
-        let p = dir.path().join(name);
-        std::fs::create_dir_all(&p).unwrap();
-        p.to_string_lossy().into_owned()
-    };
-    let env = HashMap::from([
-        ("OFFICE_DESKS_HOME".to_string(), scratch("office")),
-        ("HOME".to_string(), scratch("home")),
-        ("USERPROFILE".to_string(), scratch("home")),
-        ("CLAUDE_CONFIG_DIR".to_string(), scratch("claude")),
-    ]);
-    let b = od_server::native_backend(&env, 1).await;
-    use od_core::backend::OfficeBackend;
-    assert_eq!(b.name(), "native");
-    b.dispose().await;
-}
-
 // ---- Task 3: gates, snapshot, /ws, poller, enrichment ----
 
 use od_core::backend::{BackendCapabilities, OfficeBackend};

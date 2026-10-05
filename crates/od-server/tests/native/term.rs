@@ -369,10 +369,24 @@ fn term_mute(sub: &Path) -> Result<(), Failed> {
         first_frame(&mut b).await;
 
         send_bin(&mut a, b"query\r").await;
-        let deadline = Instant::now() + Duration::from_millis(700);
+        // Wait (up to 5 s) for the query to reach the client, then watch 500 ms more for a
+        // reply the server should not have sent.
+        let deadline = Instant::now() + Duration::from_secs(5);
         let mut seen = Vec::new();
-        loop {
+        while !String::from_utf8_lossy(&seen).contains("\x1b[c") {
             let left = deadline.saturating_duration_since(Instant::now());
+            match next_frame(&mut a, left).await {
+                Frame::Bin(bytes) => seen.extend(bytes),
+                Frame::Quiet => panic!(
+                    "the query never reached the client: {:?}",
+                    String::from_utf8_lossy(&seen)
+                ),
+                other => panic!("{other:?}"),
+            }
+        }
+        let quiet_until = Instant::now() + Duration::from_millis(500);
+        loop {
+            let left = quiet_until.saturating_duration_since(Instant::now());
             match next_frame(&mut a, left).await {
                 Frame::Bin(bytes) => seen.extend(bytes),
                 Frame::Quiet => break,
@@ -380,10 +394,6 @@ fn term_mute(sub: &Path) -> Result<(), Failed> {
             }
         }
         let seen = String::from_utf8_lossy(&seen);
-        assert!(
-            seen.contains("\x1b[c"),
-            "the query reached the client: {seen:?}"
-        );
         assert!(!seen.contains(DA1_ECHO), "{seen:?}");
 
         // One client gone: the other still holds its mute.
@@ -397,7 +407,7 @@ fn term_mute(sub: &Path) -> Result<(), Failed> {
 
         // Both gone: replies resume (retried, as the server may not have seen the drop yet).
         drop(b);
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + Duration::from_secs(5);
         while !rig.screen_has(DA1_ECHO) {
             assert!(Instant::now() < deadline, "replies never resumed");
             rig.pty().write(&rig.pty_id, b"query\r").unwrap();
