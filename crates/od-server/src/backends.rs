@@ -20,6 +20,15 @@ pub enum BackendKind {
 }
 
 impl BackendKind {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "orca" => Some(BackendKind::Orca),
+            "native" => Some(BackendKind::Native),
+            "demo" => Some(BackendKind::Demo),
+            _ => None,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             BackendKind::Orca => "orca",

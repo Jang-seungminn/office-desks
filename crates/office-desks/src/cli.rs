@@ -64,20 +64,16 @@ pub fn parse(args: &[String], env: &EnvMap) -> Result<Cli, String> {
             _ => DEFAULT_PORT,
         },
     };
-    let kind = |s: &str| match s {
-        "orca" => Some(BackendKind::Orca),
-        "native" => Some(BackendKind::Native),
-        "demo" => Some(BackendKind::Demo),
-        _ => None,
-    };
     let env_backend = env
         .get("OFFICE_DESKS_BACKEND")
         .map(|v| v.trim())
         .filter(|v| !v.is_empty());
     let backend = if let Some(v) = value_of("--backend") {
-        Some(v.and_then(kind).ok_or(BACKEND_ERROR)?)
+        Some(v.and_then(BackendKind::parse).ok_or(BACKEND_ERROR)?)
     } else if let Some(v) = env_backend {
-        Some(kind(v).ok_or(BACKEND_ERROR)?)
+        Some(BackendKind::parse(v).ok_or_else(|| {
+            format!("Unknown OFFICE_DESKS_BACKEND \"{v}\" (use orca, native or demo)")
+        })?)
     } else if args.iter().any(|a| a == "--demo")
         || env.get("OFFICE_DESKS_DEMO").is_some_and(|v| !v.is_empty())
     {
@@ -162,6 +158,10 @@ mod tests {
             Some(BackendKind::Demo)
         );
         assert_eq!(p(&["--backend", "x"], &[]), Err(BACKEND_ERROR.to_string()));
+        assert_eq!(
+            p(&[], &[("OFFICE_DESKS_BACKEND", "x")]),
+            Err("Unknown OFFICE_DESKS_BACKEND \"x\" (use orca, native or demo)".to_string())
+        );
         assert_eq!(p(&["--no-tui"], &[]).unwrap().backend, None);
         assert_eq!(p(&[], &[("OFFICE_DESKS_DEMO", "")]).unwrap().backend, None);
     }
