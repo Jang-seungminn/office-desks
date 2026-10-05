@@ -2,6 +2,7 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import crossSpawn from 'cross-spawn';
+import { BackendError } from './backend/types.js';
 
 /**
  * Resolve the Orca CLI executable, following Orca's own rules:
@@ -18,12 +19,9 @@ export function resolveOrcaCommand(
   return 'orca';
 }
 
-export class OrcaCliError extends Error {
-  constructor(
-    message: string,
-    readonly code: string = 'orca_cli_error',
-  ) {
-    super(message);
+export class OrcaCliError extends BackendError {
+  constructor(message: string, code: string = 'orca_cli_error') {
+    super(message, code);
   }
 }
 
