@@ -254,8 +254,12 @@ impl OrcaCli {
                 format!("Orca CLI \"{}\" not found on PATH", self.command),
                 "not_found",
             ),
-            // std refusing a batch-file argument it cannot escape safely (CVE-2024-24576).
-            std::io::ErrorKind::InvalidInput if cfg!(windows) => unsafe_for_cmd(),
+            // std refusing a batch-file argument it cannot escape safely (CVE-2024-24576). Only
+            // for a `.cmd`/`.bat` shim: an `.exe` install's InvalidInput (a NUL in an argument)
+            // is a plain spawn error. `win` is None off Windows.
+            std::io::ErrorKind::InvalidInput if self.win.as_ref().is_some_and(|w| w.via_cmd) => {
+                unsafe_for_cmd()
+            }
             _ => BackendError::with_code(e.to_string(), "spawn_error"),
         }
     }
@@ -318,7 +322,8 @@ pub fn one_line(s: &str) -> String {
 }
 
 /// Is an Orca app running whose CLI answers? True only when `result.runtime.reachable` is
-/// exactly `true`; any error is false.
+/// exactly `true`; any error is false. Callers must build the runner with [`PROBE_TIMEOUT`]
+/// (TS `createOrcaRunner(undefined, 3000)`): this function uses the runner's own timeout.
 pub async fn probe_orca(runner: &dyn OrcaRunner) -> bool {
     match runner.run(&["status".to_string()]).await {
         Ok(v) => v.pointer("/runtime/reachable") == Some(&Value::Bool(true)),
@@ -494,6 +499,33 @@ mod tests {
         assert_eq!(
             err(runner.run(&args).await),
             ("unsafe_for_cmd".into(), UNSAFE_FOR_CMD.into())
+        );
+    }
+
+    #[test]
+    fn invalid_input_is_unsafe_for_cmd_only_for_a_shim() {
+        let e = || std::io::Error::new(std::io::ErrorKind::InvalidInput, "nul byte found");
+        let shim =
+            OrcaCli::with_resolution("orca".into(), ORCA_TIMEOUT, Some(cmd("orca.cmd", true)));
+        assert_eq!(
+            err(Err(shim.spawn_error(e()))),
+            ("unsafe_for_cmd".into(), UNSAFE_FOR_CMD.into())
+        );
+        let exe =
+            OrcaCli::with_resolution("orca".into(), ORCA_TIMEOUT, Some(cmd("orca.exe", false)));
+        assert_eq!(
+            err(Err(exe.spawn_error(e()))),
+            ("spawn_error".into(), "nul byte found".into())
+        );
+        let unix = OrcaCli::with_resolution("orca".into(), ORCA_TIMEOUT, None);
+        assert_eq!(err(Err(unix.spawn_error(e()))).0, "spawn_error");
+        let missing = std::io::Error::new(std::io::ErrorKind::NotFound, "x");
+        assert_eq!(
+            err(Err(unix.spawn_error(missing))),
+            (
+                "not_found".into(),
+                "Orca CLI \"orca\" not found on PATH".into()
+            )
         );
     }
 
