@@ -90,16 +90,17 @@ fn current_uid() -> Option<u32> {
     None
 }
 
-/// The real upload folder for this process. The temp root is Node's `os.tmpdir()`
-/// ([`os_tmpdir`]), as in TS.
+/// The real upload folder for this process. The temp root: on Windows Node's `os.tmpdir()`
+/// ([`os_tmpdir`]: `TEMP` before `TMP`), as in TS; on unix `std::env::temp_dir()`, unchanged
+/// (with `TMPDIR` set the two agree; unset on macOS std gives the per-user folder).
 pub fn upload_dir() -> PathBuf {
     let env: HashMap<String, String> = std::env::vars().collect();
-    upload_dir_for(
-        &env,
-        &os_tmpdir(&env),
-        current_uid(),
-        cfg!(target_os = "linux"),
-    )
+    let tmp = if cfg!(windows) {
+        os_tmpdir(&env)
+    } else {
+        std::env::temp_dir()
+    };
+    upload_dir_for(&env, &tmp, current_uid(), cfg!(target_os = "linux"))
 }
 
 /// Create the folder 0700 and refuse one that is a symlink or owned by someone else.

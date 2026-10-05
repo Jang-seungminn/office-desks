@@ -429,6 +429,11 @@ fn bare_name_uses_the_env_path() -> R {
     let dir = scratch("bare_name_uses_the_env_path").join("bin");
     std::fs::create_dir_all(&dir).expect("bin");
     let orca = install(&dir, "orca");
+    // Canonical on both sides: Windows may report an 8.3 short path for the temp dir.
+    let same = |a: &Path, b: &Path| match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
     let mut env = EnvMap::from([
         ("PATH".to_string(), s(&dir)),
         ("OD_FAKE_MARK".to_string(), "from-the-env-map".to_string()),
@@ -441,7 +446,7 @@ fn bare_name_uses_the_env_path() -> R {
     }
     // The guard: the lookup must land on our copy, or nothing runs.
     let found = find_command("orca", &env).ok_or("bare orca not found on the scratch PATH")?;
-    if found.parent() != Some(dir.as_path()) {
+    if !same(&found, &orca) {
         return Err(format!(
             "bare orca resolved outside the scratch dir: {}",
             found.display()
@@ -461,10 +466,7 @@ fn bare_name_uses_the_env_path() -> R {
     let logged = calls(&dir);
     let call = logged.first().ok_or("the fake never ran")?;
     let exe = PathBuf::from(call["exe"].as_str().unwrap_or_default());
-    check(
-        exe.file_name() == orca.file_name() && exe.parent() == Some(dir.as_path()),
-        format!("ran {}", exe.display()),
-    )?;
+    check(same(&exe, &orca), format!("ran {}", exe.display()))?;
     check(
         call["mark"] == json!("from-the-env-map"),
         format!("the child did not get the EnvMap: {call}"),
