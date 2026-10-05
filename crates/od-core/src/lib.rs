@@ -1,6 +1,7 @@
 //! od-core: Rust port of the office-desks native core.
 
 pub mod backend;
+pub mod git;
 pub mod hire;
 pub mod home;
 mod jsstr;
