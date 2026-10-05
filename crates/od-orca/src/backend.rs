@@ -1344,6 +1344,7 @@ mod tests {
         for must in [
             "backend.rs",
             "cli.rs",
+            "demo.rs",
             "sessions.rs",
             "usage.rs",
             "verify.rs",
