@@ -35,7 +35,7 @@ Legend: **Group** is the fixture file. "api" means `tests/api.rs`, "unit" means 
 | static files (`web/dist`) | `assets::serve_static` (`WebDist` embeds `web/dist`; `MemAssets` in tests) | api `static_files_are_served_over_the_wire`, `root_without_dist_is_the_no_dist_text`; unit in `assets.rs` | none |
 | `security.ts` | `security::{is_allowed_request, apply_headers}` (token compare: `od_core::security::same_token`) | unit in `security.rs` (every `security.test.ts` case, with port 4318) | `guard` |
 | `poller.ts` | `poller::Poller`, `enrich::Enricher`, `start_background` in `lib.rs` (usage, awards, org, upload cleanup) | unit in `poller.rs`; api `usage_is_polled_at_start_and_sent_third`, `poller_idles_after_the_last_client_closes`, `transcripts_*` | `hook`, `manage` |
-| `backend/index.ts` `createNativeBackend` | `lib.rs` `native_backend`, `hook_url` | api `hook_url_encodes_the_agent_id`, `native_backend_uses_the_scratch_home` | all (the contract runs on `NativeBackend`) |
+| `backend/index.ts` `createNativeBackend` | `lib.rs` `native_backend`, `hook_url` | api `hook_url_encodes_the_agent_id`; native trial `native_backend_uses_the_scratch_home` (a repo seeded in the env's `OFFICE_DESKS_HOME` shows in `snapshot()`) | all (the contract runs on `NativeBackend`) |
 | `bin/office-desks.mjs` (server part) | `crates/office-desks` (`main.rs`, `cli.rs`) | `crates/office-desks/tests/cli.rs`, unit in `cli.rs` | none |
 | `/term/<id>` (new, no TS) | `term::upgrade` | native trials `term_*` | none |
 
@@ -58,7 +58,7 @@ Field coercion (body values that are not the expected type):
 - **Transcript `media_type` in the image routes.** Rust accepts the four real image types only. TS looks the type up in an object, so `constructor` or `__proto__` would be served with that content type (404 in Rust). Reason: needs a hand-made transcript; stricter is safer.
 
 Sockets and upgrades:
-- **Refused `/ws` and `/term` upgrades.** The answer is 403 (`{"error":"forbidden origin"}` for `/ws` and the guard, `forbidden`, `bad path` or `unknown terminal` for `/term`) plus `Connection: close`. TS calls `socket.destroy()`. Reason: axum cannot drop a socket before the upgrade; the contract fixture is `{rejected:true}` and the Rust runner also checks the 403.
+- **Refused `/ws` and `/term` upgrades.** A refused `/ws` upgrade answers 403 `{"error":"forbidden origin"}` plus `Connection: close`. TS calls `socket.destroy()`. Reason: axum cannot drop a socket before the upgrade; the contract fixture is `{rejected:true}` and the Rust runner also checks the 403. `/term` (no TS counterpart) refuses, in this order: the guard 403 `forbidden origin`, no upgrade 400 `websocket upgrade required`, a wrong or missing token 403 `forbidden`, a bad id 400 `bad path`, no live native terminal 404 `unknown terminal`.
 - **Malformed `/ws` handshake.** Non-GET, a bad `Upgrade`, a missing `Sec-WebSocket-Key` or a version other than 13 get axum's rejection (405 or 400 with its text body). `ws` sends its own bodies, plus `Sec-WebSocket-Version: 13, 8` on a mismatch.
 - **Security headers on the 101.** The five headers are also on the Switching Protocols response. Node's `ws` writes a bare 101. Harmless.
 - **Upgrade detection** follows Node (`Connection` has an `upgrade` token and `Upgrade` is non-empty), so `Upgrade: websocket` alone is a normal request in both.
@@ -91,6 +91,17 @@ Binary (`office-desks`):
 - **Windows shutdown is untested.** The bin shutdown test is a smoke test on Windows (`child.kill()` is `TerminateProcess` and asserts only that the process exits). Graceful shutdown is asserted on unix only (SIGINT and SIGTERM). The Ctrl+C, Ctrl+Break, close and shutdown console events are handled but never exercised, so graceful shutdown on Windows stays unverified until R4/R6.
 - **`hook-relay`** as the first argument runs before anything else and is bounded to 3 s overall, even if stdin stays open.
 - **Static paths.** A segment like `..foo` is a normal name and is served if such an asset exists, as with Node's `path.normalize`. Files outside the six TS extensions are `application/octet-stream`, as in TS.
+
+## Notes for R3/R4
+
+- **R3: Orca `find_session` and `snapshot`.** Enrichment spawns one `find_session` per agent per poll (od-core PARITY, "Transcript enrichment"). The Orca backend shells out for both, so they need in-flight dedupe (one call per agent at a time) and timeouts, or a slow `orca` piles up processes.
+- **R3: coded errors.** Every TS `BackendError` the Orca and demo backends throw must become `BackendError::with_code` (or `new`), never `plain`. The 400-vs-502 split in `/api/repos` (and the catch-all) depends on the code being there.
+- **R4: Tauri origins.** A Tauri webview sends `Origin: tauri://localhost` (macOS) or `http://tauri.localhost` (Windows) and may send `Sec-Fetch-Site: cross-site`; the guard refuses all of these with 403. Decide at the start of R4: add `ServerConfig.allowed_origins`, or load the app UI from od-server's own origin (`http://127.0.0.1:<port>/`).
+- **R4: call `shutdown()`.** Dropping every `ServerHandle` stops accepting but does not dispose the backend (agents keep running until the `PtyHost` is dropped). The desktop app must `shutdown().await` on quit.
+- **R4: `hook-relay` first.** The Tauri `main()` must dispatch `office-desks hook-relay` (argv[1]) before the GUI or the runtime starts, as `crates/office-desks/src/main.rs` does; agent hooks run the app binary with it.
+- **R4: the poller idles** unless a `/ws` client is connected or `tui_active` is set. A desktop view that reads `ServerHandle::poller()` directly without `/ws` must set `tui_active` (or call `refresh()`), or it reads 10 s old data.
+- **R6: release check.** The release job must assert that `web/dist/index.html` exists before building: rust-embed embeds whatever is there, and a binary built without it serves only the no-dist hint.
+- **Later: PTY input queue.** `PtyHost` input goes through an unbounded channel to the writer thread; a stuck agent with a flood of `/term` input grows it without limit.
 
 ## Left for later
 
