@@ -676,9 +676,22 @@ impl PtyHost {
                 killer: child.clone_killer(),
             }),
         });
-        {
+        let raced = {
             let mut map = lock(&self.inner.sessions);
-            map.insert(id.to_string(), session.clone());
+            if map.contains_key(id) {
+                true // another spawn took this id while ours started
+            } else {
+                map.insert(id.to_string(), session.clone());
+                false
+            }
+        };
+        if raced {
+            session.close();
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(BackendError::new(format!(
+                "이미 실행 중인 에이전트 터미널이에요: {id}"
+            )));
         }
         self.inner.publish_count();
 
@@ -886,6 +899,8 @@ impl PtyHost {
 
     /// Kill every agent and wait (at most 2 s) until all have exited and been reaped.
     /// Survivors of the hang-up are force-killed after 1.5 s.
+    /// Needs a tokio runtime with the time driver enabled (it panics without one); a sync
+    /// caller can `block_on` it on a small current-thread runtime built with `enable_time()`.
     pub async fn dispose(&self) {
         let sessions = self.all();
         if sessions.is_empty() {
