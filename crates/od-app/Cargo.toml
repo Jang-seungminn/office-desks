@@ -32,7 +32,7 @@ tauri-plugin-dialog = "2.8"
 tauri-plugin-opener = "2.7"
 rust-embed = "=8.12.0"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
 url = "2"
 
 [build-dependencies]
@@ -41,6 +41,8 @@ tauri-build = { version = "~2.7", features = [] }
 embed-resource = "3"
 
 [dev-dependencies]
+# MockRuntime (`tauri::test`) for the IPC ACL trial; same version as the main dependency.
+tauri = { version = "2.12", features = ["test"] }
 tempfile = "3"
 dunce = "1"
 serde_json = { workspace = true }

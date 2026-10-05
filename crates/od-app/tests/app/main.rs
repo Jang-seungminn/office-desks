@@ -59,6 +59,10 @@ fn main() {
             "gongbang_hook_relay_starts_no_gui",
             gongbang_hook_relay_starts_no_gui,
         ),
+        trial(
+            "ipc_is_main_window_on_our_origin_only",
+            ipc_is_main_window_on_our_origin_only,
+        ),
     ];
     let conclusion = libtest_mimic::run(&args, trials);
     drop(scratch);
@@ -393,4 +397,131 @@ fn gongbang_hook_relay_starts_no_gui(sub: &Path) {
     let request = server.join().expect("hook server");
     assert!(request.contains("\"Stop\""), "{request}");
     assert!(request.contains("/hook/x?token=t"), "{request}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// IPC ACL (Tauri MockRuntime, the production `configure` + `setup_main`)
+// ---------------------------------------------------------------------------------------------
+
+/// Invoke `cmd` from `webview` as if the request came from `origin` (what Tauri matches the
+/// capability's remote pattern against).
+fn invoke(
+    webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+    cmd: &str,
+    origin: &str,
+) -> Result<Value, Value> {
+    tauri::test::get_ipc_response(
+        webview,
+        tauri::webview::InvokeRequest {
+            cmd: cmd.into(),
+            callback: tauri::ipc::CallbackFn(0),
+            error: tauri::ipc::CallbackFn(1),
+            url: origin.parse().expect("origin url"),
+            body: tauri::ipc::InvokeBody::default(),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.to_string(),
+        },
+    )
+    .map(|b| b.deserialize::<Value>().expect("json body"))
+}
+
+fn assert_denied(r: Result<Value, Value>, token: &str, what: &str) {
+    match r {
+        Ok(v) => panic!("{what}: allowed, answered {v}"),
+        Err(e) => {
+            let e = e.to_string();
+            assert!(!e.contains(token), "{what}: the error carries the token");
+            assert!(e.contains("not allowed"), "{what}: not an ACL denial: {e}");
+        }
+    }
+}
+
+/// The capability grants our three commands to window `main` on `http://127.0.0.1:<port>`
+/// only: not to the office window, not to another label, not to another origin, and no
+/// plugin or core permission to anyone. `term_config` is the token's only channel.
+fn ipc_is_main_window_on_our_origin_only(sub: &Path) {
+    use od_app::gui::{configure, setup_main, MAIN, OFFICE};
+    use tauri::Manager;
+
+    let w = world_for(sub);
+    let rt = runtime();
+    let core = Arc::new(start_core(&rt, &w, &w.env));
+    let port = core.port;
+    let token = core.token().to_string();
+    let origin = od_app::nav::origin(port);
+
+    let app = configure(tauri::test::mock_builder(), Arc::clone(&core))
+        .build(tauri::generate_context!(test = true))
+        .expect("mock app");
+    let main = setup_main(&app, port).expect("main window");
+    assert_eq!(main.label(), MAIN);
+    assert_eq!(main.url().expect("main url"), od_app::nav::app_url(port));
+
+    // The real Origin has no path (WebKit / WebView2 fetch); a full URL must work too.
+    for from in [origin.clone(), format!("{origin}/app/")] {
+        let got = invoke(&main, "term_config", &from).expect("main may call term_config");
+        assert_eq!(got, json!({"port": port, "token": token}), "from {from}");
+    }
+
+    // Other origins, from the right window.
+    for from in [
+        format!("http://127.0.0.1:{}", port.wrapping_add(1).max(1)),
+        format!("http://localhost:{port}"),
+        format!("https://127.0.0.1:{port}"),
+        format!("http://[::1]:{port}"),
+        "https://example.com".to_string(),
+    ] {
+        assert_denied(invoke(&main, "term_config", &from), &token, &from);
+    }
+
+    // No plugin or core permission, not even for main: the folder picker is our command only.
+    for cmd in [
+        "plugin:dialog|open",
+        "plugin:dialog|message",
+        "plugin:opener|open_url",
+        "plugin:event|listen",
+        "plugin:webview|create_webview_window",
+    ] {
+        assert_denied(invoke(&main, cmd, &origin), &token, cmd);
+    }
+
+    // open_office (from main) builds the office window on `/`.
+    invoke(&main, "open_office", &origin).expect("main may open the office");
+    let office = app.get_webview_window(OFFICE).expect("office window");
+    assert_eq!(
+        office.url().expect("office url"),
+        od_app::nav::office_url(port)
+    );
+    // Again: it is reused, not duplicated.
+    invoke(&main, "open_office", &origin).expect("reopen the office");
+    assert_eq!(app.webview_windows().len(), 2);
+
+    // The office window has no IPC at all, even on our origin.
+    for cmd in [
+        "term_config",
+        "pick_folder",
+        "open_office",
+        "plugin:event|listen",
+    ] {
+        for from in [origin.clone(), format!("{origin}/app/")] {
+            assert_denied(
+                invoke(&office, cmd, &from),
+                &token,
+                &format!("office {cmd}"),
+            );
+        }
+    }
+
+    // Nor does any other label (the window match is exact, not a prefix).
+    let other = tauri::WebviewWindowBuilder::new(
+        &app,
+        "main2",
+        tauri::WebviewUrl::External(od_app::nav::app_url(port)),
+    )
+    .build()
+    .expect("main2");
+    assert_denied(invoke(&other, "term_config", &origin), &token, "main2");
+
+    drop(app);
+    rt.block_on(core.shutdown());
 }
