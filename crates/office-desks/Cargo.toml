@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "The office-desks binary: the Office Desks server with the native backend"
+description = "The office-desks binary: the Office Desks server"
 
 [[bin]]
 name = "office-desks"

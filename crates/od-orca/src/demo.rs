@@ -1161,6 +1161,42 @@ mod tests {
     }
 
     #[test]
+    fn worktree_ps_state_rotation_follows_a_moving_clock() {
+        // Whole ticks: every agent cycles through its own states and wraps; a
+        // single-state agent never changes. Mid-tick times stay on the same tick.
+        let at = |tick: i64, extra: i64| worktree_ps(EPOCH, EPOCH + tick * 8000 + extra);
+        let mut moved = false;
+        for tick in 0..24 {
+            let now = at(tick, 0);
+            assert_eq!(now, at(tick, 7999), "tick {tick} must hold for 8 s");
+            for (w, wt) in WORKTREES.iter().enumerate() {
+                for (i, a) in wt.agents.iter().enumerate() {
+                    let n = a.states.len() as i64;
+                    let state = |ps: &Value| ps["worktrees"][w]["agents"][i]["state"].clone();
+                    let want = a.states[(tick + i as i64).rem_euclid(n) as usize].0;
+                    assert_eq!(state(&now), want, "{} agent {i} tick {tick}", wt.name);
+                    // One full cycle later the agent is back where it was.
+                    assert_eq!(state(&now), state(&at(tick + n, 0)));
+                    if n > 1 && state(&now) != state(&at(tick + 1, 0)) {
+                        moved = true;
+                    }
+                }
+            }
+        }
+        assert!(moved, "some agent must change state between ticks");
+        // The worktree status follows the agents' states as they rotate.
+        let statuses: std::collections::HashSet<String> = (0..24)
+            .map(|t| {
+                at(t, 0)["worktrees"][0]["status"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert!(statuses.len() > 1, "{statuses:?}");
+    }
+
+    #[test]
     fn worktree_ps_rotates_every_eight_seconds() {
         let ps = worktree_ps(EPOCH, EPOCH + 8000);
         let p1 = &ps["worktrees"][0]["agents"][0];

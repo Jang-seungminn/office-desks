@@ -738,6 +738,8 @@ async function recordDemo(): Promise<void> {
       // Explicit, so the bridge never probes Orca.
       OFFICE_DESKS_BACKEND: 'demo',
       OFFICE_DESKS_DEMO_EPOCH: String(epoch),
+      // Guard: nothing recorded should depend on the zone, but pin it anyway.
+      TZ: 'UTC',
       OFFICE_DESKS_PORT: String(port),
       GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'),
       GIT_CONFIG_NOSYSTEM: '1',

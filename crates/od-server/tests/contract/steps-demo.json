@@ -72,7 +72,7 @@
       "path": "/api/search?q=hello"
     },
     {
-      "name": "demo-changes",
+      "name": "demo-changes-gated",
       "group": "demo",
       "kind": "http",
       "method": "GET",
@@ -90,7 +90,7 @@
       }
     },
     {
-      "name": "demo-worktree",
+      "name": "demo-worktree-gated",
       "group": "demo",
       "kind": "http",
       "method": "POST",

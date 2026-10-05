@@ -1,5 +1,5 @@
 {
-  "demo-changes": {
+  "demo-changes-gated": {
     "body": {
       "json": {
         "error": "unknown worktree"
@@ -866,7 +866,7 @@
     },
     "status": 200
   },
-  "demo-worktree": {
+  "demo-worktree-gated": {
     "body": {
       "json": {
         "error": "unknown worktree"

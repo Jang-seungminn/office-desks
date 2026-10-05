@@ -48,12 +48,12 @@ Legend: **done** = ported in R1. **R2/R3/R5** = deliberately left for that miles
 | `server.ts` | done in R2 | `crates/od-server` (see `crates/od-server/PARITY.md`) |
 | `security.ts` | done in R2 | `od-server` `security` module; the token compare stays here as `security::same_token` |
 | `poller.ts` | done in R2 | `od-server` `poller` and `enrich` modules |
-| `backend/index.ts` | `createNativeBackend` done in R2; `createBackend` and `probeOrca` R3 | `od-server` `native_backend`; the `office-desks` binary refuses `orca` and `demo` until R3 |
-| `backend/orca.ts` | R3 | Orca backend |
-| `orcaCli.ts` (`resolveOrcaCommand`, `createOrcaRunner`, `OrcaCliError`) | R3 | Orca CLI runner (`resolveWindowsCommand` and `unsafeForCmdShim` are already ported) |
-| `sessionResolver.ts` | R3 | Orca-side transcript lookup (the native backend finds sessions itself) |
-| `usage.ts` | R3 | usage polling through the Orca backend |
-| `demo.ts`, `backend/demo.ts` | R3 | demo backend |
+| `backend/index.ts` | done in R2 (`createNativeBackend`) and R3 (`createBackend`, `probeOrca`) | `od-server` `native_backend` and `backends::create_backend`; see `crates/od-orca/PARITY.md` |
+| `backend/orca.ts` | done in R3 | `crates/od-orca` (`OrcaBackend`); see `crates/od-orca/PARITY.md` |
+| `orcaCli.ts` (`resolveOrcaCommand`, `createOrcaRunner`, `OrcaCliError`) | done in R3 | `crates/od-orca` (`cli`); see `crates/od-orca/PARITY.md` (`resolveWindowsCommand` and `unsafeForCmdShim` were ported earlier) |
+| `sessionResolver.ts` | done in R3 | `crates/od-orca` (`SessionResolver`); see `crates/od-orca/PARITY.md` |
+| `usage.ts` | done in R3 | `crates/od-orca` (`to_usage`); see `crates/od-orca/PARITY.md` |
+| `demo.ts`, `backend/demo.ts` | done in R3 | `crates/od-orca` (`DemoBackend`); see `crates/od-orca/PARITY.md` |
 | `tui/*` | R5 | terminal UI |
 
 ## Deliberate differences
@@ -114,7 +114,7 @@ Backend and errors:
 - `os.homedir` is approximated by absolute HOME or USERPROFILE, else the OS home, else the temp dir.
 - Unix `find_command` checks any exec mode bit, not `access(X_OK)`. Reason: no libc call for it.
 - Windows path helpers (isAbsolute, extname, join) are hand-rolled so they are testable on macOS.
-- Node path helpers (`win32_is_absolute`, `win32_has_ext`, `win32_join`, `normalize_path`, `node_is_absolute`, `resolve_lexical`, basenames, `slash`, `same_path`) live in one module, `nodepath` (consolidated in R3). Done.
+- Node path helpers live in `src/nodepath.rs` (R3); `lock` and `epoch_ms` in `src/util.rs`.
 
 Git:
 
@@ -207,4 +207,4 @@ Implemented in `crates/od-server` (HTTP, `/ws`, `/hook`, static files, the polle
 - **Hook relay.** `NativeBackend` sets `OFFICE_DESKS_HOOK_URL` per agent, from the `hook_url` closure in `NativeDeps`. The server supplies that closure after it has bound its port, in the TS format (`backend/index.ts`): `http://127.0.0.1:<port>/hook/<encodeURIComponent(agentId)>?token=<token>` (the id contains `:` and can contain `/`, so use the same encode set). The server handles `POST /hook/<id>`: URL-decode the id, read the JSON body (2 MB cap; parse failure → bare 400), call `backend.hook(id, token, &payload)`, answer 204 when it returns true and 404 otherwise, and refresh the poller on true.
 - **Hook relay binary (R4).** The default relay argv is `[current_exe, "hook-relay"]` (`hooks::relay_command`), so whatever binary runs the backend (the Tauri app in R4) must dispatch a first argument `hook-relay` to `hook_relay::run()` and exit with its code before any GUI or runtime starts. Check that a Windows GUI-subsystem build still reads the hook payload from stdin.
 - **Transcript enrichment and `find_session`.** `find_session` is async (it scans on the blocking pool), unlike TS where `cachedSession` scans synchronously. Enrichment must not await it per agent on the poll path: spawn it (`tokio::spawn` with a clone of the `Arc<dyn OfficeBackend>`, since the task must be `'static`) and read `cached_session` right away. So the first poll after a session starts can miss the transcript; the next poll picks it up.
-- **Orca and the rest.** `OfficeBackend` is an `async_trait`; hold it as `Arc<dyn OfficeBackend>`. The Orca backend (R3) must produce `BackendError::busy(request_id)` for `agent_busy`; the native backend never raises it.
+- **Orca and the rest.** `OfficeBackend` is an `async_trait`; hold it as `Arc<dyn OfficeBackend>`. The Orca backend (R3) must produce `BackendError::busy(request_id)` for `agent_busy`; the native backend never raises it. R3 implemented it in `OrcaBackend::deliver` (`crates/od-orca`).

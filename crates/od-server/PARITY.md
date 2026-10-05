@@ -36,6 +36,7 @@ Legend: **Group** is the fixture file. "api" means `tests/api.rs`, "unit" means 
 | `security.ts` | `security::{is_allowed_request, apply_headers}` (token compare: `od_core::security::same_token`) | unit in `security.rs` (every `security.test.ts` case, with port 4318) | `guard` |
 | `poller.ts` | `poller::Poller`, `enrich::Enricher`, `start_background` in `lib.rs` (usage, awards, org, upload cleanup) | unit in `poller.rs`; api `usage_is_polled_at_start_and_sent_third`, `poller_idles_after_the_last_client_closes`, `transcripts_*` | `hook`, `manage` |
 | `backend/index.ts` `createNativeBackend` | `lib.rs` `native_backend`, `hook_url` | api `hook_url_encodes_the_agent_id`; native trial `native_backend_uses_the_scratch_home` (a repo seeded in the env's `OFFICE_DESKS_HOME` shows in `snapshot()`) | all (the contract runs on `NativeBackend`) |
+| `backend/index.ts` `createBackend` | `backends::create_backend` (`crates/od-server/src/backends.rs`; Orca and demo backends in `crates/od-orca`, see its PARITY) | unit in `backends.rs`; bin tests `demo_serves_the_demo_office`, `orca_backend_shows_a_missing_cli`, `auto_without_orca_is_native` | `demo` |
 | `bin/office-desks.mjs` (server part) | `crates/office-desks` (`main.rs`, `cli.rs`) | `crates/office-desks/tests/cli.rs`, unit in `cli.rs` | none |
 | `/term/<id>` (new, no TS) | `term::upgrade` | native trials `term_*` | none |
 
@@ -79,8 +80,8 @@ Server behaviour:
 - **Key order.** `serde_json` has `preserve_order` on (workspace-wide) and the busy and terminal bodies are built in TS key order. The contract compares parsed JSON, so it does not check key order.
 
 Binary (`office-desks`):
-- **Backend selection** is Node's: `--backend` over `OFFICE_DESKS_BACKEND` over `--demo`/`OFFICE_DESKS_DEMO` over the `orca status` probe (orca if reachable, else native). `create_backend` does not poll the probe when a kind is chosen.
-- **Bind before probe.** Node probes `orca status` first, then listens; the Rust binary binds first, so a busy port fails (exit 1) before any `orca` is spawned. The startup line is Node's: `[office-desks] bridge on http://127.0.0.1:<port> (<label>)`.
+- **Backend selection** is Node's (`create_backend`): `--backend` > `OFFICE_DESKS_BACKEND` > `--demo`/`OFFICE_DESKS_DEMO` > `orca status` probe (3 s), else native. `create_backend` does not poll the probe when a kind is chosen.
+- **The probe runs after the port is bound** (Node probes first, then listens); the Rust binary binds first, so a busy port fails (exit 1) before any `orca` is spawned. The startup line is Node's: `[office-desks] bridge on http://127.0.0.1:<port> (<label>)`.
 - **`--port` and `OFFICE_DESKS_PORT`** accept ASCII digits only, 1 to 65535 (JS `Number()` accepts `1e3`, `0x10` and more). `--backend` or `--port` with no value is an error (Node reads `undefined`).
 - **Bind error text.** `[office-desks] cannot listen on 127.0.0.1:<port>: <io::Error Display>`, exit 1, before any backend exists. Node prints `listen EADDRINUSE: address already in use ...` from its `error` event.
 - **No port fallback.** The binary never picks another port. The Node TUI takes the next free port when 4317 is busy (see the README); the Rust binary has no TUI yet and fails with the bind error.
@@ -94,8 +95,8 @@ Binary (`office-desks`):
 
 ## Notes for R3/R4
 
-- **R3: Orca `find_session` and `snapshot`.** Enrichment spawns one `find_session` per agent per poll (od-core PARITY, "Transcript enrichment"). The Orca backend shells out for both, so they need in-flight dedupe (one call per agent at a time) and timeouts, or a slow `orca` piles up processes.
-- **R3: coded errors.** Every TS `BackendError` the Orca and demo backends throw must become `BackendError::with_code` (or `new`), never `plain`. The 400-vs-502 split in `/api/repos` (and the catch-all) depends on the code being there.
+- **R3 (done): Orca `find_session` dedupe and timeouts** are in `od_orca::SessionResolver` (one search per agent at a time, 30 s bound); `snapshot` is single-flight through the poller, which is its only caller.
+- **R3 (done): coded errors.** Every `BackendError` in the Orca and demo backends carries a code; the `no_plain_errors` test in `od-orca` enforces it.
 - **R4: Tauri origins.** A Tauri webview sends `Origin: tauri://localhost` (macOS) or `http://tauri.localhost` (Windows) and may send `Sec-Fetch-Site: cross-site`; the guard refuses all of these with 403. Decide at the start of R4: add `ServerConfig.allowed_origins`, or load the app UI from od-server's own origin (`http://127.0.0.1:<port>/`).
 - **R4: call `shutdown()`.** Dropping every `ServerHandle` stops accepting but does not dispose the backend (agents keep running until the `PtyHost` is dropped). The desktop app must `shutdown().await` on quit.
 - **R4: `hook-relay` first.** The Tauri `main()` must dispatch `office-desks hook-relay` (argv[1]) before the GUI or the runtime starts, as `crates/office-desks/src/main.rs` does; agent hooks run the app binary with it.
