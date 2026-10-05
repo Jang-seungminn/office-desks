@@ -1,0 +1,1117 @@
+{
+  "version": 1,
+  "setup": {
+    "repo": {
+      "files": {
+        "README.md": "# contract\n",
+        "src/a.txt": "one\ntwo\n"
+      },
+      "commit": {
+        "message": "init",
+        "name": "contract",
+        "email": "contract@example.invalid",
+        "date": "2026-01-01T00:00:00Z"
+      },
+      "after": {
+        "src/a.txt": "one\nTWO\nthree\n",
+        "notes.md": "hi\n"
+      }
+    },
+    "files": {
+      "home/.claude/commands/hello.md": "---\ndescription: Say hello\n---\nHello"
+    },
+    "dirs": [
+      "claude/projects/scratch"
+    ],
+    "uploads": {
+      "contract-shot.png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
+    }
+  },
+  "steps": [
+    {
+      "name": "guard-host-evil",
+      "group": "guard",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot",
+      "headers": {
+        "Host": "evil.example:${PORT}"
+      }
+    },
+    {
+      "name": "guard-origin-evil",
+      "group": "guard",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot",
+      "headers": {
+        "Origin": "https://evil.example"
+      }
+    },
+    {
+      "name": "guard-origin-null",
+      "group": "guard",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot",
+      "headers": {
+        "Origin": "null"
+      }
+    },
+    {
+      "name": "guard-fetch-site-cross-site",
+      "group": "guard",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot",
+      "headers": {
+        "Sec-Fetch-Site": "cross-site"
+      }
+    },
+    {
+      "name": "guard-fetch-site-same-site",
+      "group": "guard",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot",
+      "headers": {
+        "Sec-Fetch-Site": "same-site"
+      }
+    },
+    {
+      "name": "guard-fetch-dest-iframe",
+      "group": "guard",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot",
+      "headers": {
+        "Sec-Fetch-Dest": "iframe"
+      }
+    },
+    {
+      "name": "guard-hook-origin-evil",
+      "group": "guard",
+      "kind": "http",
+      "method": "POST",
+      "path": "/hook/x?token=y",
+      "body": {},
+      "headers": {
+        "Origin": "https://evil.example"
+      }
+    },
+    {
+      "name": "guard-ws-origin-evil",
+      "group": "guard",
+      "kind": "wsReject",
+      "path": "/ws",
+      "headers": {
+        "Origin": "https://evil.example"
+      }
+    },
+    {
+      "name": "guard-ws-query",
+      "group": "guard",
+      "kind": "wsReject",
+      "path": "/ws?x=1"
+    },
+    {
+      "name": "empty-ws-open",
+      "group": "empty",
+      "kind": "wsOpen",
+      "id": "main",
+      "count": 4
+    },
+    {
+      "name": "empty-snapshot",
+      "group": "empty",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot"
+    },
+    {
+      "name": "empty-org",
+      "group": "empty",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/org"
+    },
+    {
+      "name": "empty-get-nope",
+      "group": "empty",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/nope"
+    },
+    {
+      "name": "empty-head-snapshot",
+      "group": "empty",
+      "kind": "http",
+      "method": "HEAD",
+      "path": "/api/snapshot"
+    },
+    {
+      "name": "empty-post-nope",
+      "group": "empty",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/nope",
+      "body": {}
+    },
+    {
+      "name": "empty-send-no-content-type",
+      "group": "empty",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "body": {},
+      "headers": {
+        "content-type": null
+      }
+    },
+    {
+      "name": "empty-send-text-plain",
+      "group": "empty",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "bodyRaw": "{}",
+      "headers": {
+        "content-type": "text/plain"
+      }
+    },
+    {
+      "name": "empty-origin-dev-web",
+      "group": "empty",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot",
+      "headers": {
+        "Origin": "http://localhost:5173"
+      }
+    },
+    {
+      "name": "empty-host-localhost",
+      "group": "empty",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot",
+      "headers": {
+        "Host": "localhost:${PORT}"
+      }
+    },
+    {
+      "name": "manage-repos-no-path",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/repos",
+      "body": {}
+    },
+    {
+      "name": "manage-repos-blank-path",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/repos",
+      "body": {
+        "path": "   "
+      }
+    },
+    {
+      "name": "manage-repos-not-a-repo",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/repos",
+      "body": {
+        "path": "${NOTREPO}"
+      }
+    },
+    {
+      "name": "manage-repos-add",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/repos",
+      "body": {
+        "path": "${REPO}"
+      }
+    },
+    {
+      "name": "manage-wait-main-desk",
+      "group": "manage",
+      "kind": "waitFor",
+      "path": [
+        "desks",
+        0,
+        "id"
+      ],
+      "capture": {
+        "MAIN_DESK": [
+          "desks",
+          0,
+          "id"
+        ],
+        "REPO_ID": [
+          "desks",
+          0,
+          "repoId"
+        ]
+      }
+    },
+    {
+      "name": "manage-hire-unknown-agent",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/hire",
+      "body": {
+        "agent": "nope"
+      }
+    },
+    {
+      "name": "manage-hire-bad-name",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/hire",
+      "body": {
+        "agent": "claude",
+        "repoId": "${REPO_ID}",
+        "name": "bad name"
+      }
+    },
+    {
+      "name": "manage-hire-codex-missing",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/hire",
+      "body": {
+        "agent": "codex",
+        "repoId": "${REPO_ID}",
+        "name": "feat2",
+        "prompt": "hi"
+      }
+    },
+    {
+      "name": "manage-hire-feat1",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/hire",
+      "body": {
+        "agent": "claude",
+        "repoId": "${REPO_ID}",
+        "name": "feat1"
+      }
+    },
+    {
+      "name": "manage-wait-feat1-agent",
+      "group": "manage",
+      "kind": "waitFor",
+      "path": [
+        "desks",
+        {
+          "where": {
+            "name": "feat1"
+          }
+        },
+        "agents",
+        0,
+        "id"
+      ],
+      "capture": {
+        "WT_DESK": [
+          "desks",
+          {
+            "where": {
+              "name": "feat1"
+            }
+          },
+          "id"
+        ],
+        "AGENT": [
+          "desks",
+          {
+            "where": {
+              "name": "feat1"
+            }
+          },
+          "agents",
+          0,
+          "id"
+        ],
+        "HANDLE": [
+          "desks",
+          {
+            "where": {
+              "name": "feat1"
+            }
+          },
+          "agents",
+          0,
+          "terminalHandle"
+        ]
+      }
+    },
+    {
+      "name": "manage-wait-main-changes",
+      "group": "manage",
+      "kind": "waitFor",
+      "path": [
+        "desks",
+        {
+          "where": {
+            "isMain": true
+          }
+        },
+        "changes",
+        "files"
+      ]
+    },
+    {
+      "name": "manage-wait-feat1-changes",
+      "group": "manage",
+      "kind": "waitFor",
+      "path": [
+        "desks",
+        {
+          "where": {
+            "name": "feat1"
+          }
+        },
+        "changes",
+        "files"
+      ]
+    },
+    {
+      "name": "manage-settle",
+      "group": "manage",
+      "kind": "sleep",
+      "ms": 2700
+    },
+    {
+      "name": "manage-snapshot",
+      "group": "manage",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot"
+    },
+    {
+      "name": "manage-worktree-unknown",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/worktree",
+      "body": {
+        "deskId": "nope",
+        "comment": "x"
+      }
+    },
+    {
+      "name": "manage-worktree-bad-status",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/worktree",
+      "body": {
+        "deskId": "${WT_DESK}",
+        "workspaceStatus": "Bad"
+      }
+    },
+    {
+      "name": "manage-worktree-long-comment",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/worktree",
+      "body": {
+        "deskId": "${WT_DESK}",
+        "comment": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가"
+      }
+    },
+    {
+      "name": "manage-worktree-nothing",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/worktree",
+      "body": {
+        "deskId": "${WT_DESK}"
+      }
+    },
+    {
+      "name": "manage-worktree-update",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/worktree",
+      "body": {
+        "deskId": "${WT_DESK}",
+        "workspaceStatus": "review",
+        "comment": "  a 　 b  "
+      }
+    },
+    {
+      "name": "manage-worktree-comment-null",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/worktree",
+      "body": {
+        "deskId": "${WT_DESK}",
+        "comment": null
+      }
+    },
+    {
+      "name": "manage-wait-comment",
+      "group": "manage",
+      "kind": "waitFor",
+      "path": [
+        "desks",
+        {
+          "where": {
+            "name": "feat1"
+          }
+        },
+        "comment"
+      ],
+      "equals": "null"
+    },
+    {
+      "name": "manage-snapshot-board",
+      "group": "manage",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot"
+    },
+    {
+      "name": "manage-worktree-bad-json",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/worktree",
+      "bodyRaw": "{",
+      "compare": "status"
+    },
+    {
+      "name": "manage-worktree-null-body",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/worktree",
+      "bodyRaw": "null"
+    },
+    {
+      "name": "manage-worktree-too-large",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/worktree",
+      "bodyRepeat": {
+        "prefix": "{\"deskId\":\"",
+        "char": "a",
+        "count": 63988,
+        "suffix": "\"}"
+      }
+    },
+    {
+      "name": "manage-org-save",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/org",
+      "body": {
+        "departments": [
+          {
+            "id": "dev",
+            "name": "개발",
+            "theme": "dev"
+          }
+        ]
+      },
+      "headers": {
+        "content-type": null
+      }
+    },
+    {
+      "name": "manage-ws-org",
+      "group": "manage",
+      "kind": "wsExpect",
+      "id": "main",
+      "type": "org",
+      "after": "manage-org-save"
+    },
+    {
+      "name": "manage-org-invalid",
+      "group": "manage",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/org",
+      "body": {
+        "departments": "x"
+      }
+    },
+    {
+      "name": "manage-org-get",
+      "group": "manage",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/org"
+    },
+    {
+      "name": "hook-agent-info",
+      "group": "hook",
+      "kind": "agentInfo"
+    },
+    {
+      "name": "hook-seed-transcript",
+      "group": "hook",
+      "kind": "seedTranscript",
+      "append": [
+        "{\"type\":\"assistant\",\"timestamp\":\"2026-10-04T09:00:15.000Z\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-5-5\",\"content\":[{\"type\":\"text\",\"text\":\"Saved ![shot](${ROOT}/shot.png)\"}]}}"
+      ]
+    },
+    {
+      "name": "hook-write-shot",
+      "group": "hook",
+      "kind": "writeFile",
+      "path": "${ROOT}/shot.png",
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
+    },
+    {
+      "name": "hook-session-start",
+      "group": "hook",
+      "kind": "http",
+      "method": "POST",
+      "path": "/hook/${AGENT|uri}?token=${TOKEN}",
+      "body": {
+        "hook_event_name": "SessionStart",
+        "session_id": "${SID}",
+        "transcript_path": "${ROOT}/claude/projects/scratch/${SID}.jsonl"
+      }
+    },
+    {
+      "name": "hook-wrong-token",
+      "group": "hook",
+      "kind": "http",
+      "method": "POST",
+      "path": "/hook/${AGENT|uri}?token=wrong",
+      "body": {
+        "hook_event_name": "SessionStart",
+        "session_id": "${SID}",
+        "transcript_path": "${ROOT}/claude/projects/scratch/${SID}.jsonl"
+      }
+    },
+    {
+      "name": "hook-unknown-agent",
+      "group": "hook",
+      "kind": "http",
+      "method": "POST",
+      "path": "/hook/nope?token=x",
+      "body": {
+        "hook_event_name": "SessionStart"
+      }
+    },
+    {
+      "name": "hook-bad-json",
+      "group": "hook",
+      "kind": "http",
+      "method": "POST",
+      "path": "/hook/${AGENT|uri}?token=${TOKEN}",
+      "bodyRaw": "{"
+    },
+    {
+      "name": "hook-bad-escape",
+      "group": "hook",
+      "kind": "http",
+      "method": "POST",
+      "path": "/hook/%E0%A4%A?token=x",
+      "body": {
+        "hook_event_name": "SessionStart"
+      }
+    },
+    {
+      "name": "hook-null-body",
+      "group": "hook",
+      "kind": "http",
+      "method": "POST",
+      "path": "/hook/${AGENT|uri}?token=${TOKEN}",
+      "bodyRaw": "null"
+    },
+    {
+      "name": "hook-prompt-submit",
+      "group": "hook",
+      "kind": "http",
+      "method": "POST",
+      "path": "/hook/${AGENT|uri}?token=${TOKEN}",
+      "body": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "hello"
+      }
+    },
+    {
+      "name": "hook-wait-model",
+      "group": "hook",
+      "kind": "waitFor",
+      "path": [
+        "desks",
+        {
+          "where": {
+            "name": "feat1"
+          }
+        },
+        "agents",
+        0,
+        "model"
+      ]
+    },
+    {
+      "name": "hook-snapshot",
+      "group": "hook",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/snapshot"
+    },
+    {
+      "name": "read-changes-main",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/changes?deskId=${MAIN_DESK|uri}"
+    },
+    {
+      "name": "read-changes-unknown",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/changes?deskId=nope"
+    },
+    {
+      "name": "read-diff-modified",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/diff?deskId=${MAIN_DESK|uri}&file=src/a.txt"
+    },
+    {
+      "name": "read-diff-untracked",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/diff?deskId=${MAIN_DESK|uri}&file=notes.md"
+    },
+    {
+      "name": "read-diff-unchanged",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/diff?deskId=${MAIN_DESK|uri}&file=nope"
+    },
+    {
+      "name": "read-search-empty",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/search?q="
+    },
+    {
+      "name": "read-search-too-long",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/search?q=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "read-search-hello",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/search?q=hello"
+    },
+    {
+      "name": "read-commands",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/commands?agentId=${AGENT|uri}"
+    },
+    {
+      "name": "read-commands-unknown",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/commands?agentId=nope"
+    },
+    {
+      "name": "read-terminal",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/terminal?agentId=${AGENT|uri}"
+    },
+    {
+      "name": "read-terminal-unknown",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/terminal?agentId=nope"
+    },
+    {
+      "name": "read-conversation-unknown",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=nope"
+    },
+    {
+      "name": "read-conversation",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}"
+    },
+    {
+      "name": "read-conversation-after-2",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}&after=2"
+    },
+    {
+      "name": "read-conversation-after-abc",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}&after=abc"
+    },
+    {
+      "name": "read-conversation-after-fraction",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}&after=1.5"
+    },
+    {
+      "name": "read-conversation-after-999",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}&after=999"
+    },
+    {
+      "name": "read-conversation-sub-unknown",
+      "group": "read",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation?agentId=${AGENT|uri}&sub=nope"
+    },
+    {
+      "name": "media-image-0",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation/image?agentId=${AGENT|uri}&i=0"
+    },
+    {
+      "name": "media-image-1",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation/image?agentId=${AGENT|uri}&i=1"
+    },
+    {
+      "name": "media-image-no-index",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation/image?agentId=${AGENT|uri}"
+    },
+    {
+      "name": "media-image-99",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation/image?agentId=${AGENT|uri}&i=99"
+    },
+    {
+      "name": "media-image-abc",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation/image?agentId=${AGENT|uri}&i=abc"
+    },
+    {
+      "name": "media-image-unknown-agent",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/conversation/image?agentId=nope&i=0"
+    },
+    {
+      "name": "media-local-image",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/local-image?agentId=${AGENT|uri}&path=${ROOT|uri}%2Fshot.png"
+    },
+    {
+      "name": "media-local-image-relative",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/local-image?agentId=${AGENT|uri}&path=relative.png"
+    },
+    {
+      "name": "media-local-image-not-linked",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/local-image?agentId=${AGENT|uri}&path=${ROOT|uri}%2Fother.png"
+    },
+    {
+      "name": "media-upload",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/uploads/contract-shot.png"
+    },
+    {
+      "name": "media-upload-traversal",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/uploads/..%2Fx.png"
+    },
+    {
+      "name": "media-upload-missing",
+      "group": "media",
+      "kind": "http",
+      "method": "GET",
+      "path": "/api/uploads/missing.png"
+    },
+    {
+      "name": "input-send-unknown",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "body": {
+        "terminalHandle": "nope",
+        "text": "x"
+      }
+    },
+    {
+      "name": "input-send-menu-open",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "text": "hello"
+      }
+    },
+    {
+      "name": "input-send-blank",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "text": "  ",
+        "force": true
+      }
+    },
+    {
+      "name": "input-send-bad-image",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "text": "x",
+        "images": [
+          {
+            "mediaType": "image/bmp",
+            "data": "AA=="
+          }
+        ],
+        "force": true
+      }
+    },
+    {
+      "name": "input-send",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "text": "hello",
+        "force": true
+      }
+    },
+    {
+      "name": "input-send-null-body",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send",
+      "bodyRaw": "null"
+    },
+    {
+      "name": "input-retry-unknown",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/send/retry",
+      "body": {}
+    },
+    {
+      "name": "input-keys-unknown",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/keys",
+      "body": {
+        "terminalHandle": "nope",
+        "key": "esc"
+      }
+    },
+    {
+      "name": "input-keys-bad-key",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/keys",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "key": "nope"
+      }
+    },
+    {
+      "name": "input-keys-bad-char",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/keys",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "char": 5
+      }
+    },
+    {
+      "name": "input-keys-char",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/keys",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "char": "a"
+      }
+    },
+    {
+      "name": "input-keys-enter",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/keys",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "key": "enter"
+      }
+    },
+    {
+      "name": "input-queue-bad-action",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/queue",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "action": "x"
+      }
+    },
+    {
+      "name": "input-queue-cancel",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/queue",
+      "body": {
+        "terminalHandle": "${HANDLE}",
+        "action": "cancel"
+      }
+    },
+    {
+      "name": "input-focus-unknown",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/focus",
+      "body": {
+        "terminalHandle": "nope"
+      }
+    },
+    {
+      "name": "input-focus",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/focus",
+      "body": {
+        "terminalHandle": "${HANDLE}"
+      }
+    },
+    {
+      "name": "input-answer-unknown-agent",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/answer",
+      "body": {
+        "agentId": "nope"
+      }
+    },
+    {
+      "name": "input-answer-unknown-question",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/answer",
+      "body": {
+        "agentId": "${AGENT}",
+        "toolUseId": "nope",
+        "choices": []
+      }
+    },
+    {
+      "name": "input-answer-answered",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/answer",
+      "body": {
+        "agentId": "${AGENT}",
+        "toolUseId": "q1",
+        "choices": []
+      }
+    },
+    {
+      "name": "input-hire-main-desk",
+      "group": "input",
+      "kind": "http",
+      "method": "POST",
+      "path": "/api/hire",
+      "body": {
+        "agent": "claude",
+        "deskId": "${MAIN_DESK}"
+      }
+    }
+  ]
+}

@@ -25,3 +25,22 @@ hyper = { version = "1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
+base64 = "0.22"
+dunce = "1"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+libtest-mimic = "0.8"
+sha2 = "0.11"
+similar = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
+tokio-tungstenite = "0.28"
+
+[target."cfg(unix)".dev-dependencies]
+libc = "0.2"
+
+[target."cfg(windows)".dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_Foundation", "Win32_System_Threading"] }
+
+[[test]]
+name = "native"
+path = "tests/native/main.rs"
+harness = false

@@ -1,0 +1,74 @@
+[
+  {
+    "note": "ROOT nested in desk ids: the captured desk id wins (longest first), plain paths become ${ROOT}",
+    "vars": { "ROOT": "/private/var/folders/x/T/odc", "MAIN_DESK": "0a1b2c3d4e5f::/private/var/folders/x/T/odc/repo", "REPO_ID": "0a1b2c3d4e5f" },
+    "input": { "desks": [{ "id": "0a1b2c3d4e5f::/private/var/folders/x/T/odc/repo", "repoId": "0a1b2c3d4e5f", "path": "/private/var/folders/x/T/odc/repo", "name": "repo" }] },
+    "output": { "desks": [{ "id": "${MAIN_DESK}", "repoId": "${REPO_ID}", "path": "${ROOT}/repo", "name": "repo" }] }
+  },
+  {
+    "note": "encoded ROOT inside a URL, and the port rule",
+    "vars": { "ROOT": "/private/var/folders/x/T/odc", "PORT": "4318" },
+    "input": "http://127.0.0.1:4318/api/local-image?path=%2Fprivate%2Fvar%2Ffolders%2Fx%2FT%2Fodc%2Fshot.png",
+    "output": "http://127.0.0.1:${PORT}/api/local-image?path=${ROOT|uri}%2Fshot.png"
+  },
+  {
+    "note": "Windows: backslash and slash forms of ROOT both become ${ROOT}/...",
+    "vars": { "ROOT": "C:/Users/ci/AppData/Local/Temp/odc" },
+    "input": ["C:\\Users\\ci\\AppData\\Local\\Temp\\odc\\repo\\src\\a.txt", "C:/Users/ci/AppData/Local/Temp/odc/repo", "no root \\ here"],
+    "output": ["${ROOT}/repo/src/a.txt", "${ROOT}/repo", "no root \\ here"]
+  },
+  {
+    "note": "Windows: REPO and NOTREPO are not normalized themselves, the ROOT rule covers them",
+    "vars": { "ROOT": "C:/t/odc", "REPO": "C:\\t\\odc\\repo", "NOTREPO": "C:\\t\\odc\\home" },
+    "input": { "path": "C:/t/odc/repo", "error": "git 저장소가 아니에요: C:\\t\\odc\\home" },
+    "output": { "path": "${ROOT}/repo", "error": "git 저장소가 아니에요: ${ROOT}/home" }
+  },
+  {
+    "note": "macOS: REPO is not normalized either, so both OSes agree on ${ROOT}/repo",
+    "vars": { "ROOT": "/private/var/folders/x/T/odc", "REPO": "/private/var/folders/x/T/odc/repo" },
+    "input": "/private/var/folders/x/T/odc/repo",
+    "output": "${ROOT}/repo"
+  },
+  {
+    "note": "timestamps: numbers become 0, null stays null, other types and keys stay",
+    "vars": {},
+    "input": { "updatedAt": 1759650000000, "desks": [{ "lastActivityAt": 17, "agents": [{ "since": 1759650000123 }, { "since": null }] }], "usage": { "resetsAt": 1.5, "updatedAt": "text" }, "other": 99 },
+    "output": { "updatedAt": 0, "desks": [{ "lastActivityAt": 0, "agents": [{ "since": 0 }, { "since": null }] }], "usage": { "resetsAt": 0, "updatedAt": "text" }, "other": 99 }
+  },
+  {
+    "note": "fileId strings become ${FILE_ID}, null stays",
+    "vars": {},
+    "input": [{ "fileId": "d41d8cd98f00b204-1759650000000-512" }, { "fileId": null }],
+    "output": [{ "fileId": "${FILE_ID}" }, { "fileId": null }]
+  },
+  {
+    "note": "a longer variable containing a shorter one is replaced first, encoded forms too",
+    "vars": { "AGENT": "6f1c2d3e-aaaa:main", "HANDLE": "pty_6f1c2d3e-aaaa", "SID": "6f1c2d3e" },
+    "input": ["6f1c2d3e-aaaa:main", "pty_6f1c2d3e-aaaa", "6f1c2d3e", "/hook/6f1c2d3e-aaaa%3Amain?token=x"],
+    "output": ["${AGENT}", "${HANDLE}", "${SID}", "/hook/${AGENT|uri}?token=x"]
+  },
+  {
+    "note": "PORT only inside 127.0.0.1:<port> and localhost:<port>; bare numbers and longer ports stay; HOST is not a placeholder",
+    "vars": { "PORT": "4318", "HOST": "127.0.0.1:4318" },
+    "input": { "url": "http://127.0.0.1:4318/x", "local": "localhost:4318", "bare": "4318", "n": 4318, "longer": "127.0.0.1:43180", "dev": "http://localhost:5173" },
+    "output": { "url": "http://127.0.0.1:${PORT}/x", "local": "localhost:${PORT}", "bare": "4318", "n": 4318, "longer": "127.0.0.1:43180", "dev": "http://localhost:5173" }
+  },
+  {
+    "note": "macOS: the /var alias of /private/var is ROOT too",
+    "vars": { "ROOT": "/private/var/folders/x/T/odc" },
+    "input": ["/var/folders/x/T/odc/home", "%2Fvar%2Ffolders%2Fx%2FT%2Fodc%2Fshot.png"],
+    "output": ["${ROOT}/home", "${ROOT|uri}%2Fshot.png"]
+  },
+  {
+    "note": "object keys are normalized like strings",
+    "vars": { "ROOT": "/r/odc", "AGENT": "u1:main" },
+    "input": { "/r/odc/a.png": 1, "u1:main": { "since": 5 } },
+    "output": { "${ROOT}/a.png": 1, "${AGENT}": { "since": 0 } }
+  },
+  {
+    "note": "empty variable values are ignored",
+    "vars": { "TOKEN": "", "ROOT": "/r/odc" },
+    "input": "a/r/odc",
+    "output": "a${ROOT}"
+  }
+]
