@@ -108,3 +108,117 @@ fn orca_sourced_timestamps_accept_json_floats() {
     assert_eq!(w.resets_at, Some(1_700_003_600_000));
     assert!(serde_json::from_value::<OfficeAgent>(agent(json!("soon"))).is_err());
 }
+
+// ---- transcripts, stats, conversation responses (task 8) ----
+
+mod transcript_goldens {
+    use super::{golden, normalize};
+    use chrono::{DateTime, Utc};
+    use od_core::conversation::{conversation_response, empty_conversation};
+    use od_core::model::{ConversationResponse, SubagentInfo};
+    use od_core::stats::agent_stats;
+    use od_core::subagents::subagent_infos;
+    use od_core::transcript::{read_transcript, reset_transcript_cache, ReadOptions};
+    use serde_json::Value;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn fixture_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bridge/test/fixtures")
+            .join(name)
+    }
+
+    /// fileId hashes the absolute path, so goldens pin it to a placeholder.
+    fn pinned(mut v: Value) -> Value {
+        if v["fileId"].is_string() {
+            v["fileId"] = Value::from("<fileId>");
+        }
+        v
+    }
+
+    // One test reads and resets the process-wide transcript cache, so the sidechain variant
+    // of the same file is read fresh.
+    #[test]
+    fn transcripts_stats_and_conversations_match_ts() {
+        let mut all = HashMap::new();
+        for (name, sidechain) in [
+            ("claude-session", false),
+            ("codex-session", false),
+            ("claude-rich", false),
+            ("claude-rich", true),
+        ] {
+            reset_transcript_cache();
+            let t = read_transcript(
+                &fixture_path(&format!("{name}.jsonl")),
+                ReadOptions { sidechain },
+            )
+            .unwrap();
+            let key = if sidechain {
+                format!("{name}-sidechain")
+            } else {
+                name.to_string()
+            };
+            let actual = pinned(serde_json::to_value(&t).unwrap());
+            assert_eq!(
+                normalize(actual),
+                normalize(golden(&format!("transcript-{key}"))),
+                "{key}"
+            );
+            all.insert(key, t);
+        }
+        reset_transcript_cache();
+
+        for case in golden("stats").as_array().unwrap() {
+            let t = &all[case["transcript"].as_str().unwrap()];
+            let now: DateTime<Utc> = case["now"].as_str().unwrap().parse().unwrap();
+            let s = agent_stats(&t.messages, &t.calls, &now);
+            assert_eq!(
+                normalize(serde_json::to_value(&s).unwrap()),
+                normalize(case["expected"].clone()),
+                "stats {} @ {}",
+                case["transcript"],
+                case["now"]
+            );
+        }
+
+        let ids: HashMap<String, String> = [("s1".to_string(), "abc123".to_string())]
+            .into_iter()
+            .collect();
+        let infos = |name: &str| -> Vec<SubagentInfo> { subagent_infos(&all[name].calls, &ids) };
+        for case in golden("conversation").as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let resp: ConversationResponse = match case["kind"].as_str().unwrap() {
+                "empty" => empty_conversation(case["reason"].as_str().unwrap()),
+                "empty-subagents" => ConversationResponse {
+                    subagents: infos("claude-rich"),
+                    ..empty_conversation(case["reason"].as_str().unwrap())
+                },
+                _ => {
+                    let main = &all[case["main"].as_str().unwrap()];
+                    let sub = case["sub"].as_str().map(|s| &all[s]);
+                    conversation_response(
+                        main,
+                        sub,
+                        subagent_infos(&main.calls, &ids),
+                        case["after"].as_i64().unwrap(),
+                        case["agentType"].as_str().unwrap(),
+                    )
+                }
+            };
+            assert_eq!(
+                normalize(pinned(serde_json::to_value(&resp).unwrap())),
+                normalize(case["expected"].clone()),
+                "conversation: {name}"
+            );
+            // And the golden itself round-trips through the model type.
+            let typed: ConversationResponse =
+                serde_json::from_value(case["expected"].clone()).unwrap();
+            assert_eq!(
+                normalize(serde_json::to_value(&typed).unwrap()),
+                normalize(case["expected"].clone()),
+                "conversation roundtrip: {name}"
+            );
+        }
+    }
+}

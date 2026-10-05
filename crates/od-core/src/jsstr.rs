@@ -9,6 +9,10 @@ pub(crate) fn trim(s: &str) -> &str {
     s.trim_matches(is_js_space)
 }
 
+pub(crate) fn trim_start(s: &str) -> &str {
+    s.trim_start_matches(is_js_space)
+}
+
 pub(crate) fn trim_end(s: &str) -> &str {
     s.trim_end_matches(is_js_space)
 }

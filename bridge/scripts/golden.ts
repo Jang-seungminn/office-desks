@@ -4,11 +4,17 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { agentStats } from '../src/stats.js';
+import { subagentInfos } from '../src/subagents.js';
+import { readTranscript, resetTranscriptCache, type TranscriptResult } from '../src/transcript.js';
 import { validateHire } from '../src/hire.js';
 import { charBytes, KEY_BYTES, keyBytes } from '../src/keys.js';
-import type { AwardBoard, BackendInfo, HireRequest, OfficeDesk, OrgChart, ServerMessage, UsageSnapshot } from '../src/model.js';
+import type { AwardBoard, ConversationResponse, BackendInfo, HireRequest, OfficeDesk, OrgChart, ServerMessage, UsageSnapshot } from '../src/model.js';
 import { composerState, screenSupport } from '../src/screen.js';
 import { cleanTitle, orcaDeskName, toSnapshot } from '../src/stateMapper.js';
+
+// Stats count "today" in local time; pin the zone so the goldens are the same on every machine.
+process.env.TZ = 'UTC';
 
 const root = new URL('../../', import.meta.url);
 const outDir = new URL('crates/od-core/tests/golden/', root);
@@ -259,4 +265,64 @@ write('hire', {
     return { ...c, expected: 'error' in r ? { error: r.error } : { spec: r } };
   }),
 });
-console.log(`golden: wrote ${3 + Object.keys(messages).length + 7} files to ${fileURLToPath(outDir)}`);
+// ---- transcripts, stats, conversation responses ----
+// fileId hashes the absolute path, which differs per machine: pin it to a placeholder (the Rust
+// tests check the hash formula separately).
+const fixturePath = (name: string) => fileURLToPath(new URL(`bridge/test/fixtures/${name}`, root));
+const pin = <T extends { fileId: string | null }>(t: T): T => ({ ...t, fileId: t.fileId === null ? null : '<fileId>' });
+const transcripts: Record<string, TranscriptResult> = {};
+for (const [name, sidechain] of [['claude-session', false], ['codex-session', false], ['claude-rich', false], ['claude-rich', true]] as const) {
+  resetTranscriptCache();
+  const t = await readTranscript(fixturePath(`${name}.jsonl`), { sidechain });
+  const key = sidechain ? `${name}-sidechain` : name;
+  transcripts[key] = t;
+  write(`transcript-${key}`, pin(t));
+}
+resetTranscriptCache();
+write(
+  'stats',
+  Object.keys(transcripts).flatMap((key) =>
+    ['2026-10-03T12:00:00Z', '2026-10-04T23:59:59Z', '2026-03-29T00:00:00Z', '2027-01-01T00:00:00Z'].map((nowIso) => ({
+      transcript: key,
+      now: nowIso,
+      expected: agentStats(transcripts[key], new Date(nowIso)),
+    })),
+  ),
+);
+
+// Same assembly as conversation() in server.ts (the file lookup and Korean reasons live there).
+const emptyConversation = (reason: string): ConversationResponse => ({
+  found: false, reason, fileId: null, title: null, total: 0, after: 0, messages: [], subagents: [], questions: [], pending: [], claudeVersion: null, screenSupport: 'unknown',
+});
+function conversationOf(main: TranscriptResult, sub: TranscriptResult | null, agentType: string, after: number): ConversationResponse {
+  const subagents = subagentInfos(main.calls, new Map([['s1', 'abc123']]));
+  const t = sub ?? main;
+  const from = Number.isInteger(after) && after >= 0 && after <= t.messages.length ? after : 0;
+  return {
+    found: true,
+    fileId: t.fileId,
+    title: sub ? null : t.title,
+    total: t.messages.length,
+    after: from,
+    messages: t.messages.slice(from),
+    subagents,
+    questions: main.questions,
+    pending: sub ? [] : main.pending,
+    claudeVersion: main.claudeVersion,
+    screenSupport: screenSupport(agentType, main.claudeVersion),
+  };
+}
+const rich = transcripts['claude-rich'];
+const conv = (name: string, resp: ConversationResponse, args: object) => ({ name, ...args, expected: pin(resp) });
+write('conversation', [
+  conv('not found', { ...emptyConversation('이 에이전트는 더 이상 사무실에 없습니다.') }, { kind: 'empty', reason: '이 에이전트는 더 이상 사무실에 없습니다.' }),
+  conv('subagent missing', { ...emptyConversation('서브에이전트 기록을 찾지 못했습니다.'), subagents: subagentInfos(rich.calls, new Map([['s1', 'abc123']])) }, { kind: 'empty-subagents', reason: '서브에이전트 기록을 찾지 못했습니다.' }),
+  conv('main, from start', conversationOf(rich, null, 'claude', 0), { kind: 'found', main: 'claude-rich', agentType: 'claude', after: 0 }),
+  conv('main, after 3', conversationOf(rich, null, 'claude', 3), { kind: 'found', main: 'claude-rich', agentType: 'claude', after: 3 }),
+  conv('after out of range', conversationOf(rich, null, 'claude', 9999), { kind: 'found', main: 'claude-rich', agentType: 'claude', after: 9999 }),
+  conv('negative after', conversationOf(rich, null, 'codex', -1), { kind: 'found', main: 'claude-rich', agentType: 'codex', after: -1 }),
+  conv('subagent view', conversationOf(rich, transcripts['claude-rich-sidechain'], 'claude', 1), { kind: 'found', main: 'claude-rich', sub: 'claude-rich-sidechain', agentType: 'claude', after: 1 }),
+  conv('codex session', conversationOf(transcripts['codex-session'], null, 'codex', 0), { kind: 'found', main: 'codex-session', agentType: 'codex', after: 0 }),
+]);
+
+console.log(`golden: wrote ${readdirSync(fileURLToPath(outDir)).length} files to ${fileURLToPath(outDir)}`);
