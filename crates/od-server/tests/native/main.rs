@@ -22,7 +22,7 @@ fn main() {
 
     // Still single-threaded here: set_var is sound (edition 2021).
     let scratch = tempfile::Builder::new()
-        .prefix("od-native-")
+        .prefix("od-server-native-")
         .tempdir()
         .expect("scratch root");
     let root = dunce::canonicalize(scratch.path()).expect("canonical scratch root");
