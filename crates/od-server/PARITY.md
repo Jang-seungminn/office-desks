@@ -107,5 +107,5 @@ Binary (`office-desks`):
 
 ## Left for later
 
-- `stop` and `remove` HTTP routes for agents and worktrees (the desktop app needs them; `server.ts` has none): R4.
+- Done in R4: `POST /api/stop` and `/api/remove` (`routes::manage::{stop, remove}`; api `stop_and_remove_*`, `lifecycle_errors_map_to_statuses`; native trial `lifecycle_native`). New routes, no `server.ts` counterpart.
 - The terminal app (TUI) on top of this server: R5.

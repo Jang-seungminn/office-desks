@@ -2428,3 +2428,176 @@ async fn shutdown_disposes_after_two_seconds_when_a_hire_hangs() {
     assert_eq!(fake.calls_of("dispose"), ["dispose"]);
     gate.notify_one();
 }
+
+// ---- POST /api/stop and /api/remove (R4) ----
+
+fn lifecycle_caps() -> BackendCapabilities {
+    BackendCapabilities {
+        stop: true,
+        remove: true,
+        ..no_capabilities()
+    }
+}
+
+async fn json_post(s: &support::TestServer, path: &str, body: &str) -> support::Resp {
+    let r = s
+        .client
+        .request(
+            "POST",
+            path,
+            &[("content-type", "application/json")],
+            Some(body.as_bytes().to_vec()),
+        )
+        .await;
+    assert_security_headers(&r);
+    r
+}
+
+#[tokio::test]
+async fn stop_and_remove_call_the_backend_and_answer_ok() {
+    let fake = with_caps(lifecycle_caps());
+    let s = support::start(fake.clone()).await;
+    let r = json_post(&s, "/api/stop", r#"{"agentId":"a1"}"#).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.header("content-type"), Some("application/json"));
+    assert_eq!(r.body, br#"{"ok":true}"#);
+    let r = json_post(&s, "/api/remove", r#"{"deskId":"r::/x/wt"}"#).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.body, br#"{"ok":true}"#);
+    assert_eq!(fake.calls_of("stop_agent"), ["stop_agent a1"]);
+    assert_eq!(
+        fake.calls_of("remove_worktree"),
+        ["remove_worktree r::/x/wt"]
+    );
+}
+
+#[tokio::test]
+async fn stop_and_remove_need_the_capability() {
+    let fake = with_caps(no_capabilities());
+    let s = support::start(fake.clone()).await;
+    let want = "{\"error\":\"이 백엔드에서는 할 수 없어요\",\"code\":\"unsupported\"}";
+    for (path, body) in [
+        ("/api/stop", r#"{"agentId":"a1"}"#),
+        ("/api/remove", r#"{"deskId":"d1"}"#),
+    ] {
+        let r = json_post(&s, path, body).await;
+        assert_eq!(r.status, 400, "{path}");
+        assert_eq!(r.text(), want, "{path}");
+    }
+    assert!(fake.calls_of("stop_agent").is_empty());
+    assert!(fake.calls_of("remove_worktree").is_empty());
+}
+
+#[tokio::test]
+async fn stop_and_remove_need_a_string_id() {
+    let fake = with_caps(lifecycle_caps());
+    let s = support::start(fake.clone()).await;
+    let long = format!(r#"{{"agentId":"{}"}}"#, "x".repeat(1001));
+    for body in [
+        "{}",
+        r#"{"agentId":5}"#,
+        r#"{"agentId":"  "}"#,
+        long.as_str(),
+    ] {
+        let r = json_post(&s, "/api/stop", body).await;
+        assert_eq!(r.status, 400, "{body:.40}");
+        assert_eq!(r.text(), "{\"error\":\"agentId가 필요해요\"}");
+    }
+    let r = json_post(&s, "/api/remove", r#"{"deskId":null}"#).await;
+    assert_eq!(r.status, 400);
+    assert_eq!(r.text(), "{\"error\":\"deskId가 필요해요\"}");
+    // Exactly 1000 units is fine.
+    let ok = format!(r#"{{"agentId":"{}"}}"#, "x".repeat(1000));
+    assert_eq!(json_post(&s, "/api/stop", &ok).await.status, 200);
+    for path in ["/api/stop", "/api/remove"] {
+        assert_eq!(json_post(&s, path, "null").await.status, 502, "{path}");
+    }
+    assert_eq!(fake.calls_of("remove_worktree").len(), 0);
+}
+
+#[tokio::test]
+async fn lifecycle_errors_map_to_statuses() {
+    let fake = with_caps(lifecycle_caps());
+    let s = support::start(fake.clone()).await;
+    let coded = |m: &str, c: &str| BackendError::with_code(m, c);
+    let cases = [
+        (coded("워크트리를 찾지 못했어요", "not_found"), 404),
+        (
+            coded("메인 체크아웃은 지울 수 없어요", "main_checkout"),
+            409,
+        ),
+        (
+            coded(
+                "에이전트가 실행 중인 워크트리는 지울 수 없어요 (x로 먼저 종료)",
+                "has_agents",
+            ),
+            409,
+        ),
+        (
+            coded("변경사항이 있는 워크트리는 지울 수 없어요", "dirty"),
+            409,
+        ),
+        (
+            coded("워크트리를 지우지 못했어요 — fatal: x", "remove_failed"),
+            502,
+        ),
+        (coded("이 백엔드에서는 할 수 없어요", "unsupported"), 400),
+    ];
+    for (err, status) in cases {
+        let want = serde_json::json!({ "error": err.message, "code": err.code });
+        fake.errors.lock().unwrap().insert("remove_worktree", err);
+        let r = json_post(&s, "/api/remove", r#"{"deskId":"d1"}"#).await;
+        assert_eq!(r.status, status, "{want}");
+        assert_eq!(r.json(), want);
+    }
+    fake.errors
+        .lock()
+        .unwrap()
+        .insert("remove_worktree", BackendError::plain("boom"));
+    let r = json_post(&s, "/api/remove", r#"{"deskId":"d1"}"#).await;
+    assert_eq!(r.status, 502);
+    assert_eq!(r.text(), r#"{"error":"boom"}"#);
+
+    fake.errors
+        .lock()
+        .unwrap()
+        .insert("stop_agent", coded("에이전트를 찾지 못했어요", "not_found"));
+    let r = json_post(&s, "/api/stop", r#"{"agentId":"a1"}"#).await;
+    assert_eq!(r.status, 404);
+    assert_eq!(
+        r.text(),
+        "{\"error\":\"에이전트를 찾지 못했어요\",\"code\":\"not_found\"}"
+    );
+}
+
+#[tokio::test]
+async fn stop_and_remove_keep_the_gates() {
+    let s = support::start(with_caps(lifecycle_caps())).await;
+    let r = s.client.request("GET", "/api/stop", &[], None).await;
+    assert_eq!(r.status, 405);
+    assert_eq!(r.text(), r#"{"error":"method not allowed"}"#);
+    let r = s
+        .client
+        .request(
+            "POST",
+            "/api/remove",
+            &[("content-type", "text/plain")],
+            Some(br#"{"deskId":"d"}"#.to_vec()),
+        )
+        .await;
+    assert_eq!(r.status, 415);
+    let r = s
+        .client
+        .request(
+            "POST",
+            "/api/stop",
+            &[
+                ("content-type", "application/json"),
+                ("origin", "https://evil.example"),
+            ],
+            Some(br#"{"agentId":"a"}"#.to_vec()),
+        )
+        .await;
+    assert_eq!(r.status, 403);
+    assert_eq!(r.text(), r#"{"error":"forbidden origin"}"#);
+}

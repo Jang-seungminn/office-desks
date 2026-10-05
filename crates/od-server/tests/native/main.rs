@@ -12,6 +12,7 @@ mod support;
 mod contract;
 mod fake_agent;
 mod home;
+mod lifecycle;
 mod term;
 
 use std::path::{Path, PathBuf};
@@ -36,6 +37,7 @@ fn main() {
     let mut trials = contract::trials(&root);
     trials.extend(term::trials(&root));
     trials.extend(home::trials(&root));
+    trials.extend(lifecycle::trials(&root));
     let conclusion = libtest_mimic::run(&args, trials);
     drop(scratch);
     conclusion.exit();
