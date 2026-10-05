@@ -72,6 +72,15 @@ pub fn win32_is_absolute(p: &str) -> bool {
     }
 }
 
+/// `path.isAbsolute` with Node's rules for this OS (`/x` is absolute on Windows too).
+pub fn node_is_absolute(p: &str) -> bool {
+    if cfg!(windows) {
+        win32_is_absolute(p)
+    } else {
+        p.starts_with('/')
+    }
+}
+
 /// `path.win32.extname(p) != ""`.
 fn win32_has_ext(p: &str) -> bool {
     let base = p.rsplit(is_win_sep).next().unwrap_or("");

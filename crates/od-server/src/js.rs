@@ -1,14 +1,14 @@
 //! JavaScript and Node semantics the server's request handling relies on.
 //!
 //! The whitespace, length and truthiness helpers come from od-core and are only re-exported
-//! here. This module writes `Number()`, `String()`, `decodeURIComponent` /
-//! `encodeURIComponent` and Node's `path.basename` / `path.isAbsolute`.
+//! here (with Node's `path.isAbsolute`). This module writes `Number()`, `String()`,
+//! `decodeURIComponent` / `encodeURIComponent` and Node's `path.basename`.
 
 use serde_json::Value;
 
 pub use od_core::jsstr::{collapse_ws as collapse_spaces, is_js_space, trim, utf16_len};
 pub use od_core::jsval::truthy;
-pub use od_core::native::env::win32_is_absolute;
+pub use od_core::native::env::{node_is_absolute, win32_is_absolute};
 
 /// JS `Number(string)` (StringToNumber).
 pub fn number(s: &str) -> f64 {
@@ -226,15 +226,6 @@ pub fn node_basename(p: &str) -> &str {
         win32_basename(p)
     } else {
         posix_basename(p)
-    }
-}
-
-/// Node `path.isAbsolute(p)` for the OS the server runs on.
-pub fn node_is_absolute(p: &str) -> bool {
-    if cfg!(windows) {
-        win32_is_absolute(p)
-    } else {
-        p.starts_with('/')
     }
 }
 

@@ -117,18 +117,20 @@ pub async fn native_backend(env: &EnvMap, port: u16) -> NativeBackend {
 
 /// Start the HTTP server (and, from later tasks, the poller, usage loop and upload cleanup).
 /// Returns at once.
+#[must_use = "dropping the ServerHandle stops the server"]
 pub async fn serve(
     bound: Bound,
     backend: Arc<dyn OfficeBackend>,
     cfg: ServerConfig,
 ) -> ServerHandle {
     let Bound { listener, port } = bound;
+    let (stop_tx, mut stop_rx) = watch::channel(false);
     let state = Arc::new(app::AppState {
         port,
         allowed_ports: [port, DEV_WEB_PORT],
         assets: Arc::clone(&cfg.assets),
+        stop: stop_tx.subscribe(),
     });
-    let (stop_tx, mut stop_rx) = watch::channel(false);
     let (closed_tx, closed_rx) = watch::channel(false);
     let router = app::router(state);
     tokio::spawn(async move {
@@ -169,7 +171,13 @@ struct HandleInner {
 
 /// A running server. Clones share the server; when every clone is dropped the server stops
 /// accepting (without disposing the backend).
+///
+/// Shutdown is graceful for plain HTTP: the accept loop ends once in-flight requests are done,
+/// which includes waiting for a request body a client is still sending. Connections upgraded
+/// to WebSocket are not tracked by axum 0.8: they outlive [`ServerHandle::closed`] (they never
+/// block it), so each WS loop must end itself on the stop signal (`AppState::stop`).
 #[derive(Clone)]
+#[must_use = "dropping every ServerHandle stops the server"]
 pub struct ServerHandle {
     pub port: u16,
     /// The secret a `/term` client must present (Task 9).
@@ -189,6 +197,8 @@ impl ServerHandle {
     }
 
     /// Resolves when the accept loop has ended (after shutdown), at once if it already has.
+    /// It waits for in-flight HTTP requests, including request bodies still being received,
+    /// but not for upgraded WebSocket connections, which outlive it.
     pub async fn closed(&self) {
         let mut rx = self.inner.closed.clone();
         let _ = rx.wait_for(|c| *c).await;

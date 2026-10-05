@@ -137,7 +137,7 @@ impl From<tokio::task::JoinError> for ApiError {
 
 /// `json(res, status, body)`: `content-type: application/json` exactly, no charset.
 pub fn json(status: StatusCode, body: &impl Serialize) -> Response {
-    let bytes = serde_json::to_vec(body).unwrap_or_else(|_| b"null".to_vec());
+    let bytes = serde_json::to_vec(body).expect("response bodies always serialize");
     let mut res = (status, bytes).into_response();
     res.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -147,7 +147,8 @@ pub fn json(status: StatusCode, body: &impl Serialize) -> Response {
 }
 
 /// `readJson(req, cap)`: collect the body, counting bytes; over `cap` is the TS `UploadError`
-/// `요청이 너무 큽니다` (400). A parse failure is 400 with serde's text (V8's can't be matched).
+/// `요청이 너무 큽니다` (400). The bytes are decoded lossily as UTF-8 first, like Node's
+/// `toString('utf8')`. A parse failure is 400 with serde's text (V8's can't be matched).
 pub async fn read_json(body: Body, cap: usize) -> Result<Value, ApiError> {
     let mut body = body;
     let mut buf: Vec<u8> = Vec::new();
@@ -160,7 +161,8 @@ pub async fn read_json(body: Body, cap: usize) -> Result<Value, ApiError> {
             buf.extend_from_slice(&data);
         }
     }
-    serde_json::from_slice(&buf).map_err(|e| ApiError::BadRequest(e.to_string()))
+    let text = String::from_utf8_lossy(&buf);
+    serde_json::from_str(&text).map_err(|e| ApiError::BadRequest(e.to_string()))
 }
 
 #[cfg(test)]
@@ -217,6 +219,11 @@ mod tests {
         assert_eq!(bad.into_response().status(), StatusCode::BAD_REQUEST);
         let null = read_json(Body::from("null"), 10).await.unwrap();
         assert_eq!(null, Value::Null);
+        // Invalid UTF-8 inside a string becomes U+FFFD, as with Node's lossy decode.
+        let lossy = read_json(Body::from(b"\"a\xffb\"".to_vec()), 10)
+            .await
+            .unwrap();
+        assert_eq!(lossy, Value::String("a\u{FFFD}b".into()));
     }
 
     #[tokio::test]

@@ -21,6 +21,11 @@ pub(crate) struct AppState {
     /// `[bound port, 5173]`.
     pub allowed_ports: [u16; 2],
     pub assets: Arc<dyn Assets>,
+    /// Becomes true on `ServerHandle::shutdown` (and errors once every handle is dropped).
+    /// Upgraded WS connections outlive the graceful shutdown, so the WS loops of Tasks 3 and 9
+    /// `select!` on this to end themselves.
+    #[expect(dead_code, reason = "read by the WS loops of Tasks 3 and 9")]
+    pub stop: tokio::sync::watch::Receiver<bool>,
 }
 
 pub(crate) fn router(state: Arc<AppState>) -> Router {
