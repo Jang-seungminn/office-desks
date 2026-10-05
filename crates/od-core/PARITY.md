@@ -38,13 +38,15 @@ Legend: **done** = ported in R1. **R2/R3/R5** = deliberately left for that miles
 | `localImage.ts` | `src/local_image.rs` | `src/local_image.rs` | none | done |
 | `commands.ts` | `src/commands.rs` | `src/commands.rs`, `tests/golden.rs` | `commands-list` | done |
 | `answer.ts` | `src/answer.rs` | `src/answer.rs`, `tests/golden.rs` | `answer-driver`, `wire-answer` | done |
+| `model.ts` request/response types | `src/model.rs` | `tests/golden.rs` | `wire-answer`, `wire-upload`, `wire-requests` | done (wire shapes; see Request bodies) |
+| `timingSafeEqual` token check (`backend/native.ts`) | `src/security.rs` (`same_token`) | `src/security.rs` | none | done |
 
 ## Left for later milestones
 
 | TS module | Goes to | Why |
 |---|---|---|
 | `server.ts` | R2 | HTTP and WebSocket layer; R1 only ported its `conversation()` builder |
-| `security.ts` | R2 | request guards (origin, host, token) belong to the server |
+| `security.ts` | R2 | request guards (origin, host) belong to the server. Only the token compare is in R1, as `security::same_token` |
 | `poller.ts` | R2 | drives the backend on a timer and broadcasts snapshots |
 | `backend/index.ts` (`createBackend`, `probeOrca`) | R2 | backend selection at server start |
 | `backend/orca.ts` | R3 | Orca backend |
@@ -80,6 +82,13 @@ PtyHost (xterm-headless to vt100, node-pty to portable-pty):
 - Unicode widths come from unicode-width 0.2 (Unicode 16), not xterm's Unicode 11. Reason: vt100. Rare characters may differ.
 - Resize does not reflow (xterm reflows on column change). Reason: vt100.
 - `set_replies(bool)` is replaced by `mute_replies(id) -> Option<ReplyMute>`, a counted guard. Reason: two attached terminals cannot unmute each other.
+- Query replies. xterm.js answers many queries itself; the vt100 responder answers only these, with the bytes xterm.js 6 sends (probed with `@xterm/headless` 6.0.0), and only while no `ReplyMute` is held:
+  - DA1 `CSI c` / `CSI 0 c` → `CSI ?1;2c`;
+  - DA2 `CSI > c` / `CSI > 0 c` → `CSI >0;276;0c`;
+  - DSR `CSI 5 n` → `CSI 0n`; `CSI 6 n` → `CSI row;col R` (1-based, at the moment of the query);
+  - DECRQM `CSI ? Ps $ p` → `CSI ? Ps;Pm $ y` and `CSI Ps $ p` → `CSI Ps;Pm $ y`, with Pm 1 (set) or 2 (reset) for the modes we track: DEC 1 (app cursor), 7 (autowrap), 25 (cursor visible), 47/1047/1049 (alternate screen), 1004 (focus), 2004 (bracketed paste) and ANSI 4 (insert). Only the first parameter is answered, as in xterm.js.
+
+  Differences: DECRQM answers 0 ("not recognized") for every other mode, where xterm.js answers 2 for modes like `?6`, `?12`, `?1000`, `?2026`, ANSI 20, 4 for ANSI 2 and 3 for ANSI 12. Reason: claiming "reset" would invite a program to turn on a mode vt100 does not honor. DECXCPR (`CSI ? 6 n`, xterm.js: `CSI ?row;colR`) and DECRQSS (`DCS $ q … ST`) are not answered. Like xterm.js 6 headless, we do not answer XTVERSION (`CSI > q`), kitty keyboard (`CSI ? u`), OSC 10/11/4 color queries or window reports (`CSI 14/16/18 t`).
 - A panic in the vt100 parser is caught: the screen is blanked and reading continues. Reason: never freeze the agent on a full PTY buffer.
 - `ensureSpawnHelper` has no port. Reason: node-pty specific.
 - The reader thread and fd can linger while a grandchild holds the slave (screen freed). Reason: parked, same as Node.
@@ -101,6 +110,7 @@ Backend and errors:
 - `os.homedir` is approximated by absolute HOME or USERPROFILE, else the OS home, else the temp dir.
 - Unix `find_command` checks any exec mode bit, not `access(X_OK)`. Reason: no libc call for it.
 - Windows path helpers (isAbsolute, extname, join) are hand-rolled so they are testable on macOS.
+- Node path helpers are spread over several modules: `win32_is_absolute` / `win32_has_ext` / `win32_join` (`native/env.rs`), `normalize_path` (`native/worktrees.rs`), `node_is_absolute` and `resolve_lexical` (`backend/native_backend.rs`). Left as they are in R1; R3 should consolidate them into one `nodepath` module when the Orca backend adds more.
 
 Git:
 
@@ -123,7 +133,7 @@ Transcripts, stats, conversation:
 
 Model and helpers:
 
-- Timestamps are `i64` ms; `since`, `lastActivityAt` and `resetsAt` accept a JSON float and truncate (lenient deserializer for Orca values). Only `usedPercent` is `f64`; goldens compare integral floats as equal to integers.
+- Timestamps are `i64` ms; `since`, `lastActivityAt` and `resetsAt` accept a JSON float and truncate (lenient deserializer for Orca values). Only `usedPercent` is `f64`, and it prints an integral value as an integer, like JS. Goldens compare numbers strictly: an integral float (`N.0`) anywhere fails.
 - `localeCompare` is a hand port of the ICU primary order (punctuation, digits, letters, accents via NFD, lowercase first), verified for ASCII, accented Latin and Hangul; other scripts sort by code point.
 - JS `slice` on UTF-16 that would split a surrogate pair drops the whole char (`jsstr::slice_utf16`).
 - Permission regex in hooks is ASCII-case-insensitive (`(?i-u)`), matching JS `/i` without `u`.
@@ -145,17 +155,48 @@ Parked (known, accepted): localeCompare for symbols and non-Latin scripts, float
 
 ## Notes for R2
 
-The server (axum or similar) must do the following. Each item is checked against the code.
+The server (axum or similar) must do the following. Each item is checked against the code and `bridge/src/server.ts`.
 
 - **Runtime.** Use a tokio runtime with the `time` feature on. `NativeBackend` and `PtyHost::dispose` use `spawn_blocking` and `tokio::time`.
-- **`spawn_blocking` for sync IO.** These APIs are sync and block on disk or processes: `Registry` (`load`, `add_repo`, `set_meta`), git (`SystemGit`, `list_worktrees`, `change_summary`, `file_diff`), `transcript::read_transcript` (holds a per-path lock across the read), `uploads::save_images` / `clean_old_uploads` / `read_local_image`, `CommandCatalog::get`, `AwardBook` (`load`, `update`, `save`) and `org::load_org` / `save_org`. `NativeBackend` already wraps its own git and registry calls.
-- **`BackendError` to HTTP** (documented on the type in `src/backend/types.rs`):
-  - busy (`is_busy()`, code `agent_busy`) gives 409 with `code` and `requestId`;
-  - plain (`code` is `None`) gives 502 with no `code` key;
-  - `/api/hire` answers any error with 400 and the message;
-  - coded (`new` / `with_code`) gives 400 with `error` and `code`.
-  - The answer driver's failures are `BackendError::plain` with a Korean message; the route answers 409 with that `message`. `UploadError::Rejected` gives 400 and `Io` gives 502.
-- **Raw body values.** Call `uploads::parse_images(&Value)` on the raw `images` field and `answer::validate_choices(&questions, &Value)` on the raw `choices` field before using them. `SendRequest.images` stays typed and `AnswerRequest.choices` is a `Value` for this reason. The answer route builds `BackendAnswerIO { backend, handle }` and calls `answer_questions`; it answers `{"ok":true}` on success.
-- **`/term` and `PtyHost::attach`.** `attach(id, f)` serializes the screen and registers the subscriber atomically under the screen lock, so each chunk is either in the snapshot or delivered to `f`, never both and never neither. `f` may run before `attach` returns, so queue what it receives and send the snapshot first. It returns `None` for an unknown id. The returned `Subscription` is `#[must_use]`; dropping it unsubscribes. While a real terminal is attached, hold `mute_replies(id)` (a `ReplyMute` guard; replies resume when every guard is dropped) so the agent's DA/DSR queries are answered by the terminal, not twice.
-- **Hook relay.** The server must start the process with `OFFICE_DESKS_HOOK_URL` set and the binary must dispatch `hook-relay` to `hook_relay::run()` and exit with its code.
+- **`spawn_blocking` for sync IO.** These APIs are sync and block on disk or processes; call them from `spawn_blocking`:
+  - `Registry::load`, `add_repo`, `set_meta` (they write the file while holding the registry mutex, so `repos()` and `meta()` can also wait behind a save);
+  - git: `SystemGit`, `git_info::change_summary`, `git_info::file_diff`, and `native::worktrees::{list_worktrees, resolve_repo, add_worktree, remove_worktree}`;
+  - `transcript::read_transcript` (holds a per-path lock across the read) and `subagents::subagent_ids` (reads the meta files);
+  - `uploads::save_images` / `save_images_with` / `clean_old_uploads`, and `local_image::read_local_image`;
+  - `commands::CommandCatalog::get` and `commands::list_commands`;
+  - `AwardBook::load` and `AwardBook::save` (`update` is pure);
+  - `org::load_org` / `save_org`;
+  - `native::env::find_command` (stats PATH entries) and `PtyHost::spawn` (starts a process).
+
+  `NativeBackend` already wraps its own git, registry, settings-file, transcript-lookup and spawn calls.
+- **Errors to HTTP.** `BackendError` merges three TS kinds (busy, plain, coded; see `src/backend/types.rs`). The status depends on the route. Route-level handling wins over the catch-all in `server.ts`:
+
+  | Where | Error | Response |
+  |---|---|---|
+  | `/api/send`, `/api/send/retry` (`deliver()`) | busy (`is_busy()`) | 409 `{ code: "agent_busy", requestId, error }` with the server's own text `에이전트가 지금 새 메시지를 받을 수 없는 상태예요 (질문·권한 확인 중이거나 화면 전환 중). 잠시 후 다시 보내기를 눌러 주세요` (not `BUSY_MESSAGE`; pinned in `wire-answer`) |
+  | `/api/hire` | any error from `hire()` | 400 `{ error: message }`, no `code`, even for `terminal_not_writable` |
+  | `/api/repos` | coded error from `add_repo()` | 400 `{ error, code }` |
+  | `/api/repos` | plain error | rethrown: catch-all, 502 |
+  | `/api/answer` | any error inside `answer_questions` (its own `BackendError::plain` Korean messages, and key-press failures) | 409 `{ error: message }` |
+  | catch-all | code `terminal_not_writable` | 409 `{ error, code }` |
+  | catch-all | JSON parse error (`SyntaxError`) or `UploadError` (including a body over the size cap) | 400 `{ error }` |
+  | catch-all | anything else, coded or plain | 502 `{ error }`, plus `code` only when the error has one |
+
+  So `UploadError::Rejected` (bad images, a bad or foreign upload folder) gives 400 and `UploadError::Io` (a raw fs error, a plain `Error` in TS) gives 502. The 400 text for a JSON parse error is V8's message, which Rust cannot reproduce byte for byte: a deliberate difference. A malformed `/hook/<id>` body gives a bare 400 with no body.
+- **Request bodies.** TS reads every body with `JSON.parse` and checks each field by hand. R2 must parse every request body as `serde_json::Value` and port each route's checks; it must not use axum's `Json<T>` with the typed structs (`SendRequest`, `KeyRequest`, `WorktreeUpdate`, `HireRequest`, and the others), which are stricter than TS and would answer 422. The checks, from `server.ts`:
+  - all POST routes: 405 for another method (before the body), 415 unless `content-type` starts with `application/json`; size cap 64 000 bytes (80 MB on `/api/send`, 2 MB on `/hook`), over the cap is `UploadError` `요청이 너무 큽니다` → 400. A JSON `null` body makes `body.x` throw a `TypeError` in TS → 502 through the catch-all.
+  - `terminalHandle` (`/api/send`, `/api/keys`, `/api/queue`, `/api/focus`): missing, non-string or not in the snapshot → 404 `unknown terminal`.
+  - `/api/send`: `force` is JS-truthy; a menu on screen without `force` → 409 `menu_open`; a non-string `text` becomes `''`; empty `text.trim()` and no `images` length → 400 `empty message`; call `uploads::parse_images(&Value)` on the raw `images` value (TS order of 400 messages).
+  - `/api/send/retry`: a non-string `requestId` becomes `''`; an unknown one → 404.
+  - `/api/keys`: if `char` is present (any type) it alone decides (`char_bytes` on a string, else invalid); otherwise `key` must be a string naming a known key. Invalid → 400 `unsupported key`. `key == "enter"` sends `KeyInput::Enter`.
+  - `/api/queue`: `action` other than `send-now` / `cancel` (any type) → 400 `unknown action`.
+  - `/api/answer`: `agentId` → 404 `unknown agent`; `toolUseId` compared as is; raw `choices` through `answer::validate_choices(&questions, &Value)` (`AnswerRequest.choices` is a `Value` for this reason). One answer per terminal at a time (409 `답을 입력하는 중입니다`). Build `BackendAnswerIO { backend, handle }`, call `answer_questions`, answer `{"ok":true}`.
+  - `/api/hire`: `validateHire` reads the raw body. Build `HireRequest` from the `Value` so a non-string `agent` fails as unknown (400 `지원하지 않는 에이전트입니다`), a non-string `prompt` counts as empty, `deskId` present (even `null`) selects the existing-worktree path. Parked: TS lets a numeric `name` pass the name regex.
+  - `/api/worktree`: unknown `deskId` → 404 `unknown worktree`; `workspaceStatus` is checked with `/^[a-z0-9][a-z0-9-]{0,39}$/.test(...)`, which coerces non-strings (`1` and `null` pass) → else 400 `invalid status`; `comment` goes through `String()` (`null` → `"null"`), collapsed and trimmed, over 200 → 400; nothing to change → 400 `nothing to change`.
+  - `/api/repos`: `path` must be a non-empty (after trim) string of at most 1000 → else 400 `저장소 경로를 입력해 주세요`.
+  - `/api/org`: `org::sanitize_org(&Value)` on the raw body.
+- **`/term` and `PtyHost::attach`.** `attach(id, f)` serializes the screen and registers the subscriber atomically under the screen lock, so each chunk is either in the snapshot or delivered to `f`, never both and never neither. `f` may run before `attach` returns, so queue what it receives and send the snapshot first. It returns `None` for an unknown id. The returned `Subscription` is `#[must_use]`; dropping it unsubscribes. While a real terminal is attached, hold `mute_replies(id)` (a `ReplyMute` guard; replies resume when every guard is dropped) so the agent's DA/DSR/DECRQM queries are answered by the terminal, not twice. Compare any token with `security::same_token`.
+- **Hook relay.** `NativeBackend` sets `OFFICE_DESKS_HOOK_URL` per agent, from the `hook_url` closure in `NativeDeps`. The server supplies that closure after it has bound its port, in the TS format (`backend/index.ts`): `http://127.0.0.1:<port>/hook/<encodeURIComponent(agentId)>?token=<token>` (the id contains `:` and can contain `/`, so use the same encode set). The server handles `POST /hook/<id>`: URL-decode the id, read the JSON body (2 MB cap; parse failure → bare 400), call `backend.hook(id, token, &payload)`, answer 204 when it returns true and 404 otherwise, and refresh the poller on true.
+- **Hook relay binary (R4).** The default relay argv is `[current_exe, "hook-relay"]` (`hooks::relay_command`), so whatever binary runs the backend (the Tauri app in R4) must dispatch a first argument `hook-relay` to `hook_relay::run()` and exit with its code before any GUI or runtime starts. Check that a Windows GUI-subsystem build still reads the hook payload from stdin.
+- **Transcript enrichment and `find_session`.** `find_session` is async (it scans on the blocking pool), unlike TS where `cachedSession` scans synchronously. Enrichment must not await it per agent on the poll path: spawn it (`tokio::spawn` with a clone of the `Arc<dyn OfficeBackend>`, since the task must be `'static`) and read `cached_session` right away. So the first poll after a session starts can miss the transcript; the next poll picks it up.
 - **Orca and the rest.** `OfficeBackend` is an `async_trait`; hold it as `Arc<dyn OfficeBackend>`. The Orca backend (R3) must produce `BackendError::busy(request_id)` for `agent_busy`; the native backend never raises it.

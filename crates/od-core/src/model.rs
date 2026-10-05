@@ -244,6 +244,10 @@ pub struct ImageUpload {
     pub data: String,
 }
 
+/// Wire shape, stricter than TS. R2 must not deserialize a request body into this with axum's
+/// `Json<T>` (a wrong type would answer 422): parse the body as `serde_json::Value` and port the
+/// route's checks from `server.ts` (PARITY.md, "Request bodies"). TS: a missing or unknown
+/// `terminalHandle` is 404, a non-string `text` counts as `''`, `force` is JS-truthy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendRequest {
@@ -491,6 +495,10 @@ pub struct QueueRequest {
     pub action: QueueAction,
 }
 
+/// Wire shape, stricter than TS. R2 must not deserialize a request body into this with axum's
+/// `Json<T>` (a wrong type would answer 422): parse the body as `serde_json::Value` and port the
+/// route's checks from `server.ts` (PARITY.md, "Request bodies"). TS: a missing
+/// `terminalHandle` is 404; an unknown `key` or a bad `char` (any type) is 400 `unsupported key`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KeyRequest {
@@ -538,6 +546,12 @@ pub struct FileDiffResponse {
 }
 
 /// Edit Orca's board status and/or comment for a worktree.
+///
+/// Wire shape, stricter than TS. R2 must not deserialize a request body into this with axum's
+/// `Json<T>` (a wrong type would answer 422): parse the body as `serde_json::Value` and port the
+/// route's checks from `server.ts` (PARITY.md, "Request bodies"). TS: an unknown `deskId`
+/// is 404, `workspaceStatus` is tested by a regex (which coerces non-strings), `comment` goes
+/// through `String()`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeUpdate {
@@ -557,6 +571,12 @@ where
 }
 
 /// Start new work: a new worktree with an agent, or an agent in an existing worktree.
+///
+/// Wire shape, stricter than TS. R2 must not deserialize a request body into this with axum's
+/// `Json<T>` (a wrong type would answer 422): parse the body as `serde_json::Value` and port the
+/// route's checks from `server.ts` (PARITY.md, "Request bodies"). TS: `validateHire` reads the
+/// raw body, so a non-string `agent` is 400 `지원하지 않는 에이전트입니다` and a non-string
+/// `prompt` counts as empty; build this from the `Value` the same way.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HireRequest {

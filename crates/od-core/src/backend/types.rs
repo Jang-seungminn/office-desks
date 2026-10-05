@@ -7,15 +7,16 @@ pub use crate::model::BackendCapabilities;
 /// The TS `BackendBusyError` message.
 pub const BUSY_MESSAGE: &str = "agent can not take a prompt right now";
 
-/// An error from a backend. Mirrors the three kinds the TS core throws, which `server.ts` answers
-/// differently (R2's server must map them the same way):
+/// An error from a backend. Merges the three kinds the TS core throws: **busy**
+/// ([`BackendError::busy`], TS `BackendBusyError`, code `agent_busy` plus the `request_id` to
+/// retry with), **plain** ([`BackendError::plain`], a TS plain `Error` from git, IO or spawns: no
+/// code) and **coded** ([`BackendError::new`] / [`BackendError::with_code`], TS `BackendError`).
 ///
-/// - **busy** ([`BackendError::busy`], TS `BackendBusyError`): code `agent_busy` plus the
-///   `request_id` the prompt can be retried with → HTTP 409 with `code` and `requestId`.
-/// - **plain** ([`BackendError::plain`], a TS plain `Error`: git, IO, spawn failures): no code →
-///   HTTP 502 with no `code` key (`/api/hire` answers any error with 400 and the message).
-/// - **coded** ([`BackendError::new`] / [`BackendError::with_code`], TS `BackendError`) → HTTP 400
-///   with `error` and `code`.
+/// The HTTP status depends on the route, not only on the kind; R2 must follow the per-route
+/// table in PARITY.md ("Errors to HTTP"), taken from `server.ts`. In short: busy from a prompt
+/// send is 409 with the server's own Korean text; `/api/hire` answers every error with 400;
+/// `/api/repos` answers a coded error with 400 and `code`; everything else falls to the
+/// catch-all: 409 for `terminal_not_writable`, else 502 (with `code` only when there is one).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{message}")]
 pub struct BackendError {
