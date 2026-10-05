@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::Mutex;
 
 const TOOL_SUMMARY: usize = 140;
@@ -83,8 +84,9 @@ impl<T> Ordered<T> {
 #[derive(Debug, Clone)]
 pub struct ParseState {
     pub title: Option<String>,
-    pub messages: Vec<ConversationMessage>,
-    pub images: Vec<TranscriptImage>,
+    /// `Arc` so a poll hands out the history without deep-copying it (copy-on-write on append).
+    pub messages: Arc<Vec<ConversationMessage>>,
+    pub images: Arc<Vec<TranscriptImage>>,
     /// Subagent transcripts are all `isSidechain`; the main one skips sidechain records.
     pub sidechain: bool,
     pub calls: Ordered<SubagentCall>,
@@ -98,11 +100,17 @@ pub struct ParseState {
 }
 
 impl ParseState {
+    fn push_msg(&mut self, m: ConversationMessage) {
+        Arc::make_mut(&mut self.messages).push(m);
+    }
+    fn images_mut(&mut self) -> &mut Vec<TranscriptImage> {
+        Arc::make_mut(&mut self.images)
+    }
     fn new(sidechain: bool) -> Self {
         Self {
             title: None,
-            messages: Vec::new(),
-            images: Vec::new(),
+            messages: Arc::default(),
+            images: Arc::default(),
             sidechain,
             calls: Ordered::default(),
             asks: Ordered::default(),
@@ -113,6 +121,64 @@ impl ParseState {
             queued: HashSet::new(),
         }
     }
+}
+
+/// `JSON.parse` accepts lone surrogate escapes (`"\ud83d"`) that serde_json rejects, and Node
+/// writes them. On failure retry with each lone surrogate escape replaced by U+FFFD.
+fn parse_json(text: &str) -> Option<Value> {
+    match serde_json::from_str::<Value>(text) {
+        Ok(v) => Some(v),
+        Err(_) if text.to_ascii_lowercase().contains("\\ud") => {
+            serde_json::from_str(&sanitize_surrogates(text)).ok()
+        }
+        Err(_) => None,
+    }
+}
+
+fn hex4(b: &[u8]) -> Option<u32> {
+    if b.len() < 4 || !b[..4].iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
+    u32::from_str_radix(std::str::from_utf8(&b[..4]).ok()?, 16).ok()
+}
+
+fn sanitize_surrogates(text: &str) -> String {
+    let b = text.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'\\' {
+            out.push(b[i]);
+            i += 1;
+            continue;
+        }
+        // An escape: `\\x` is consumed as a unit so `\\\\ud83d` stays literal text.
+        if b.get(i + 1) == Some(&b'u') {
+            if let Some(c) = hex4(&b[i + 2..]) {
+                let pair_next = b.get(i + 6) == Some(&b'\\')
+                    && b.get(i + 7) == Some(&b'u')
+                    && hex4(&b[(i + 8).min(b.len())..])
+                        .is_some_and(|n| (0xDC00..=0xDFFF).contains(&n));
+                if (0xD800..=0xDBFF).contains(&c) && pair_next {
+                    out.extend_from_slice(&b[i..i + 12]);
+                    i += 12;
+                } else if (0xD800..=0xDFFF).contains(&c) {
+                    out.extend_from_slice("\u{FFFD}".as_bytes());
+                    i += 6;
+                } else {
+                    out.extend_from_slice(&b[i..i + 6]);
+                    i += 6;
+                }
+                continue;
+            }
+        }
+        out.push(b'\\');
+        if let Some(n) = b.get(i + 1) {
+            out.push(*n);
+        }
+        i += 2;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| text.to_string())
 }
 
 // ---- JS value semantics -------------------------------------------------------------------
@@ -209,12 +275,12 @@ fn is_wrapper(text: &str) -> bool {
 fn tool_summary(name: &str, input: Option<&Value>) -> String {
     let parsed: Value;
     let args: Option<&Value> = match input {
-        Some(Value::String(s)) => match serde_json::from_str::<Value>(s) {
-            Ok(v) => {
+        Some(Value::String(s)) => match parse_json(s) {
+            Some(v) => {
                 parsed = v;
                 Some(&parsed)
             }
-            Err(_) => return one_line(&format!("{name}: {s}")),
+            None => return one_line(&format!("{name}: {s}")),
         },
         Some(v @ Value::Object(_)) | Some(v @ Value::Array(_)) => Some(v),
         _ => None,
@@ -282,7 +348,7 @@ fn user_content(blocks: &[Value], st: &mut ParseState) -> (String, Vec<i64>) {
         }
         if ty == Some("image") && as_str(at(b, &["source", "type"])) == Some("base64") {
             if let Some(data) = as_str(at(b, &["source", "data"])) {
-                st.images.push(TranscriptImage {
+                st.images_mut().push(TranscriptImage {
                     media_type: match nn(at(b, &["source", "media_type"])) {
                         Some(v) => js_string(v),
                         None => "image/png".into(),
@@ -471,7 +537,7 @@ fn add_claude(r: &Value, st: &mut ParseState) {
                 if !images.is_empty() {
                     m.images = Some(images);
                 }
-                st.messages.push(m);
+                st.push_msg(m);
             }
             return;
         }
@@ -569,7 +635,7 @@ fn add_claude(r: &Value, st: &mut ParseState) {
             if !images.is_empty() {
                 m.images = Some(images);
             }
-            st.messages.push(m);
+            st.push_msg(m);
         }
         return;
     }
@@ -581,16 +647,14 @@ fn add_claude(r: &Value, st: &mut ParseState) {
         if bty == Some("text") && as_str(b.get("text")).is_some_and(|t| !jsstr::trim(t).is_empty())
         {
             let text = as_str(b.get("text")).unwrap_or_default().to_string();
-            st.messages
-                .push(msg(MessageRole::Assistant, text, ts.clone()));
+            st.push_msg(msg(MessageRole::Assistant, text, ts.clone()));
         } else if bty == Some("tool_use")
             && name == Some("SubagentHandback")
             && as_str(at(b, &["input", "message"])).is_some()
         {
             // A subagent's final report is a tool call, not a text block.
             let text = as_str(at(b, &["input", "message"])).unwrap_or_default();
-            st.messages
-                .push(msg(MessageRole::Assistant, text.to_string(), ts.clone()));
+            st.push_msg(msg(MessageRole::Assistant, text.to_string(), ts.clone()));
         } else if bty == Some("tool_use") && name == Some("AskUserQuestion") && id.is_some() {
             let id = id.unwrap_or_default().to_string();
             let questions = asked_questions(b.get("input"));
@@ -610,7 +674,7 @@ fn add_claude(r: &Value, st: &mut ParseState) {
             );
             let mut m = msg(MessageRole::Question, text, ts.clone());
             m.tool_use_id = Some(id);
-            st.messages.push(m);
+            st.push_msg(m);
         } else if bty == Some("tool_use")
             && matches!(name, Some("Agent") | Some("Task"))
             && id.is_some()
@@ -635,9 +699,9 @@ fn add_claude(r: &Value, st: &mut ParseState) {
             );
             let mut m = msg(MessageRole::Subagent, description, ts.clone());
             m.tool_use_id = Some(id);
-            st.messages.push(m);
+            st.push_msg(m);
         } else if bty == Some("tool_use") && name.is_some() {
-            st.messages.push(msg(
+            st.push_msg(msg(
                 MessageRole::Tool,
                 tool_summary(name.unwrap_or_default(), b.get("input")),
                 ts.clone(),
@@ -668,7 +732,7 @@ fn add_codex(r: &Value, st: &mut ParseState) {
     {
         let m = as_str(p.get("message")).unwrap_or_default();
         if !jsstr::trim(m).is_empty() && !is_wrapper(m) {
-            st.messages.push(msg(MessageRole::User, m.to_string(), ts));
+            st.push_msg(msg(MessageRole::User, m.to_string(), ts));
         }
     } else if ty == Some("response_item")
         && pty == Some("message")
@@ -687,8 +751,7 @@ fn add_codex(r: &Value, st: &mut ParseState) {
             .unwrap_or_default();
         let text = jsstr::trim(&text);
         if !text.is_empty() {
-            st.messages
-                .push(msg(MessageRole::Assistant, text.to_string(), ts));
+            st.push_msg(msg(MessageRole::Assistant, text.to_string(), ts));
         }
     } else if ty == Some("response_item")
         && matches!(pty, Some("function_call") | Some("custom_tool_call"))
@@ -697,11 +760,10 @@ fn add_codex(r: &Value, st: &mut ParseState) {
             .map(js_string)
             .unwrap_or_else(|| "tool".into());
         let input = nn(p.get("arguments")).or_else(|| p.get("input"));
-        st.messages
-            .push(msg(MessageRole::Tool, tool_summary(&name, input), ts));
+        st.push_msg(msg(MessageRole::Tool, tool_summary(&name, input), ts));
     } else if ty == Some("response_item") && pty == Some("web_search_call") {
         let q = str_or_empty(at(p, &["action", "query"]));
-        st.messages.push(msg(
+        st.push_msg(msg(
             MessageRole::Tool,
             one_line(&format!("web_search: {q}")),
             ts,
@@ -715,7 +777,7 @@ fn add_lines(text: &str, st: &mut ParseState) {
         if jsstr::trim(line).is_empty() {
             continue;
         }
-        let Ok(r) = serde_json::from_str::<Value>(line) else {
+        let Some(r) = parse_json(line) else {
             continue;
         };
         // Codex records wrap everything in `payload`; Claude Code records don't.
@@ -748,8 +810,8 @@ pub struct TranscriptResult {
     /// Identifies this file + read generation; changes if the file is replaced or truncated.
     pub file_id: String,
     pub title: Option<String>,
-    pub messages: Vec<ConversationMessage>,
-    pub images: Vec<TranscriptImage>,
+    pub messages: Arc<Vec<ConversationMessage>>,
+    pub images: Arc<Vec<TranscriptImage>>,
     pub calls: Vec<SubagentCall>,
     pub questions: Vec<QuestionState>,
     pub pending: Vec<PendingMessage>,
@@ -758,78 +820,114 @@ pub struct TranscriptResult {
     pub claude_version: Option<String>,
 }
 
+#[derive(Default)]
 struct FileState {
-    st: ParseState,
+    st: Option<ParseState>,
     offset: u64,
     carry: Vec<u8>,
+    /// 0 until the first read.
     generation: u64,
 }
 
-/// Cache in least-recently-used-first order (the TS `Map` insertion order).
-static FILES: Mutex<Vec<(String, FileState)>> = Mutex::new(Vec::new());
+struct CacheEntry {
+    /// Last-use stamp for LRU eviction.
+    used: u64,
+    state: Arc<Mutex<FileState>>,
+}
+
+#[derive(Default)]
+struct Cache {
+    clock: u64,
+    files: HashMap<String, CacheEntry>,
+}
+
+/// Outer lock: only get/insert/evict. Each file has its own lock, held across stat, read and
+/// parse, so concurrent readers of one file never see (or write) stale offsets, and readers
+/// of different files do not block each other.
+static FILES: Mutex<Option<Cache>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ReadOptions {
     pub sidechain: bool,
 }
 
+fn entry_for(key: &str) -> Arc<Mutex<FileState>> {
+    let mut g = FILES.lock().unwrap_or_else(|e| e.into_inner());
+    let cache = g.get_or_insert_with(Cache::default);
+    cache.clock += 1;
+    let stamp = cache.clock;
+    let arc = {
+        let e = cache
+            .files
+            .entry(key.to_string())
+            .or_insert_with(|| CacheEntry {
+                used: stamp,
+                state: Arc::default(),
+            });
+        e.used = stamp;
+        Arc::clone(&e.state)
+    };
+    while cache.files.len() > MAX_FILES {
+        let oldest = cache
+            .files
+            .iter()
+            .min_by_key(|(_, e)| e.used)
+            .map(|(k, _)| k.clone());
+        match oldest {
+            Some(k) => cache.files.remove(&k),
+            None => break,
+        };
+    }
+    arc
+}
+
 /// Read a transcript incrementally: the first call parses the whole file, later calls only
-/// new bytes. Thread-safe: concurrent callers serialize on the cache lock.
+/// new bytes. Thread-safe: callers serialize per path; different files proceed in parallel.
 pub fn read_transcript(file_path: &Path, opts: ReadOptions) -> std::io::Result<TranscriptResult> {
-    let size = std::fs::metadata(file_path)?.len();
     let key = file_path.to_string_lossy().into_owned();
-    let mut files = FILES.lock().unwrap_or_else(|e| e.into_inner());
-    let pos = files.iter().position(|(k, _)| *k == key);
-    let mut entry = pos.map(|i| files.remove(i).1);
-    if entry.as_ref().is_none_or(|s| size < s.offset) {
-        let generation = entry.as_ref().map_or(0, |s| s.generation) + 1;
-        entry = Some(FileState {
-            st: ParseState::new(opts.sidechain),
+    let arc = entry_for(&key);
+    let mut fs = arc.lock().unwrap_or_else(|e| e.into_inner());
+    let size = std::fs::metadata(file_path)?.len();
+    if fs.st.is_none() || size < fs.offset {
+        let generation = fs.generation + 1;
+        *fs = FileState {
+            st: Some(ParseState::new(opts.sidechain)),
             offset: 0,
             carry: Vec::new(),
             generation,
-        });
+        };
     }
-    let mut fs = entry.expect("set above");
-    let result = (|| -> std::io::Result<()> {
-        if size > fs.offset {
-            let mut f = std::fs::File::open(file_path)?;
-            f.seek(SeekFrom::Start(fs.offset))?;
-            let mut chunk = Vec::new();
-            f.take(size - fs.offset).read_to_end(&mut chunk)?;
-            fs.offset += chunk.len() as u64;
-            // Only parse complete lines; keep a half-written last line (and split UTF-8).
-            let mut buf = std::mem::take(&mut fs.carry);
-            buf.extend_from_slice(&chunk);
-            match buf.iter().rposition(|b| *b == b'\n') {
-                Some(nl) => {
-                    fs.carry = buf[nl + 1..].to_vec();
-                    add_lines(&String::from_utf8_lossy(&buf[..nl]), &mut fs.st);
-                }
-                None => fs.carry = buf,
+    if size > fs.offset {
+        let mut f = std::fs::File::open(file_path)?;
+        f.seek(SeekFrom::Start(fs.offset))?;
+        let mut chunk = Vec::new();
+        f.take(size - fs.offset).read_to_end(&mut chunk)?;
+        fs.offset += chunk.len() as u64;
+        // Only parse complete lines; keep a half-written last line (and split UTF-8).
+        let mut buf = std::mem::take(&mut fs.carry);
+        buf.extend_from_slice(&chunk);
+        match buf.iter().rposition(|b| *b == b'\n') {
+            Some(nl) => {
+                fs.carry = buf[nl + 1..].to_vec();
+                let text = String::from_utf8_lossy(&buf[..nl]);
+                add_lines(&text, fs.st.as_mut().expect("set above"));
             }
+            None => fs.carry = buf,
         }
-        Ok(())
-    })();
-    let out = TranscriptResult {
-        file_id: file_id(&key, fs.generation),
-        title: fs.st.title.clone(),
-        messages: fs.st.messages.clone(),
-        images: fs.st.images.clone(),
-        calls: fs.st.calls.values().to_vec(),
-        questions: fs.st.asks.values().to_vec(),
-        pending: fs.st.queue.clone(),
-        model: fs.st.model.clone(),
-        effort: fs.st.effort.clone(),
-        claude_version: fs.st.claude_version.clone(),
-    };
-    // Re-insert as most recently used, then evict the oldest.
-    files.push((key, fs));
-    while files.len() > MAX_FILES {
-        files.remove(0);
     }
-    result?;
-    Ok(out)
+    let st = fs.st.as_ref().expect("set above");
+    Ok(TranscriptResult {
+        file_id: file_id(&key, fs.generation),
+        title: st.title.clone(),
+        messages: Arc::clone(&st.messages),
+        images: Arc::clone(&st.images),
+        calls: st.calls.values().to_vec(),
+        questions: st.asks.values().to_vec(),
+        pending: st.queue.clone(),
+        model: st.model.clone(),
+        effort: st.effort.clone(),
+        claude_version: st.claude_version.clone(),
+    })
 }
 
 fn file_id(path: &str, generation: u64) -> String {
@@ -840,5 +938,5 @@ fn file_id(path: &str, generation: u64) -> String {
 
 /// Forget cached parse state (tests).
 pub fn reset_transcript_cache() {
-    FILES.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    *FILES.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }

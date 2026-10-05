@@ -270,6 +270,7 @@ write('hire', {
 // tests check the hash formula separately).
 const fixturePath = (name: string) => fileURLToPath(new URL(`bridge/test/fixtures/${name}`, root));
 const pin = <T extends { fileId: string | null }>(t: T): T => ({ ...t, fileId: t.fileId === null ? null : '<fileId>' });
+// claude-rich.jsonl is covered by these goldens only (there is no vitest case for it).
 const transcripts: Record<string, TranscriptResult> = {};
 for (const [name, sidechain] of [['claude-session', false], ['codex-session', false], ['claude-rich', false], ['claude-rich', true]] as const) {
   resetTranscriptCache();

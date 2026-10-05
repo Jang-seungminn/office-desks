@@ -13,7 +13,13 @@ fn local_date<Tz: TimeZone>(iso: &str, tz: &Tz) -> Option<NaiveDate> {
     }
     for f in ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%dT%H:%M"] {
         if let Ok(n) = NaiveDateTime::parse_from_str(iso, f) {
-            return Some(tz.from_local_datetime(&n).earliest()?.date_naive());
+            // In a DST gap there is no local time; JS shifts forward, which keeps the date.
+            return Some(
+                tz.from_local_datetime(&n)
+                    .earliest()
+                    .or_else(|| tz.from_local_datetime(&n).latest())
+                    .map_or(n.date(), |d| d.date_naive()),
+            );
         }
     }
     let d = NaiveDate::parse_from_str(iso, "%Y-%m-%d").ok()?;

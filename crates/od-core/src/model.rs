@@ -314,6 +314,8 @@ pub struct QuestionState {
     pub questions: Vec<AskedQuestion>,
     pub status: QuestionStatus,
     /// question text to answer text (comma-joined for multi-select), once answered.
+    /// BTreeMap key order differs from TS insertion order, which is fine: the web only does
+    /// keyed lookup.
     pub answers: BTreeMap<String, String>,
 }
 

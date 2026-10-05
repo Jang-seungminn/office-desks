@@ -129,7 +129,7 @@ fn waits_for_half_written_line_including_split_utf8() {
     std::fs::write(&f, &bytes[..20]).unwrap(); // cuts inside a multibyte character
     assert_eq!(read(&f).messages.len(), 0);
     append(&f, &bytes[20..]);
-    let texts: Vec<_> = read(&f).messages.into_iter().map(|m| m.text).collect();
+    let texts: Vec<_> = read(&f).messages.iter().map(|m| m.text.clone()).collect();
     assert_eq!(texts, ["안녕하세요 반가워요"]);
 }
 
@@ -173,7 +173,7 @@ fn skips_invalid_json_lines() {
         ),
     )
     .unwrap();
-    let texts: Vec<_> = read(&f).messages.into_iter().map(|m| m.text).collect();
+    let texts: Vec<_> = read(&f).messages.iter().map(|m| m.text.clone()).collect();
     assert_eq!(texts, ["ok", "tail"]);
 }
 
@@ -194,27 +194,57 @@ fn missing_file_is_an_error() {
 }
 
 #[test]
-fn concurrent_reads_of_one_growing_file_stay_consistent() {
+fn concurrent_reads_of_one_growing_file_never_regress_or_flip_file_id() {
     let (_d, f) = tmp_file();
     std::fs::write(&f, line("first", "user")).unwrap();
-    let handles: Vec<_> = (0..8)
+    let first_id = read(&f).file_id;
+    let handles: Vec<_> = (0..2)
         .map(|_| {
-            let f = f.clone();
+            let (f, id) = (f.clone(), first_id.clone());
             std::thread::spawn(move || {
-                for _ in 0..50 {
-                    let n = read(&f).messages.len();
-                    assert!(n >= 1);
+                let mut last = 0;
+                for _ in 0..300 {
+                    let r = read(&f);
+                    assert!(r.messages.len() >= last, "result regressed");
+                    assert_eq!(r.file_id, id, "fileId flipped");
+                    last = r.messages.len();
                 }
             })
         })
         .collect();
-    for i in 0..50 {
+    for i in 0..100 {
         append(&f, line(&format!("m{i}"), "assistant").as_bytes());
     }
     for h in handles {
         h.join().unwrap();
     }
-    assert_eq!(read(&f).messages.len(), 51);
+    assert_eq!(read(&f).messages.len(), 101);
+}
+
+#[test]
+fn lone_surrogate_escapes_do_not_drop_the_line() {
+    let raw = |text_json: &str| {
+        format!(r#"{{"type":"user","message":{{"role":"user","content":"{text_json}"}}}}"#)
+    };
+    // lone high, lone low, high followed by non-low
+    let st = parse_transcript(&raw(r"ab\ud83d"));
+    assert_eq!(st.messages[0].text, "ab\u{FFFD}");
+    let st = parse_transcript(&raw(r"x\uDE00y"));
+    assert_eq!(st.messages[0].text, "x\u{FFFD}y");
+    let st = parse_transcript(&raw(r"a\ud83d\u0041"));
+    assert_eq!(st.messages[0].text, "a\u{FFFD}A");
+    // a valid pair survives unchanged, even next to a lone one on the same line
+    let st = parse_transcript(&raw(r"\ud83d\ude00 \ud83d"));
+    assert_eq!(st.messages[0].text, "\u{1F600} \u{FFFD}");
+    // an escaped backslash makes it literal text, not an escape
+    let st = parse_transcript(&raw(r"\\\\ud83d \ud83d"));
+    assert_eq!(st.messages[0].text, "\\\\ud83d \u{FFFD}");
+    // the tool summary's inner JSON gets the same treatment
+    let line = json!({"type":"assistant","message":{"role":"assistant","content":[
+        {"type":"tool_use","name":"Bash","input":"{\"command\":\"echo \\ud83d\"}"}]}})
+    .to_string();
+    let st = parse_transcript(&line);
+    assert_eq!(st.messages[0].text, "Bash: echo \u{FFFD}");
 }
 
 #[test]
