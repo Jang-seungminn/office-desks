@@ -1,5 +1,6 @@
 import type { OfficeAgent, OfficeDesk, OfficeSnapshot } from '../../bridge/src/model';
 import { focusSelector } from './focus';
+import { platform } from './host';
 import { shortcutLabel } from './keymap';
 import { projects, STATE_LABEL } from './tree';
 
@@ -84,7 +85,7 @@ export class Sidebar {
       const sec = el('section', 'project');
       sec.dataset.repo = p.repoId;
       const h = el('div', 'project-head');
-      const sc = shortcutLabel('newWork');
+      const sc = shortcutLabel('newWork', platform());
       h.append(
         el('span', 'project-name', `📁 ${p.name}`),
         btn('＋ 새 작업', 'new-work', () => {

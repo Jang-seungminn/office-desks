@@ -2,7 +2,8 @@ import './style.css';
 import { addAgentFlow, addProjectFlow, hooks, newWorkFlow, onSnapshot, removeFlow, stopFlow } from './actions';
 import { OfficeFeed } from './feed';
 import { installDebug } from './debug';
-import { openOffice, termConfig } from './host';
+import { openOffice, platform, termConfig } from './host';
+import { installKeys } from './keymap';
 import { toast } from './modal';
 import { Sidebar } from './sidebar';
 import { Workspace } from './workspace';
@@ -64,3 +65,28 @@ feed.onSnapshot((s) => {
 });
 feed.onStatus((c) => sidebar.setConnected(c));
 feed.start();
+
+installKeys(window, platform(), (a) => {
+  switch (a.kind) {
+    case 'newWork': {
+      const repo = sidebar.selectedRepoId ?? feed.snapshot?.desks[0]?.repoId;
+      if (repo) void newWorkFlow(repo);
+      break;
+    }
+    case 'closeTab': workspace?.close(); break; // never closes the window
+    case 'switchTab': workspace?.switchTo(a.index); break;
+    case 'split': workspace?.toggleSplit(); break;
+    case 'sidebar': sidebar.toggle(); workspace?.fit(); break;
+    case 'copy': {
+      const t = workspace?.copy() ?? '';
+      if (t) void navigator.clipboard.writeText(t).catch(() => {});
+      break;
+    }
+    case 'paste':
+      navigator.clipboard.readText().then(
+        (t) => workspace?.paste(t),
+        () => toast('⚠️ 클립보드를 읽지 못했어요', 'error'),
+      );
+      break;
+  }
+});
