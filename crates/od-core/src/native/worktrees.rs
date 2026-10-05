@@ -96,15 +96,20 @@ pub fn list_worktrees(
 }
 
 /// Lexical `path.normalize`: collapses `.`, `..` and repeated separators, using the platform
-/// separator.
+/// separator. A trailing separator is dropped (Node keeps it); git never emits one.
 pub fn normalize_path(p: &str) -> String {
     let mut out = PathBuf::new();
     for c in Path::new(p).components() {
         match c {
             Component::CurDir => {}
             Component::ParentDir => {
-                if !out.pop() || out.as_os_str().is_empty() {
-                    out.push("..");
+                match out.components().next_back() {
+                    Some(Component::Normal(_)) => {
+                        out.pop();
+                    }
+                    // `/..` is `/`.
+                    Some(Component::RootDir | Component::Prefix(_)) => {}
+                    _ => out.push(".."),
                 }
             }
             other => out.push(other.as_os_str()),
@@ -115,6 +120,13 @@ pub fn normalize_path(p: &str) -> String {
     } else {
         out.to_string_lossy().into_owned()
     }
+}
+
+fn repo_id(keyed_path: &str) -> String {
+    sha1_smol::Sha1::from(keyed_path.as_bytes())
+        .digest()
+        .to_string()[..12]
+        .to_string()
 }
 
 /// The repo that `dir` belongs to, named after its main checkout (also from inside a linked
@@ -135,7 +147,7 @@ pub fn resolve_repo(dir: &str, git: &dyn GitRunner) -> Result<RepoRecord, Backen
     } else {
         repo_path.clone()
     };
-    let id = sha1_smol::Sha1::from(keyed.as_bytes()).digest().to_string()[..12].to_string();
+    let id = repo_id(&keyed);
     let name = Path::new(&repo_path)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -165,12 +177,10 @@ pub fn add_worktree(
 pub fn worktree_dest(home: &Path, repo_name: &str, name: &str) -> PathBuf {
     let safe: String = repo_name
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
-                c
-            } else {
-                '_'
-            }
+        .flat_map(|c| {
+            let keep = c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-');
+            // JS replaces per UTF-16 code unit: an astral char becomes two underscores.
+            std::iter::repeat_n(if keep { c } else { '_' }, c.len_utf16())
         })
         .collect();
     home.join("worktrees").join(safe).join(name)
@@ -364,6 +374,50 @@ mod tests {
                 .join("my_repo__")
                 .join("x")
         );
+    }
+
+    #[test]
+    fn worktree_dest_replaces_per_utf16_unit() {
+        let d = worktree_dest(Path::new("/h"), "a\u{1F600}b", "x");
+        assert_eq!(d, Path::new("/h").join("worktrees").join("a__b").join("x"));
+    }
+
+    #[test]
+    fn normalize_path_handles_parent_dirs() {
+        assert_eq!(normalize_path("a/.."), ".");
+        assert_eq!(
+            normalize_path("a/b/../c"),
+            Path::new("a").join("c").to_string_lossy()
+        );
+        assert_eq!(
+            normalize_path("../a"),
+            Path::new("..").join("a").to_string_lossy()
+        );
+        assert_eq!(normalize_path("a/../.."), "..");
+        assert_eq!(
+            normalize_path("a//b/./"),
+            Path::new("a").join("b").to_string_lossy()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn normalize_path_root_parent_stays_root() {
+        assert_eq!(normalize_path("/.."), "/");
+        assert_eq!(normalize_path("/a/../.."), "/");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn repo_id_golden() {
+        // Verified against Node: sha1('/tmp/x').slice(0, 12)
+        assert_eq!(repo_id("/tmp/x"), "e7ad2368a922");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_path_converts_slashes_on_windows() {
+        assert_eq!(normalize_path("C:/a/b"), "C:\\a\\b");
     }
 
     #[test]

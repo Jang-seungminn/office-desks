@@ -91,9 +91,19 @@ pub(crate) fn run_git_with(
     let mut child = cmd
         .spawn()
         .map_err(|e| fail(format!("spawn {program} failed: {e}"), Vec::new()))?;
-    let overflow = Arc::new(AtomicBool::new(false));
-    let out = read_capped(child.stdout.take().unwrap(), max_buffer, overflow.clone());
-    let err = read_capped(child.stderr.take().unwrap(), max_buffer, overflow.clone());
+    let out_over = Arc::new(AtomicBool::new(false));
+    let err_over = Arc::new(AtomicBool::new(false));
+    let out = read_capped(child.stdout.take().unwrap(), max_buffer, out_over.clone());
+    let err = read_capped(child.stderr.take().unwrap(), max_buffer, err_over.clone());
+    let overflowed = || {
+        if out_over.load(Ordering::SeqCst) {
+            Some(format!("{described}: stdout maxBuffer length exceeded"))
+        } else if err_over.load(Ordering::SeqCst) {
+            Some(format!("{described}: stderr maxBuffer length exceeded"))
+        } else {
+            None
+        }
+    };
 
     let start = Instant::now();
     let mut reason: Option<String> = None;
@@ -106,8 +116,8 @@ pub(crate) fn run_git_with(
                 break None;
             }
         }
-        if overflow.load(Ordering::SeqCst) {
-            reason = Some(format!("{described}: stdout maxBuffer length exceeded"));
+        if let Some(msg) = overflowed() {
+            reason = Some(msg);
             break None;
         }
         if start.elapsed() >= timeout {
@@ -116,8 +126,8 @@ pub(crate) fn run_git_with(
         }
         thread::sleep(Duration::from_millis(5));
     };
-    if reason.is_none() && overflow.load(Ordering::SeqCst) {
-        reason = Some(format!("{described}: stdout maxBuffer length exceeded"));
+    if reason.is_none() {
+        reason = overflowed();
     }
     if status.is_none() {
         let _ = child.kill();
@@ -153,6 +163,21 @@ mod tests {
     fn git_version_runs() {
         let out = SystemGit.run(".", &["--version"]).unwrap();
         assert!(out.starts_with("git version"));
+    }
+
+    #[test]
+    fn non_zero_exit_keeps_stdout() {
+        let t = tempfile::tempdir().unwrap();
+        std::fs::write(t.path().join("f.txt"), "hello\n").unwrap();
+        let cwd = t.path().to_str().unwrap();
+        let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
+        let e = SystemGit
+            .run(
+                cwd,
+                &["diff", "--no-color", "--no-index", "--", null, "f.txt"],
+            )
+            .unwrap_err();
+        assert!(e.stdout.contains("+hello"), "{}", e.stdout);
     }
 
     #[test]
