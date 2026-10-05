@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::fsio;
+use crate::home::os_tmpdir;
 use crate::model::ImageUpload;
 
 pub const MAX_IMAGES: usize = 6;
@@ -89,12 +90,13 @@ fn current_uid() -> Option<u32> {
     None
 }
 
-/// The real upload folder for this process.
+/// The real upload folder for this process. The temp root is Node's `os.tmpdir()`
+/// ([`os_tmpdir`]), as in TS.
 pub fn upload_dir() -> PathBuf {
     let env: HashMap<String, String> = std::env::vars().collect();
     upload_dir_for(
         &env,
-        &std::env::temp_dir(),
+        &os_tmpdir(&env),
         current_uid(),
         cfg!(target_os = "linux"),
     )

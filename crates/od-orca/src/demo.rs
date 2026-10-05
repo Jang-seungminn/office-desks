@@ -15,6 +15,7 @@ use od_core::backend::{
     BackendCapabilities, BackendError, BackendMessages, BoardUpdate, ConversationHit, HireResult,
     HireSpec, KeyInput, OfficeBackend,
 };
+use od_core::home::os_tmpdir;
 use od_core::model::{
     AgentStats, Award, AwardBoard, Department, DepartmentTheme, DeskChanges, OfficeAgent,
     OfficeDesk, OfficeSnapshot, OrgChart, UsageSnapshot,
@@ -203,36 +204,6 @@ pub fn parse_epoch(v: Option<&str>) -> Option<i64> {
         return None;
     }
     v.parse::<i64>().ok().filter(|n| *n > 0)
-}
-
-/// Node's `os.tmpdir()` over an env map.
-pub fn os_tmpdir(env: &EnvMap) -> PathBuf {
-    os_tmpdir_for(env, cfg!(windows))
-}
-
-fn os_tmpdir_for(env: &EnvMap, windows: bool) -> PathBuf {
-    let first = |keys: &[&str]| {
-        keys.iter()
-            .filter_map(|k| env.get(*k))
-            .find(|v| !v.is_empty())
-            .cloned()
-    };
-    if windows {
-        // Node: TEMP, TMP, then `<SystemRoot or windir>\temp`.
-        let mut p = first(&["TEMP", "TMP"])
-            .or_else(|| first(&["SystemRoot", "windir"]).map(|r| format!("{r}\\temp")))
-            .unwrap_or_else(|| std::env::temp_dir().to_string_lossy().into_owned());
-        if p.len() > 1 && p.ends_with('\\') && !p.ends_with(":\\") {
-            p.pop();
-        }
-        PathBuf::from(p)
-    } else {
-        let mut p = first(&["TMPDIR", "TMP", "TEMP"]).unwrap_or_else(|| "/tmp".to_string());
-        if p.len() > 1 && p.ends_with('/') {
-            p.pop();
-        }
-        PathBuf::from(p)
-    }
 }
 
 fn iso(ms: i64) -> String {
@@ -1100,32 +1071,6 @@ mod tests {
             assert_eq!(parse_epoch(Some(bad)), None, "{bad:?}");
         }
         assert_eq!(parse_epoch(None), None);
-    }
-
-    #[test]
-    fn os_tmpdir_follows_node() {
-        let unix = |e: &EnvMap| os_tmpdir_for(e, false);
-        assert_eq!(unix(&env(&[("TMPDIR", "/x/")])), PathBuf::from("/x"));
-        assert_eq!(unix(&env(&[("TMPDIR", "/")])), PathBuf::from("/"));
-        assert_eq!(
-            unix(&env(&[("TMPDIR", ""), ("TMP", "/t")])),
-            PathBuf::from("/t")
-        );
-        assert_eq!(unix(&env(&[("TEMP", "/e")])), PathBuf::from("/e"));
-        assert_eq!(unix(&env(&[])), PathBuf::from("/tmp"));
-        let win = |e: &EnvMap| os_tmpdir_for(e, true);
-        assert_eq!(win(&env(&[("TEMP", "C:\\t\\")])), PathBuf::from("C:\\t"));
-        assert_eq!(win(&env(&[("TEMP", "C:\\")])), PathBuf::from("C:\\"));
-        assert_eq!(win(&env(&[("TMP", "D:\\x")])), PathBuf::from("D:\\x"));
-        assert_eq!(
-            win(&env(&[("SystemRoot", "C:\\Windows")])),
-            PathBuf::from("C:\\Windows\\temp")
-        );
-        assert_eq!(
-            win(&env(&[("windir", "D:\\W")])),
-            PathBuf::from("D:\\W\\temp")
-        );
-        assert_eq!(win(&env(&[])), std::env::temp_dir());
     }
 
     #[test]
