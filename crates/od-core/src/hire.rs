@@ -47,7 +47,7 @@ pub fn validate_hire(body: &HireRequest, desks: &[OfficeDesk]) -> Result<HireSpe
     if let Some(desk_id) = &body.desk_id {
         let desk = desks
             .iter()
-            .find(|d| &d.id == desk_id)
+            .find(|d| Some(&d.id) == desk_id.as_ref())
             .ok_or("알 수 없는 워크트리입니다")?;
         return Ok(HireSpec::Agent {
             desk_id: desk.id.clone(),

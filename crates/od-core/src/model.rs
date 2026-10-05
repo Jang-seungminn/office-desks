@@ -531,6 +531,13 @@ pub struct WorktreeUpdate {
     pub comment: Option<String>,
 }
 
+fn present_or_absent<'de, D>(d: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(d).map(Some)
+}
+
 /// Start new work: a new worktree with an agent, or an agent in an existing worktree.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -541,8 +548,14 @@ pub struct HireRequest {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub desk_id: Option<String>,
+    /// `None` = absent; `Some(None)` = explicit JSON `null`. TS checks `deskId !== undefined`,
+    /// so null still selects the existing-worktree path (and then matches no desk).
+    #[serde(
+        default,
+        deserialize_with = "present_or_absent",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub desk_id: Option<Option<String>>,
     pub agent: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,

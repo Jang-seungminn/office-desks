@@ -52,3 +52,17 @@ pub(crate) fn slice_utf16(s: &str, units: usize) -> &str {
     }
     s
 }
+
+#[cfg(test)]
+mod tests {
+    use super::slice_utf16;
+
+    #[test]
+    fn slice_utf16_drops_whole_char_when_cut_splits_surrogate_pair() {
+        // U+1F600 is two UTF-16 units; cutting after the first unit drops it entirely.
+        assert_eq!(slice_utf16("a😀b", 2), "a");
+        assert_eq!(slice_utf16("a😀b", 3), "a😀");
+        assert_eq!(slice_utf16("😀", 1), "");
+        assert_eq!(slice_utf16("ab", 5), "ab");
+    }
+}

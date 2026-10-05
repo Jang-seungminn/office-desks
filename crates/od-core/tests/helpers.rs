@@ -582,3 +582,22 @@ fn golden_validate_hire() {
         assert_eq!(got, case["expected"], "{}", case["name"]);
     }
 }
+
+#[test]
+fn hire_desk_id_null_takes_existing_worktree_path() {
+    let body = req(json!({ "deskId": null, "agent": "claude", "repoId": "r1", "name": "x" }));
+    assert_eq!(body.desk_id, Some(None));
+    assert_eq!(
+        validate_hire(&body, &desks()),
+        Err("알 수 없는 워크트리입니다".to_string())
+    );
+    assert_eq!(serde_json::to_value(&body).unwrap()["deskId"], Value::Null);
+}
+
+#[test]
+fn hire_desk_id_absent_takes_new_worktree_path() {
+    let body = req(json!({ "repoId": "r1", "name": "fix-login", "agent": "claude" }));
+    assert_eq!(body.desk_id, None);
+    assert!(validate_hire(&body, &desks()).is_ok());
+    assert!(serde_json::to_value(&body).unwrap().get("deskId").is_none());
+}
