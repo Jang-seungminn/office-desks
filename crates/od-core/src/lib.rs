@@ -20,8 +20,9 @@ pub mod git;
 pub mod git_info;
 pub mod hire;
 pub mod home;
-mod jsstr;
-mod jsval;
+#[doc(hidden)]
+pub mod jsstr;
+pub mod jsval;
 pub mod keys;
 pub mod local_image;
 pub mod model;
