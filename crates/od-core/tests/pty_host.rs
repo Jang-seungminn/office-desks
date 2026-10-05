@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use od_core::native::env::process_env;
-use od_core::native::pty_host::{PtyHost, PtyOptions, TermModes, TermSize, GONE};
+use od_core::native::pty_host::{
+    PtyHost, PtyOptions, TermModes, TermSize, GONE, MAX_COLS, MAX_ROWS,
+};
 
 const ECHO_ENV: &str = "OD_TEST_ECHO";
 
@@ -248,6 +250,21 @@ async fn streams_output_to_subscribers_until_unsubscribed_resizes_and_serializes
     assert_eq!(host.screen_lines("a2").len(), 20);
     host.resize("a2", 80, 20); // same size: no-op
     host.resize("a2", 1, 20); // too small: ignored
+    assert_eq!(host.size("a2"), Some(TermSize { cols: 80, rows: 20 }));
+    // too large (the screen allocates every cell): ignored; the limits themselves are fine
+    host.resize("a2", 5000, 20);
+    host.resize("a2", 80, 501);
+    host.resize("a2", u16::MAX, u16::MAX);
+    assert_eq!(host.size("a2"), Some(TermSize { cols: 80, rows: 20 }));
+    host.resize("a2", MAX_COLS, MAX_ROWS);
+    assert_eq!(
+        host.size("a2"),
+        Some(TermSize {
+            cols: MAX_COLS,
+            rows: MAX_ROWS
+        })
+    );
+    host.resize("a2", 80, 20);
     assert_eq!(host.size("a2"), Some(TermSize { cols: 80, rows: 20 }));
     host.resize("nope", 10, 10);
 

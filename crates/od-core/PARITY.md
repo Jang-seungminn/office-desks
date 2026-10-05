@@ -82,6 +82,8 @@ PtyHost (xterm-headless to vt100, node-pty to portable-pty):
 - Unicode widths come from unicode-width 0.2 (Unicode 16), not xterm's Unicode 11. Reason: vt100. Rare characters may differ.
 - Resize does not reflow (xterm reflows on column change). Reason: vt100.
 - `set_replies(bool)` is replaced by `mute_replies(id) -> Option<ReplyMute>`, a counted guard. Reason: two attached terminals cannot unmute each other.
+- `resize` ignores sizes over `MAX_COLS` × `MAX_ROWS` (1000 × 500), as well as sizes under 2; node-pty and xterm.js take any size. Reason: vt100 allocates every cell, so a `/term` client or the TUI could otherwise make the server allocate gigabytes (R2 Task 9, fix round 1). `/term` ignores a resize outside cols 1..=1000, rows 1..=500.
+- `feed_output(id, data)` (`#[doc(hidden)]`) feeds the screen *and* the `on_data`/`attach` subscribers, as if the process printed `data`. It is for tests only (R2's deterministic slow-consumer trial).
 - Query replies. xterm.js answers many queries itself; the vt100 responder answers only these, with the bytes xterm.js 6 sends (probed with `@xterm/headless` 6.0.0), and only while no `ReplyMute` is held:
   - DA1 `CSI c` / `CSI 0 c` → `CSI ?1;2c`. Like xterm.js `sendDeviceAttributesPrimary`, only the first parameter counts: `CSI 0;1 c` is answered, `CSI 1 c` is not (R2 Task 9);
   - DA2 `CSI > c` / `CSI > 0 c` → `CSI >0;276;0c`. Only the first parameter counts: `CSI > 0;1 c` is answered, `CSI > 1 c` is not (R2 Task 9);

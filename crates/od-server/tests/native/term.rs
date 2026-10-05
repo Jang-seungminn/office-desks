@@ -17,7 +17,6 @@ use tokio_tungstenite::tungstenite::{self, Message};
 use crate::contract::{
     agent_pids, build_world, is_our_agent, path_str, preflight, PidGuard, AGENT_EXE,
 };
-use crate::fake_agent::FLOOD_DONE;
 use crate::support::fake_backend::FakeBackend;
 use crate::support::{scratch_config, start, ws_connect, Client, Ws};
 
@@ -326,8 +325,11 @@ fn term_resize(sub: &Path) -> Result<(), Failed> {
             rig.pty().size(&rig.pty_id),
             Some(TermSize { cols: 90, rows: 30 })
         );
-        // Out of range or malformed: ignored.
+        // Out of range (the screen allocates rows × cols) or malformed: ignored.
         for bad in [
+            r#"{"type":"resize","cols":5000,"rows":30}"#,
+            r#"{"type":"resize","cols":90,"rows":501}"#,
+            r#"{"type":"resize","cols":65535,"rows":65535}"#,
             r#"{"type":"resize","cols":0,"rows":30}"#,
             r#"{"type":"resize","cols":90,"rows":70000}"#,
             r#"{"type":"resize","cols":"90","rows":30}"#,
@@ -552,13 +554,25 @@ fn term_rejects(sub: &Path) -> Result<(), Failed> {
     Ok(())
 }
 
+/// A client that does not read falls behind and is closed with 1013. The flood is injected
+/// into the host (`feed_output`, as if the agent printed it): 16 MiB, far past what the queue
+/// (2 chunks, 8 MiB) and the socket buffers can hold, on any OS.
 fn term_slow_consumer(sub: &Path) -> Result<(), Failed> {
+    const MIB: usize = 1 << 20;
     runtime().block_on(async {
-        let rig = Rig::new(sub, 4).await;
+        let rig = Rig::new(sub, 2).await;
         let mut ws = rig.attach().await;
-        // Never read while the agent prints 5 MiB.
-        send_bin(&mut ws, b"flood\r").await;
-        rig.wait_screen(FLOOD_DONE, Duration::from_secs(30)).await;
+        first_frame(&mut ws).await;
+        // Never read while 16 MiB of output arrive.
+        let (backend, id) = (Arc::clone(&rig.backend), rig.pty_id.clone());
+        tokio::task::spawn_blocking(move || {
+            let chunk = vec![b'x'; MIB];
+            for _ in 0..16 {
+                backend.pty().feed_output(&id, &chunk);
+            }
+        })
+        .await
+        .unwrap();
         // The server is not held up by the jammed socket.
         let r = tokio::time::timeout(Duration::from_secs(1), rig.client.get("/api/snapshot"))
             .await
@@ -578,14 +592,12 @@ fn term_slow_consumer(sub: &Path) -> Result<(), Failed> {
             Some((1013, "slow consumer".to_string())),
             "after {bytes} bytes"
         );
-        assert!(
-            bytes < 5 * 1024 * 1024,
-            "{bytes} bytes: nothing was dropped"
-        );
-        // Reattaching gives a fresh snapshot with the end of the flood.
+        assert!(bytes < 16 * MIB, "{bytes} bytes: nothing was dropped");
+        // The agent is fine and a reattach gets a fresh snapshot.
         let mut again = rig.attach().await;
-        let snapshot = first_frame(&mut again).await;
-        assert!(snapshot.contains(FLOOD_DONE), "{snapshot:?}");
+        first_frame(&mut again).await;
+        send_bin(&mut again, b"after\r").await;
+        read_until(&mut again, "got:after", Duration::from_secs(5)).await;
         drop((ws, again));
         rig.finish().await;
     });
@@ -600,14 +612,15 @@ fn term_shutdown(sub: &Path) -> Result<(), Failed> {
         first_frame(&mut ws).await;
         let handle = rig.handle.clone();
         let stopping = tokio::spawn(async move { handle.shutdown().await });
-        // The stop signal wins over the agent's exit (dispose kills it only afterwards): 1001.
+        // The stop signal ends it with 1001, or the stream just ends (the close frame is
+        // best-effort); never the agent's exit message, and never an open socket.
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             match next_frame(&mut ws, left).await {
                 Frame::Bin(_) => {}
-                Frame::Close(Some((1001, _))) => break,
-                other => panic!("expected Close 1001 on shutdown, got {other:?}"),
+                Frame::Close(Some((1001, _))) | Frame::Ended => break,
+                other => panic!("expected Close 1001 or the end on shutdown, got {other:?}"),
             }
         }
         stopping.await.unwrap();

@@ -30,6 +30,10 @@ use crate::native::env::{resolve_windows_command, win32_is_absolute, EnvMap, Res
 pub const COLS: u16 = 120;
 /// Default PTY height.
 pub const ROWS: u16 = 40;
+/// Widest size `resize` accepts (the screen allocates rows × cols cells).
+pub const MAX_COLS: u16 = 1000;
+/// Tallest size `resize` accepts.
+pub const MAX_ROWS: u16 = 500;
 /// Lines of history kept per agent.
 pub const SCROLLBACK: usize = 1000;
 /// `write` to a PTY that is gone.
@@ -1096,13 +1100,14 @@ impl PtyHost {
         Some((snapshot, sub))
     }
 
-    /// Resize the PTY and the screen. Ignored for unknown ids, sizes under 2, the current size,
-    /// and when the PTY refuses (the process exited and its exit event is on the way).
+    /// Resize the PTY and the screen. Ignored for unknown ids, sizes under 2, more than
+    /// [`MAX_COLS`] × [`MAX_ROWS`] (the screen allocates every cell), the current size, and when
+    /// the PTY refuses (the process exited and its exit event is on the way).
     pub fn resize(&self, id: &str, cols: u16, rows: u16) {
         let Some(s) = self.get(id) else {
             return;
         };
-        if cols < 2 || rows < 2 {
+        if !(2..=MAX_COLS).contains(&cols) || !(2..=MAX_ROWS).contains(&rows) {
             return;
         }
         let mut term = lock(&s.term);
@@ -1183,6 +1188,15 @@ impl PtyHost {
     pub fn feed(&self, id: &str, data: impl AsRef<[u8]>) {
         if let Some(s) = self.get(id) {
             s.output(data.as_ref(), false);
+        }
+    }
+
+    /// Like [`PtyHost::feed`], but also delivered to `on_data`/`attach` subscribers, exactly as
+    /// output the process printed. For tests (a deterministic flood).
+    #[doc(hidden)]
+    pub fn feed_output(&self, id: &str, data: impl AsRef<[u8]>) {
+        if let Some(s) = self.get(id) {
+            s.output(data.as_ref(), true);
         }
     }
 

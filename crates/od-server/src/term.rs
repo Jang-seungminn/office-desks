@@ -9,19 +9,20 @@
 //! Server to client: first a Binary frame with the serialized screen, then Binary frames with
 //! the raw output in order. When the agent exits, the queued output, then Text
 //! `{"type":"exit","code":<u32|null>}`, then Close 1000. A client that falls `term_buffer` chunks
-//! behind is closed with 1013 `slow consumer` (it must reattach for a fresh snapshot); on
-//! shutdown the socket is closed with 1001.
+//! or [`MAX_QUEUED_BYTES`] behind is closed with 1013 `slow consumer` (it must reattach for a
+//! fresh snapshot); on shutdown the socket is closed with 1001.
 //!
 //! Client to server: Binary frames are raw input. Text frames are JSON:
 //! `{"type":"input","data":"…"}` writes the UTF-8 bytes, `{"type":"resize","cols":c,"rows":r}`
-//! (each 1..=65535) resizes; anything else is ignored. A write that fails (the terminal is
-//! gone) ends the session like an exit with `code: null`.
+//! (cols 1..=1000, rows 1..=500; anything else is ignored) resizes; anything else is ignored.
+//! Client messages and frames are capped at 1 MiB. A write that fails (the terminal is gone)
+//! ends the session like an exit with `code: null`.
 //!
 //! While attached, the session holds a [`ReplyMute`](od_core::native::pty_host::ReplyMute), so
 //! the client's terminal answers the agent's queries instead of the headless screen. The mute
 //! and both subscriptions are dropped together when the session ends, however it ends.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -29,7 +30,7 @@ use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use axum::extract::{FromRequestParts, Request, WebSocketUpgrade};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use od_core::native::pty_host::PtyHost;
+use od_core::native::pty_host::{PtyHost, MAX_COLS, MAX_ROWS};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, Notify};
@@ -48,8 +49,17 @@ const TRY_AGAIN_LATER: u16 = 1013;
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 /// How long to wait for the exit event of an agent already seen gone.
 const EXIT_WAIT: Duration = Duration::from_secs(5);
-/// A slow consumer is, by definition, not reading: give it longer to take in the 1013.
+/// A slow consumer is, by definition, not reading: give it longer to take in the 1013. Also
+/// the cap on the exit path (late output plus the exit message).
 const SLOW_CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
+/// After the exit event, how long late output (a ConPTY reader drains after the exit) may still
+/// arrive before the exit message goes out.
+const LATE_OUTPUT_WAIT: Duration = Duration::from_secs(2);
+/// Output queued for one client, in bytes, before it counts as a slow consumer (next to the
+/// `term_buffer` chunk count).
+pub(crate) const MAX_QUEUED_BYTES: usize = 8 << 20;
+/// The largest message (and frame) a client may send.
+const MAX_CLIENT_MESSAGE: usize = 1 << 20;
 
 fn error(status: StatusCode, message: &str) -> Response {
     json(status, &json!({ "error": message }))
@@ -93,7 +103,10 @@ pub(crate) async fn upgrade(st: Arc<AppState>, req: Request, url: RequestUrl) ->
     };
     let (mut parts, _body) = req.into_parts();
     match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
-        Ok(up) => up.on_upgrade(move |socket| session(st, socket, pty, id)),
+        Ok(up) => up
+            .max_message_size(MAX_CLIENT_MESSAGE)
+            .max_frame_size(MAX_CLIENT_MESSAGE)
+            .on_upgrade(move |socket| session(st, socket, pty, id)),
         Err(rejection) => rejection.into_response(),
     }
 }
@@ -109,7 +122,7 @@ struct ExitMessage {
 enum End {
     /// The exit message went out (or could not): close with 1000.
     Exited,
-    /// The client fell `term_buffer` chunks behind.
+    /// The client fell `term_buffer` chunks or `MAX_QUEUED_BYTES` behind.
     SlowConsumer,
     /// The server is stopping.
     Stopping,
@@ -137,22 +150,9 @@ async fn session(st: Arc<AppState>, mut socket: WebSocket, pty: Arc<PtyHost>, id
             }
         });
 
-        let (tx, mut rx) = mpsc::channel::<Vec<u8>>(st.cfg.term_buffer.max(1));
-        let behind = Arc::new(Notify::new());
-        let full = Arc::new(AtomicBool::new(false));
-        let push = {
-            let (behind, full) = (Arc::clone(&behind), Arc::clone(&full));
-            move |chunk: &[u8]| {
-                if full.load(Ordering::SeqCst) {
-                    return;
-                }
-                if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(chunk.to_vec()) {
-                    full.store(true, Ordering::SeqCst);
-                    behind.notify_one();
-                }
-            }
-        };
-        let Some((snapshot, _data_sub)) = pty.attach(&id, push) else {
+        let (outbox, mut inbox) = outbox(st.cfg.term_buffer, MAX_QUEUED_BYTES);
+        let budget = Arc::clone(&outbox.budget);
+        let Some((snapshot, _data_sub)) = pty.attach(&id, move |chunk| outbox.push(chunk)) else {
             send_exit(&mut socket, None).await;
             close(&mut socket, NORMAL, "", CLOSE_TIMEOUT, &st).await;
             return;
@@ -161,13 +161,13 @@ async fn session(st: Arc<AppState>, mut socket: WebSocket, pty: Arc<PtyHost>, id
         let link = Link {
             pty: &pty,
             id: &id,
-            rx: &mut rx,
+            rx: &mut inbox,
         };
         // A send to a client that does not read can wait forever: a stop or an overflow ends
         // the whole feed (tungstenite keeps a half-written frame and finishes it first).
         tokio::select! {
             end = link.feed(&mut socket, snapshot, &mut exit_rx) => end,
-            _ = behind.notified() => End::SlowConsumer,
+            _ = budget.behind.notified() => End::SlowConsumer,
             _ = st.stopped() => End::Stopping,
         }
     };
@@ -206,10 +206,103 @@ async fn close(socket: &mut WebSocket, code: u16, reason: &str, wait: Duration, 
     }
 }
 
+/// Send the exit message; false when the client is gone or does not take it within
+/// [`SLOW_CLOSE_TIMEOUT`].
 async fn send_exit(socket: &mut WebSocket, code: Option<u32>) -> bool {
     let text = serde_json::to_string(&ExitMessage { kind: "exit", code })
         .expect("the exit message serializes");
-    socket.send(Message::Text(text.into())).await.is_ok()
+    let send = socket.send(Message::Text(text.into()));
+    matches!(
+        tokio::time::timeout(SLOW_CLOSE_TIMEOUT, send).await,
+        Ok(Ok(()))
+    )
+}
+
+/// What the output queue of one client shares between the reader thread and the socket task.
+struct Budget {
+    /// Bytes pushed and not yet taken.
+    bytes: AtomicUsize,
+    max_bytes: usize,
+    /// Set once the client fell behind; nothing more is queued.
+    full: AtomicBool,
+    behind: Notify,
+}
+
+/// The reader thread's end: never blocks.
+struct Outbox {
+    tx: mpsc::Sender<Vec<u8>>,
+    budget: Arc<Budget>,
+}
+
+/// The socket task's end.
+struct Inbox {
+    rx: mpsc::Receiver<Vec<u8>>,
+    budget: Arc<Budget>,
+}
+
+/// A queue of at most `chunks` chunks and `max_bytes` bytes.
+fn outbox(chunks: usize, max_bytes: usize) -> (Outbox, Inbox) {
+    let (tx, rx) = mpsc::channel(chunks.max(1));
+    let budget = Arc::new(Budget {
+        bytes: AtomicUsize::new(0),
+        max_bytes,
+        full: AtomicBool::new(false),
+        behind: Notify::new(),
+    });
+    (
+        Outbox {
+            tx,
+            budget: Arc::clone(&budget),
+        },
+        Inbox { rx, budget },
+    )
+}
+
+impl Budget {
+    fn overflow(&self) {
+        self.full.store(true, Ordering::SeqCst);
+        self.behind.notify_one();
+    }
+
+    fn is_full(&self) -> bool {
+        self.full.load(Ordering::SeqCst)
+    }
+}
+
+impl Outbox {
+    /// Queue a chunk; past either bound, mark the client as behind (and drop the chunk).
+    fn push(&self, chunk: &[u8]) {
+        let b = &self.budget;
+        if b.is_full() {
+            return;
+        }
+        let n = chunk.len();
+        if b.bytes.fetch_add(n, Ordering::SeqCst) + n > b.max_bytes {
+            b.overflow();
+            return;
+        }
+        match self.tx.try_send(chunk.to_vec()) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => b.overflow(),
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                b.bytes.fetch_sub(n, Ordering::SeqCst);
+            }
+        }
+    }
+}
+
+impl Inbox {
+    fn took(&self, chunk: Option<Vec<u8>>) -> Option<Vec<u8>> {
+        if let Some(c) = &chunk {
+            self.budget.bytes.fetch_sub(c.len(), Ordering::SeqCst);
+        }
+        chunk
+    }
+
+    async fn recv(&mut self) -> Option<Vec<u8>> {
+        let chunk = self.rx.recv().await;
+        self.took(chunk)
+    }
 }
 
 /// The agent's exit code, once its exit event arrives. `None` if it doesn't within
@@ -224,7 +317,7 @@ async fn exit_code(exit_rx: &mut oneshot::Receiver<u32>) -> Option<u32> {
 struct Link<'a> {
     pty: &'a PtyHost,
     id: &'a str,
-    rx: &'a mut mpsc::Receiver<Vec<u8>>,
+    rx: &'a mut Inbox,
 }
 
 impl Link<'_> {
@@ -294,8 +387,12 @@ impl Link<'_> {
                 }
             }
             Some("resize") => {
-                let dim = |k: &str| v[k].as_u64().and_then(|n| u16::try_from(n).ok());
-                if let (Some(cols @ 1..), Some(rows @ 1..)) = (dim("cols"), dim("rows")) {
+                let dim = |k: &str, max: u16| {
+                    v[k].as_u64()
+                        .and_then(|n| u16::try_from(n).ok())
+                        .filter(|n| (1..=max).contains(n))
+                };
+                if let (Some(cols), Some(rows)) = (dim("cols", MAX_COLS), dim("rows", MAX_ROWS)) {
                     self.pty.resize(self.id, cols, rows);
                 }
             }
@@ -304,17 +401,75 @@ impl Link<'_> {
         Ok(())
     }
 
-    /// The output still queued, then the exit message.
+    /// The output still queued or still arriving (until the session is freed, at most
+    /// [`LATE_OUTPUT_WAIT`]), then the exit message; all within [`SLOW_CLOSE_TIMEOUT`].
     async fn exit(&mut self, socket: &mut WebSocket, code: Option<u32>) -> End {
-        while let Ok(chunk) = self.rx.try_recv() {
-            if socket.send(Message::Binary(chunk.into())).await.is_err() {
-                return End::Gone;
+        let rx = &mut *self.rx;
+        let finish = async move {
+            let late = tokio::time::Instant::now() + LATE_OUTPUT_WAIT;
+            while let Ok(Some(chunk)) = tokio::time::timeout_at(late, rx.recv()).await {
+                if socket.send(Message::Binary(chunk.into())).await.is_err() {
+                    return End::Gone;
+                }
             }
-        }
-        if send_exit(socket, code).await {
-            End::Exited
-        } else {
-            End::Gone
-        }
+            if send_exit(socket, code).await {
+                End::Exited
+            } else {
+                End::Gone
+            }
+        };
+        tokio::time::timeout(SLOW_CLOSE_TIMEOUT, finish)
+            .await
+            .unwrap_or(End::Gone)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn the_outbox_counts_chunks() {
+        let (out, mut inbox) = outbox(2, 1 << 20);
+        out.push(b"a");
+        out.push(b"b");
+        assert!(!out.budget.is_full());
+        out.push(b"c");
+        assert!(out.budget.is_full());
+        // Once behind, nothing more is queued.
+        out.push(b"d");
+        assert_eq!(inbox.recv().await.as_deref(), Some(&b"a"[..]));
+        assert_eq!(inbox.recv().await.as_deref(), Some(&b"b"[..]));
+        out.push(b"e");
+        drop(out);
+        assert_eq!(inbox.recv().await, None);
+        // The overflow left a wake-up for the session.
+        tokio::time::timeout(Duration::from_secs(1), inbox.budget.behind.notified())
+            .await
+            .expect("notified");
+    }
+
+    #[tokio::test]
+    async fn the_outbox_counts_bytes_and_frees_them_on_recv() {
+        let (out, mut inbox) = outbox(100, 10);
+        out.push(b"123456");
+        assert_eq!(out.budget.bytes.load(Ordering::SeqCst), 6);
+        assert_eq!(inbox.recv().await.as_deref(), Some(&b"123456"[..]));
+        assert_eq!(out.budget.bytes.load(Ordering::SeqCst), 0);
+        out.push(b"123456");
+        out.push(b"7890");
+        assert!(!out.budget.is_full(), "exactly the budget is fine");
+        out.push(b"x");
+        assert!(out.budget.is_full());
+    }
+
+    #[test]
+    fn a_closed_outbox_gives_its_bytes_back() {
+        let (out, inbox) = outbox(4, 10);
+        drop(inbox);
+        out.push(b"12345678");
+        out.push(b"12345678");
+        assert!(!out.budget.is_full());
+        assert_eq!(out.budget.bytes.load(Ordering::SeqCst), 0);
     }
 }
