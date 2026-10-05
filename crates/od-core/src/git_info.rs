@@ -323,6 +323,22 @@ mod tests {
         assert_eq!(sum.files[0].added, 2);
     }
 
+    #[test]
+    fn huge_untracked_file_is_truncated_not_empty() {
+        let t = repo();
+        let big = "x".repeat(79) + "\n";
+        std::fs::write(t.path().join("big.txt"), big.repeat(55_000)).unwrap(); // ~4.4 MiB
+        let f = ChangedFile {
+            path: "big.txt".into(),
+            status: ChangeStatus::Untracked,
+            added: 0,
+            deleted: 0,
+        };
+        let d = file_diff(s(&t), &f, &SystemGit);
+        assert!(d.truncated);
+        assert_eq!(d.diff.len(), MAX_DIFF_BYTES);
+    }
+
     struct Fixed(String);
     impl GitRunner for Fixed {
         fn run(&self, _: &str, _: &[&str]) -> Result<String, GitError> {

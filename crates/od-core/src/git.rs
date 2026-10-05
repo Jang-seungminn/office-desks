@@ -5,7 +5,7 @@
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -44,19 +44,27 @@ fn fail(message: String, stdout: Vec<u8>) -> GitError {
     }
 }
 
+type Shared = Arc<Mutex<Vec<u8>>>;
+
+/// Reads into a shared buffer so a caller can snapshot partial output without joining.
 fn read_capped<R: Read + Send + 'static>(
     mut r: R,
     max: usize,
     overflow: Arc<AtomicBool>,
-) -> thread::JoinHandle<Vec<u8>> {
-    thread::spawn(move || {
-        let mut buf = Vec::new();
+) -> (thread::JoinHandle<()>, Shared) {
+    let shared: Shared = Arc::new(Mutex::new(Vec::new()));
+    let sink = shared.clone();
+    let h = thread::spawn(move || {
         let mut chunk = [0u8; 8192];
         loop {
             match r.read(&mut chunk) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
+                    let mut buf = sink.lock().unwrap();
                     if buf.len() + n > max {
+                        // Like Node: keep what fits under the cap, then report overflow.
+                        let room = max - buf.len();
+                        buf.extend_from_slice(&chunk[..room]);
                         overflow.store(true, Ordering::SeqCst);
                         break;
                     }
@@ -64,8 +72,8 @@ fn read_capped<R: Read + Send + 'static>(
                 }
             }
         }
-        buf
-    })
+    });
+    (h, shared)
 }
 
 pub(crate) fn run_git_with(
@@ -93,8 +101,8 @@ pub(crate) fn run_git_with(
         .map_err(|e| fail(format!("spawn {program} failed: {e}"), Vec::new()))?;
     let out_over = Arc::new(AtomicBool::new(false));
     let err_over = Arc::new(AtomicBool::new(false));
-    let out = read_capped(child.stdout.take().unwrap(), max_buffer, out_over.clone());
-    let err = read_capped(child.stderr.take().unwrap(), max_buffer, err_over.clone());
+    let (out, out_buf) = read_capped(child.stdout.take().unwrap(), max_buffer, out_over.clone());
+    let (err, err_buf) = read_capped(child.stderr.take().unwrap(), max_buffer, err_over.clone());
     let overflowed = || {
         if out_over.load(Ordering::SeqCst) {
             Some(format!("{described}: stdout maxBuffer length exceeded"))
@@ -127,6 +135,9 @@ pub(crate) fn run_git_with(
         thread::sleep(Duration::from_millis(5));
     };
     if reason.is_none() {
+        // The child exited normally: let the readers drain so an overflow they hit is seen.
+        let _ = out.join();
+        let _ = err.join();
         reason = overflowed();
     }
     if status.is_none() {
@@ -136,10 +147,11 @@ pub(crate) fn run_git_with(
     if let Some(msg) = reason {
         // Don't join the readers: a grandchild (e.g. a git alias or hook) may still hold the
         // pipes open. The threads end on their own when the pipes close.
-        return Err(fail(msg, Vec::new()));
+        let partial = out_buf.lock().unwrap().clone();
+        return Err(fail(msg, partial));
     }
-    let stdout = out.join().unwrap_or_default();
-    let stderr = err.join().unwrap_or_default();
+    let stdout = out_buf.lock().unwrap().clone();
+    let stderr = err_buf.lock().unwrap().clone();
     if status.is_some_and(|s| s.success()) {
         return Ok(String::from_utf8_lossy(&stdout).into_owned());
     }
@@ -184,6 +196,13 @@ mod tests {
     fn max_buffer_is_enforced() {
         let e = run_git_with("git", ".", &["--version"], GIT_TIMEOUT, 3).unwrap_err();
         assert!(e.message.contains("maxBuffer"));
+    }
+
+    #[test]
+    fn overflow_error_keeps_partial_stdout_up_to_cap() {
+        let e = run_git_with("git", ".", &["--version"], GIT_TIMEOUT, 7).unwrap_err();
+        assert!(e.message.contains("maxBuffer"));
+        assert_eq!(e.stdout, "git ver");
     }
 
     #[test]
