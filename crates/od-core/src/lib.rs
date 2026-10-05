@@ -2,8 +2,10 @@
 
 pub mod backend;
 pub mod hire;
+pub mod home;
 mod jsstr;
 pub mod keys;
 pub mod model;
+pub mod native;
 pub mod screen;
 pub mod state_mapper;
