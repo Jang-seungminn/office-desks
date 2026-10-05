@@ -1,0 +1,36 @@
+/* Simple v1 theme. The 공방 look (wood, hanji, 창살, 단청) is a later design pass: change the variables first. */
+:root {
+  --bg: #1f1a16;
+  --panel: #2a231d;
+  --line: #3d3329;
+  --text: #efe6d8;
+  --muted: #a89a87;
+  --accent: #d9822b;
+  --danger: #c8553d;
+  --ok: #6a9a5b;
+  --font-ui: system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-term: "SF Mono", Menlo, Consolas, "D2Coding", monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+#app { display: grid; grid-template-columns: 260px 1fr; height: 100%; }
+body.sidebar-hidden #app { grid-template-columns: 0 1fr; }
+body.sidebar-hidden .sidebar { display: none; }
+.sidebar { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; overflow: auto; }
+.sidebar-head { display: flex; align-items: center; gap: 6px; padding: 10px; border-bottom: 1px solid var(--line); }
+.sidebar-head h1 { font-size: 15px; margin: 0 auto 0 0; }
+.sidebar-body { padding: 10px; color: var(--muted); }
+.workspace { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; color: var(--muted); }
+button {
+  background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.danger { color: var(--danger); }
+.term { font-family: var(--font-term); }

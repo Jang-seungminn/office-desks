@@ -32,15 +32,16 @@
   },
   "workspaces": [
     "bridge",
-    "web"
+    "web",
+    "app"
   ],
   "scripts": {
     "dev": "concurrently -n bridge,web -c blue,magenta \"npm run dev -w bridge\" \"npm run dev -w web\"",
-    "build": "npm run build -w web && npm run build -w bridge",
+    "build": "npm run build -w web && npm run build -w app && npm run build -w bridge",
     "start": "npm run build -w web && npm run start -w bridge",
     "tui": "npm run build -w web && npm run tui -w bridge",
-    "test": "npm test -w bridge && npm test -w web",
-    "typecheck": "npm run typecheck -w bridge && npm run typecheck -w web",
+    "test": "npm test -w bridge && npm test -w web && npm test -w app",
+    "typecheck": "npm run typecheck -w bridge && npm run typecheck -w web && npm run typecheck -w app",
     "demo": "npm run build && npm run demo -w bridge",
     "golden": "tsx bridge/scripts/golden.ts",
     "contract:record": "tsx bridge/scripts/contract-record.ts",
