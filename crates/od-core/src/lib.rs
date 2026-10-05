@@ -2,6 +2,7 @@
 
 pub mod backend;
 pub mod git;
+pub mod git_info;
 pub mod hire;
 pub mod home;
 mod jsstr;
