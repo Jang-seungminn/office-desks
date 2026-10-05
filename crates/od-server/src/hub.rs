@@ -3,6 +3,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use axum::extract::ws::Utf8Bytes;
+
 use od_core::awards::RawBoard;
 use od_core::model::{BackendInfo, OfficeSnapshot, OrgChart, UsageSnapshot};
 use serde::Serialize;
@@ -21,8 +23,9 @@ pub enum ServerMessageJson {
 }
 
 impl ServerMessageJson {
-    /// The text frame: `JSON.stringify(msg)`.
-    pub fn to_text(&self) -> Arc<str> {
+    /// The text frame: `JSON.stringify(msg)`. Cheap to clone (shared bytes), so a broadcast is
+    /// serialized once and never copied per client.
+    pub fn to_text(&self) -> Utf8Bytes {
         serde_json::to_string(self)
             .expect("server messages always serialize")
             .into()
@@ -30,7 +33,7 @@ impl ServerMessageJson {
 }
 
 pub struct Hub {
-    tx: broadcast::Sender<Arc<str>>,
+    tx: broadcast::Sender<Utf8Bytes>,
     clients: AtomicUsize,
 }
 
@@ -48,7 +51,7 @@ impl Hub {
         let _ = self.tx.send(msg.to_text());
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<Arc<str>> {
+    pub fn subscribe(&self) -> broadcast::Receiver<Utf8Bytes> {
         self.tx.subscribe()
     }
 
@@ -77,7 +80,10 @@ mod tests {
                 departments: Vec::new(),
             },
         };
-        assert_eq!(&*m.to_text(), r#"{"type":"org","org":{"departments":[]}}"#);
+        assert_eq!(
+            m.to_text().as_str(),
+            r#"{"type":"org","org":{"departments":[]}}"#
+        );
         let m = ServerMessageJson::Awards {
             awards: RawBoard {
                 leader: None,
@@ -85,7 +91,7 @@ mod tests {
             },
         };
         assert_eq!(
-            &*m.to_text(),
+            m.to_text().as_str(),
             r#"{"type":"awards","awards":{"leader":null,"hall":[{"date":"2026-10-05","extra":1}]}}"#
         );
         let m = ServerMessageJson::Snapshot {
@@ -96,7 +102,7 @@ mod tests {
             }),
         };
         assert_eq!(
-            &*m.to_text(),
+            m.to_text().as_str(),
             r#"{"type":"snapshot","snapshot":{"desks":[],"updatedAt":5,"error":null}}"#
         );
     }

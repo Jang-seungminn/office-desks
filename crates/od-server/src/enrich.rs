@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use chrono::Local;
 use futures_util::future::join_all;
-use od_core::awards::AwardBook;
+use od_core::awards::{save_board, AwardBook};
 use od_core::backend::OfficeBackend;
 use od_core::git::SystemGit;
 use od_core::git_info::change_summary;
@@ -38,6 +38,8 @@ pub(crate) struct Enricher {
     pub awards: Arc<Mutex<AwardBook>>,
     pub hub: Arc<Hub>,
     changes: ChangeCache,
+    /// One awards save at a time.
+    save_lock: Arc<Mutex<()>>,
 }
 
 /// What a transcript adds to one agent.
@@ -59,6 +61,7 @@ impl Enricher {
             awards,
             hub,
             changes: Arc::default(),
+            save_lock: Arc::default(),
         }
     }
 
@@ -158,18 +161,22 @@ impl Enricher {
     }
 
     /// `updateAwards`: fold the office into the board; on a change, save it in the background
-    /// and broadcast the raw board.
+    /// and broadcast the raw board. The book's lock is never held during IO: saves are
+    /// serialized by `save_lock`, and each writes the latest board, so the last write wins.
     fn update_awards(&self, s: &OfficeSnapshot) {
-        let board = {
+        let (file, board) = {
             let mut book = lock(&self.awards);
             if !book.update(&s.desks, &Local::now()) {
                 return;
             }
-            book.current().clone()
+            (book.file().to_path_buf(), book.current().clone())
         };
         let awards = Arc::clone(&self.awards);
+        let save_lock = Arc::clone(&self.save_lock);
         tokio::task::spawn_blocking(move || {
-            let _ = lock(&awards).save();
+            let _saving = lock(&save_lock);
+            let latest = lock(&awards).current().clone();
+            let _ = save_board(&file, &latest);
         });
         self.hub.send(&ServerMessageJson::Awards { awards: board });
     }

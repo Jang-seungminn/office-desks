@@ -459,14 +459,13 @@ async fn a_lagged_client_gets_a_full_resend() {
             .hub()
             .send(&ServerMessageJson::Usage { usage: usage(i) });
     }
+    // The lagged client skips the queued messages and gets the current state instead.
     let mut got = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..3 {
         got.push(ws_json(&mut ws).await);
     }
     let types: Vec<_> = got.iter().map(msg_type).collect();
-    assert_eq!(types, ["snapshot", "org", "awards", "usage", "usage"]);
-    assert_eq!(got[3]["usage"]["updatedAt"], 9);
-    assert_eq!(got[4]["usage"]["updatedAt"], 10);
+    assert_eq!(types, ["snapshot", "org", "awards"]);
     assert!(ws_drain(&mut ws, QUIET).await.is_empty());
 }
 

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::ws::{Message, WebSocket};
+use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use axum::extract::{FromRequestParts, Request, WebSocketUpgrade};
 use axum::response::{IntoResponse, Response};
 use od_core::model::BackendInfo;
@@ -25,15 +25,12 @@ pub(crate) async fn upgrade(st: Arc<AppState>, req: Request) -> Response {
     }
 }
 
-async fn send(socket: &mut WebSocket, text: &str) -> bool {
-    socket
-        .send(Message::Text(text.to_string().into()))
-        .await
-        .is_ok()
+async fn send(socket: &mut WebSocket, text: Utf8Bytes) -> bool {
+    socket.send(Message::Text(text)).await.is_ok()
 }
 
 async fn send_msg(socket: &mut WebSocket, msg: ServerMessageJson) -> bool {
-    send(socket, &msg.to_text()).await
+    send(socket, msg.to_text()).await
 }
 
 /// What a client must know to be current: `snapshot`, `org`, `awards` and `usage` (when known).
@@ -116,7 +113,7 @@ async fn client(st: Arc<AppState>, mut socket: WebSocket) {
 }
 
 /// The initial messages, then hub messages until the client goes away.
-async fn feed(st: &AppState, socket: &mut WebSocket, rx: &mut broadcast::Receiver<Arc<str>>) {
+async fn feed(st: &AppState, socket: &mut WebSocket, rx: &mut broadcast::Receiver<Utf8Bytes>) {
     if !initial(st, socket).await {
         return;
     }
@@ -124,8 +121,12 @@ async fn feed(st: &AppState, socket: &mut WebSocket, rx: &mut broadcast::Receive
         tokio::select! {
             msg = rx.recv() => {
                 let ok = match msg {
-                    Ok(text) => send(socket, &text).await,
-                    Err(RecvError::Lagged(_)) => resend_state(st, socket).await,
+                    Ok(text) => send(socket, text).await,
+                    Err(RecvError::Lagged(_)) => {
+                        // Skip whatever is still queued: the resent state supersedes it.
+                        *rx = rx.resubscribe();
+                        resend_state(st, socket).await
+                    }
                     Err(RecvError::Closed) => false,
                 };
                 if !ok {
