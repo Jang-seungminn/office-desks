@@ -138,6 +138,42 @@ Node 서버와 다른 점은 `crates/od-server/PARITY.md`에 정리했어요.
 
 워크스페이스에는 데스크톱 앱 `od-app`(Gongbang)도 있어요. release 빌드(`cargo build --release`)는 두 화면이 먼저 빌드돼 있어야 해요: `npm run build -w web`과 `npm run build -w app`을 먼저 실행하세요. 없으면 `od-app`의 빌드 스크립트가 멈춥니다. debug 빌드와 `cargo test`에는 필요 없어요.
 
+## Gongbang (데스크톱 앱, 미리보기)
+
+Gongbang(공방)은 Office Desks의 데스크톱 앱이에요. Tauri 2 창 하나에 사이드바(프로젝트 → 워크트리 → 에이전트와 상태)와 에이전트별 터미널 탭이 있고, 🏢 사무실 버튼은 기존 웹 사무실을 별도 창으로 열어요. Rust 코어(`od-server`와 native 백엔드)가 앱 프로세스 안에서 돌아서 Node나 사이드카가 필요 없고, 앱을 닫으면 에이전트도 함께 종료돼요.
+
+**빌드** (macOS `.app`, Windows NSIS 설치 파일). release 빌드는 두 화면이 먼저 빌드돼 있어야 해요.
+
+```bash
+npm ci
+npm run build -w web
+npm run build -w app
+cd crates/od-app
+npx tauri build --bundles app    # macOS: target/release/bundle/macos/Gongbang.app
+npx tauri build --bundles nsis   # Windows: target/release/bundle/nsis/*.exe
+```
+
+**개발**: `npm run build -w app` 후 `cargo run -p od-app`. debug 빌드는 `app/dist`를 디스크에서 읽으니, 화면을 다시 빌드하고 ⌘R 또는 F5로 새로고침하세요. 또는 `npm run e2e -w app`(Playwright가 실제 서버와 가짜 에이전트로 화면을 검사해요).
+
+**단축키**: macOS는 ⌘, Windows는 Ctrl+Shift예요. Claude Code와 셸이 Ctrl+T, B, W, \를 쓰기 때문에, Windows에서 일반 Ctrl 단축키를 앱이 가로채면 안 되거든요 (사용자 결정).
+
+| 동작 | macOS | Windows |
+|---|---|---|
+| 새 작업 | ⌘T | Ctrl+Shift+T |
+| 탭 닫기 (창은 닫지 않음) | ⌘W | Ctrl+Shift+W |
+| 탭 1~9로 이동 | ⌘1…9 | Ctrl+Shift+1…9 |
+| 화면 나누기 | ⌘\ | Ctrl+Shift+\ |
+| 사이드바 | ⌘B | Ctrl+Shift+B |
+| 터미널 복사/붙여넣기 | ⌘C / ⌘V | Ctrl+Shift+C / Ctrl+Shift+V |
+
+**알아둘 점**
+- 앱은 항상 native 백엔드를 무작위 포트에서 써요 (4317은 쓰지 않아요). CLI와 같은 `OFFICE_DESKS_HOME`(기본 `~/.office-desks`)을 공유하니, 같은 홈에서 둘을 동시에 실행하지 마세요.
+- 토큰은 WebSocket 주소의 쿼리로 전달돼요. release 빌드는 개발자 도구가 꺼져 있고 서버는 주소를 로그에 남기지 않아서 의도한 설계예요.
+- 앱 화면의 IPC는 창 `main`과 앱 서버 주소(`http://127.0.0.1:<포트>/*`)에만 열려 있어요. 사무실 창에는 IPC가 없고, 서버가 `frame-ancestors 'none'`으로 iframe 삽입을 막아요. 자세한 내용은 `crates/od-server/PARITY.md`에 있어요.
+- 아직 없는 것: 숨은 탭의 WebGL 컨텍스트 해제, 재연결 백오프(끊기면 바로 다시 시도하고, 연속 3번 실패하면 멈춰요), Windows에서 강제 종료 시 에이전트 정리(Job Object), 중복 실행 방지.
+- **Linux는 지원하지 않아요.** `od-app`이 webkit2gtk를 필요로 해서, Linux에서는 `cargo test --workspace --exclude od-app`을 쓰세요.
+- **서명하지 않은 빌드**예요. CI 산출물(`gongbang-macOS`, `gongbang-Windows`)로만 배포해요. macOS Gatekeeper는 우클릭 → 열기, Windows SmartScreen은 추가 정보 → 실행 순서로 허용하세요. 받은 `.app`이 실행되지 않으면 `chmod +x Gongbang.app/Contents/MacOS/gongbang`을 해 보세요 (CI 산출물 zip은 실행 권한을 잃을 수 있어요).
+
 ## 터미널 앱 (TUI)
 
 터미널에서 `npx office-desks`(소스에서는 `npm run tui`)를 실행하면 Office Desks 터미널 앱이 뜨고, 같은 프로세스가 웹 사무실도 띄웁니다(주소는 화면 맨 위).

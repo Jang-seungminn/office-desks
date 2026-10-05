@@ -39,6 +39,9 @@ Legend: **Group** is the fixture file. "api" means `tests/api.rs`, "unit" means 
 | `backend/index.ts` `createBackend`, `probeOrca` | `backends::{create_backend, BackendKind::from_env, default_probe, unknown_backend}` (`crates/od-server/src/backends.rs`; Orca and demo backends in `crates/od-orca`, see its PARITY). `CreatedBackend.kind` says which kind was built | unit in `backends.rs` (`from_env_follows_node`, `explicit_kind_never_probes`, `auto_follows_the_probe`, `default_probe_is_false_without_orca`); bin tests `demo_serves_the_demo_office`, `orca_backend_shows_a_missing_cli`, `auto_without_orca_is_native` | `demo` |
 | `bin/office-desks.mjs` (server part) | `crates/office-desks` (`main.rs`, `cli.rs`) | `crates/office-desks/tests/cli.rs`, unit in `cli.rs` | none |
 | `/term/<id>` (new, no TS) | `term::upgrade` | native trials `term_*` | none |
+| `POST /api/stop` (new, no TS route) | `routes::manage::stop` | api `stop_and_remove_*`, `lifecycle_errors_map_to_statuses`; native trial `lifecycle_native` | none |
+| `POST /api/remove` (new, no TS route) | `routes::manage::remove` | api `stop_and_remove_*`, `lifecycle_errors_map_to_statuses`; native trial `lifecycle_native` | none |
+| `/app/` (new, no TS: the desktop app UI) | `assets::serve_app`, `security::apply_app_headers` | api `app_mount_*` | none |
 
 ## Deliberate differences
 
@@ -69,6 +72,15 @@ Sockets and upgrades:
 - **`/term` limits.** A slow client is closed with 1013 after `term_buffer` queued chunks or 8 MiB queued bytes. Messages and frames from a client are capped at 1 MiB. On server shutdown every `/term` socket is closed with 1001.
 - **Resize limits.** `/term` ignores a resize outside cols 1..=1000 and rows 1..=500, and `PtyHost::resize` ignores sizes over 1000 x 500 (see od-core PARITY). Reason: vt100 allocates every cell.
 
+Stop and remove (new routes):
+- **Status mapping.** `lifecycle_error` maps the backend error code: `not_found` is 404, `main_checkout`, `has_agents` and `dirty` are 409, `unsupported` is 400, anything else is 502. The body is `{error}` plus `code` when the backend gave one. A backend without the capability answers 400 `unsupported`.
+
+The app mount (`/app/`):
+- **Served only when `ServerConfig.app_assets` is set** (the desktop app sets it; `office-desks` never does, so there `/app/` is the normal SPA fallback). The `/app/` pages get `APP_CSP` instead of the strict CSP. It differs in exactly two directives: `style-src 'self' 'unsafe-inline'` (xterm injects `<style>` elements at runtime) and `connect-src 'self' ipc: http://ipc.localhost` (Tauri's IPC first tries `ipc://localhost` on macOS and `http://ipc.localhost` on Windows; the page's own `/term` WebSocket is covered by `'self'`). `script-src` stays `'self'` with no `unsafe-eval`. The other four headers are the same, including `X-Frame-Options: DENY` and `frame-ancestors 'none'`.
+- **Framing protection matters.** The app's IPC capability is granted to window `main` on the server's own origin. An iframe of `/` inside `main` would share that origin; both CSPs' `frame-ancestors 'none'` (and `X-Frame-Options`) prevent it, not the navigation policy. Removing that directive would reopen it.
+- **IPC model.** Only the window `main`, and only pages on `http://127.0.0.1:<port>/*`, may call the three app commands (`term_config`, `pick_folder`, `open_office`). The office window (`/`) has no IPC. No `core:*`, `dialog:*` or `opener:*` permission is granted to any page. `main` may navigate only inside `/app/`; external `http`/`https` links open in the OS browser.
+- **Token transport.** The `/term` token is handed over by IPC (`term_config`) but travels in the WebSocket URL query on purpose: browsers cannot set headers on a WebSocket. This is accepted because devtools are off in release builds and the server never logs URLs. A failed handshake can still print the URL in devtools of a debug build.
+
 Server behaviour:
 - **MIME table.** `.mjs` (text/javascript), `.woff2` (font/woff2) and `.wasm` (application/wasm) are typed; Node served them as octet-stream. Reason: the app UI needs them.
 - **No 503 for a rebuilding dist.** TS answers 503 `web UI is being rebuilt` while `web/dist` is missing or being replaced. The Rust binary embeds the files (rust-embed), so there is no such state. Without a built `web/dist`, `/` answers a plain text hint.
@@ -98,15 +110,19 @@ Binary (`office-desks`):
 
 - **R3 (done): Orca `find_session` dedupe and timeouts** are in `od_orca::SessionResolver` (one search per agent at a time, 30 s bound); `snapshot` is single-flight through the poller, which is its only caller.
 - **R3 (done): coded errors.** Every `BackendError` in the Orca and demo backends carries a code; the `no_plain_errors` test in `od-orca` enforces it.
-- **R4/R5: pass `Some(BackendKind::Native)` to `create_backend`.** Auto mode (`None`) picks Orca whenever Orca is running, and the Orca and demo backends have no `/term` panes (no PTY of ours, 404). The desktop app and the TUI need native PTYs, so they must ask for native, and can check `CreatedBackend.kind`.
-- **R4: Tauri origins.** A Tauri webview sends `Origin: tauri://localhost` (macOS) or `http://tauri.localhost` (Windows) and may send `Sec-Fetch-Site: cross-site`; the guard refuses all of these with 403. Decide at the start of R4: add `ServerConfig.allowed_origins`, or load the app UI from od-server's own origin (`http://127.0.0.1:<port>/`).
-- **R4: call `shutdown()`.** Dropping every `ServerHandle` stops accepting but does not dispose the backend (agents keep running until the `PtyHost` is dropped). The desktop app must `shutdown().await` on quit.
-- **R4: `hook-relay` first.** The Tauri `main()` must dispatch `office-desks hook-relay` (argv[1]) before the GUI or the runtime starts, as `crates/office-desks/src/main.rs` does; agent hooks run the app binary with it.
-- **R4: the poller idles** unless a `/ws` client is connected or `tui_active` is set. A desktop view that reads `ServerHandle::poller()` directly without `/ws` must set `tui_active` (or call `refresh()`), or it reads 10 s old data.
+- **R4 (done), R5 open: `Some(BackendKind::Native)`.** The app always passes it (random port, native backend, shares `OFFICE_DESKS_HOME` with the CLI). The TUI (R5) must still do the same: Auto mode picks Orca whenever it runs, and Orca/demo have no `/term` panes.
+- **R4 (done): Tauri origins.** The app loads its UI from od-server's own origin (`http://127.0.0.1:<port>/app/`), so the guard is unchanged and no `allowed_origins` exists.
+- **R4 (done): call `shutdown()`.** The app calls `ServerHandle::shutdown().await` on quit, close of `main` and SIGINT/SIGTERM/SIGHUP, so agents are disposed.
+- **R4 (done): `hook-relay` first.** `od-app`'s `main()` dispatches `hook-relay` before the GUI starts.
+- **R4 (done): the poller.** The app's UI keeps a `/ws` connection open, which keeps the poller live (it idles without a `/ws` client or `tui_active`).
 - **R6: release check.** The release job must assert that `web/dist/index.html` exists before building: rust-embed embeds whatever is there, and a binary built without it serves only the no-dist hint.
-- **Later: PTY input queue.** `PtyHost` input goes through an unbounded channel to the writer thread; a stuck agent with a flood of `/term` input grows it without limit.
+- **Later: PTY input queue.** `PtyHost` input goes through an unbounded channel to the writer thread; a stuck agent with a flood of `/term` input grows it without limit. The app chunks its input at 64 KiB, which does not bound the queue.
 
 ## Left for later
 
-- Done in R4: `POST /api/stop` and `/api/remove` (`routes::manage::{stop, remove}`; api `stop_and_remove_*`, `lifecycle_errors_map_to_statuses`; native trial `lifecycle_native`). New routes, no `server.ts` counterpart.
+- Windows: agents survive a forced kill of gongbang.exe (Task Manager, logoff): no Job Object for PtyHost children yet.
+- Single-instance guard for Gongbang.
+- App UI follow-ups: release WebGL contexts of hidden tabs (least recently used first); the terminal reconnect has no backoff (immediate on 1013, 500 ms after other closes, gives up after three closes with no open between); no manual reconnect button.
+- Windows shortcuts are Ctrl+Shift+key by user decision (plain Ctrl+T/W/B/\ belong to Claude Code and shells); revisit only if asked.
+- Linux is not a target for `od-app` (webkit2gtk); use `cargo test --workspace --exclude od-app`.
 - The terminal app (TUI) on top of this server: R5.
