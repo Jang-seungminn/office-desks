@@ -24,6 +24,13 @@ The work runs as a continuous implement → review → fix loop with subagents u
 
 `vt100` does **not** answer terminal queries. Device attributes (DA) and cursor position reports (DSR) differ from `@xterm/headless` there, so the core needs a small responder (see R1).
 
+## Name (decided 2026-10-05)
+
+The program (desktop app, TUI and CLI binary) is called **Gongbang (공방)**: the workshop where the agents work. office-desk keeps its name as the playful office view of it.
+- In R4, the desktop app is titled Gongbang, and its bundle id is based on `gongbang`.
+- In R6, the shipped binary becomes `gongbang`. Whether `office-desks` stays as an alias is decided in R6.
+- Internal crate names (`od-core`, `od-server`, …) do not change. The name `gongbang` was free on crates.io, npm and Homebrew on 2026-10-05.
+
 ## Target architecture
 
 ```
