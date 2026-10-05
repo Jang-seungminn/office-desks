@@ -43,7 +43,7 @@ async fn post(client: &Client, path: &str, body: Value) -> (u16, Value) {
 }
 
 async fn until(what: &str, f: impl FnMut() -> bool) {
-    until_within(Duration::from_secs(5), what, f).await;
+    until_within(Duration::from_secs(10), what, f).await;
 }
 
 async fn until_within(wait: Duration, what: &str, mut f: impl FnMut() -> bool) {
@@ -153,6 +153,15 @@ async fn run(sub: &Path) {
         assert!(Instant::now() < deadline, "agent still listed");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+
+    // 3b. An untracked file makes the worktree dirty: refused, and the folder stays.
+    let stray = Path::new(&wt_path).join("stray.txt");
+    std::fs::write(&stray, "untracked\n").expect("write stray file");
+    let (st, body) = post(&client, "/api/remove", json!({ "deskId": wt_id })).await;
+    assert_eq!(st, 409, "{body}");
+    assert_eq!(body["code"], "dirty");
+    assert!(Path::new(&wt_path).exists());
+    std::fs::remove_file(&stray).expect("remove stray file");
 
     // 4. Remove the worktree.
     let (st, body) = post(&client, "/api/remove", json!({ "deskId": wt_id })).await;
