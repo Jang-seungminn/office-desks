@@ -1,20 +1,26 @@
 //! Running the Orca CLI. Port of `bridge/src/orcaCli.ts` (`resolveOrcaCommand`,
 //! `createOrcaRunner`, `OrcaCliError`) and `probeOrca` from `bridge/src/backend/index.ts`.
 //!
-//! Every call is `orca <args> --json` as an argv (no shell). The child gets no stdin, its
-//! stdout and stderr are read with a cap, and on a timeout or an over-cap stream the runner
-//! kills and reaps its own child. It never looks for grandchildren.
+//! Every call is `orca <args> --json` as an argv (no shell). The child gets the runner's
+//! [`EnvMap`] as its whole environment (Node inherits `process.env`, which the default map is)
+//! and no stdin. A command that is not absolute is looked up on that env's PATH
+//! ([`find_command`]) and is never spawned unresolved. Stdout and stderr are read with a cap;
+//! on a timeout or an over-cap stream the runner kills and reaps its own child. On Windows the
+//! child also runs in a Job Object, and that job is terminated too, so a `.cmd` shim's
+//! grandchild dies with it (see `win_job`). It never looks for other processes.
 
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use od_core::backend::BackendError;
 use od_core::jsstr::{collapse_ws, slice_utf16, trim};
 use od_core::jsval;
-use od_core::native::env::{resolve_windows_command, EnvMap, ResolvedCommand};
+use od_core::native::env::{find_command, resolve_windows_command, EnvMap, ResolvedCommand};
 use od_core::native::pty_host::unsafe_for_cmd_shim;
+use od_core::nodepath::{node_is_absolute, win32_has_ext, win32_join};
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
@@ -83,6 +89,8 @@ pub struct OrcaCli {
     timeout: Duration,
     /// Windows only: the file behind `command`, resolved once at construction like TS.
     win: Option<ResolvedCommand>,
+    /// The child's whole environment, and the PATH a bare command is looked up on.
+    env: Arc<EnvMap>,
     max_output: usize,
 }
 
@@ -155,6 +163,15 @@ async fn read_pipe<R: AsyncRead + Unpin>(p: Option<R>, max: usize) -> Result<Vec
     }
 }
 
+/// The `PATH` (or `Path`) entries of a Windows env, as `resolve_windows_command` reads them.
+fn win_path_dirs(env: &EnvMap) -> impl Iterator<Item = &str> {
+    env.get("PATH")
+        .or_else(|| env.get("Path"))
+        .map_or("", String::as_str)
+        .split(';')
+        .filter(|d| !d.is_empty())
+}
+
 impl OrcaCli {
     pub fn new(command: impl Into<String>, timeout: Duration, env: &EnvMap) -> Self {
         let command = command.into();
@@ -165,7 +182,7 @@ impl OrcaCli {
         } else {
             None
         };
-        Self::with_resolution(command, timeout, win)
+        Self::with_resolution(command, timeout, win).with_env(env.clone())
     }
 
     /// `OrcaCli::new(resolve_orca_command(env), timeout, env)`.
@@ -183,8 +200,31 @@ impl OrcaCli {
             command,
             timeout,
             win,
+            env: Arc::new(EnvMap::new()),
             max_output: MAX_OUTPUT,
         }
+    }
+
+    fn with_env(mut self, env: EnvMap) -> Self {
+        self.env = Arc::new(env);
+        self
+    }
+
+    /// The program to spawn: absolute as given, else found on the env's PATH. None means
+    /// `not_found` without a spawn: spawned bare, std would fall back to its own search path
+    /// (`/bin:/usr/bin`, or the app and system folders on Windows).
+    fn locate(&self, program: &str) -> Option<String> {
+        if node_is_absolute(program) {
+            return Some(program.to_string());
+        }
+        if cfg!(windows) && win32_has_ext(program) {
+            // `orca.exe` or `orca.cmd` by name: `find_command` keeps a name with an extension
+            // as is, so look it up on PATH here, as Node's spawn would.
+            return win_path_dirs(&self.env)
+                .map(|d| win32_join(d, program))
+                .find(|f| Path::new(f).is_file());
+        }
+        find_command(program, &self.env).map(|p| p.to_string_lossy().into_owned())
     }
 
     /// The command as given (before any Windows resolution).
@@ -206,9 +246,12 @@ impl OrcaCli {
 
     async fn exec(&self, args: &[String], timeout: Duration) -> Result<Value, BackendError> {
         let plan = spawn_plan(&self.command, self.win.as_ref(), args)?;
-        let mut std_cmd = std::process::Command::new(&plan.program);
+        let program = self.locate(&plan.program).ok_or_else(|| self.not_found())?;
+        let mut std_cmd = std::process::Command::new(&program);
         std_cmd
             .args(&plan.args)
+            .env_clear()
+            .envs(self.env.iter())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -220,6 +263,8 @@ impl OrcaCli {
         let mut cmd = tokio::process::Command::from(std_cmd);
         cmd.kill_on_drop(true);
         let mut child = cmd.spawn().map_err(|e| self.spawn_error(e))?;
+        // Right after the spawn (see `win_job` for the window before this line).
+        let job = win_job::Job::assign(&child);
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let max = self.max_output;
@@ -230,6 +275,7 @@ impl OrcaCli {
         };
         let outcome = tokio::time::timeout(timeout, work).await;
         // The readers are dropped with `work`, never joined: a grandchild may hold the pipes.
+        // Every way out but the two failures below drops `job`, which keeps its processes.
         let failure = match outcome {
             Ok(Ok((out, err, status))) => {
                 let status =
@@ -243,17 +289,26 @@ impl OrcaCli {
             Ok(Err(TooLarge)) => too_large(),
             Err(_elapsed) => timeout_error(args),
         };
+        if let Some(job) = job {
+            // Kills the child and everything it started (a `.cmd` shim's `orca-real.exe`), so
+            // the pipes close and the reader threads end.
+            job.terminate();
+        }
         let _ = child.start_kill();
         let _ = tokio::time::timeout(REAP_WAIT, child.wait()).await;
         Err(failure)
     }
 
+    fn not_found(&self) -> BackendError {
+        BackendError::with_code(
+            format!("Orca CLI \"{}\" not found on PATH", self.command),
+            "not_found",
+        )
+    }
+
     fn spawn_error(&self, e: std::io::Error) -> BackendError {
         match e.kind() {
-            std::io::ErrorKind::NotFound => BackendError::with_code(
-                format!("Orca CLI \"{}\" not found on PATH", self.command),
-                "not_found",
-            ),
+            std::io::ErrorKind::NotFound => self.not_found(),
             // std refusing a batch-file argument it cannot escape safely (CVE-2024-24576). Only
             // for a `.cmd`/`.bat` shim: an `.exe` install's InvalidInput (a NUL in an argument)
             // is a plain spawn error. `win` is None off Windows.
@@ -277,6 +332,117 @@ impl OrcaRunner for OrcaCli {
         timeout: Duration,
     ) -> Result<Value, BackendError> {
         self.exec(args, timeout).await
+    }
+}
+
+/// The Windows Job Object around one `orca` child.
+///
+/// A `.cmd` shim runs `cmd.exe`, which starts the real `orca` as a grandchild. Killing only our
+/// child leaves the grandchild running with our pipes, so the reader threads stay parked. The
+/// child is put in a job of its own right after the spawn; on a timeout or an over-cap stream
+/// the job is terminated (`TerminateJobObject`), which ends our own child and every process it
+/// started, and nothing else.
+///
+/// - **The race window.** Between `spawn` and `AssignProcessToJobObject` the child already
+///   runs. A process it starts in that window (microseconds; cmd.exe has to parse the script
+///   first) is not in the job and is only killed the old way, which is not at all.
+/// - **No kill on a normal end.** The job has `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (so a crash of
+///   ours closes it and ends the tree), but every other way out (success, an error exit, a
+///   dropped call) first clears the limits and then closes the handle. A process the CLI leaves
+///   behind on purpose (say, an Orca app it launched) keeps running. `BREAKAWAY_OK` also lets a
+///   process that asks to leave the job do so.
+/// - A dropped (cancelled) call keeps the old behaviour: tokio's `kill_on_drop` kills only the
+///   direct child.
+/// - If the job cannot be made or assigned (an old Windows that forbids nested jobs), the call
+///   runs without one, as before.
+#[cfg(windows)]
+mod win_job {
+    use std::ffi::c_void;
+
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+
+    pub(super) struct Job(HANDLE);
+
+    // SAFETY: a job handle is a kernel handle that may be used from any thread; `Job` is its
+    // only owner and closes it exactly once, in `drop`.
+    unsafe impl Send for Job {}
+
+    fn set_limits(job: HANDLE, flags: u32) -> bool {
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = flags;
+        // SAFETY: `info` is a valid, fully initialised struct of the size we pass.
+        unsafe {
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&info).cast::<c_void>(),
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            ) != 0
+        }
+    }
+
+    impl Job {
+        /// A new job with `child` in it, or None (the call then runs without a job).
+        pub(super) fn assign(child: &tokio::process::Child) -> Option<Job> {
+            let process = child.raw_handle()?;
+            // SAFETY: no security attributes, no name: an anonymous job that only we hold.
+            let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+            if handle.is_null() {
+                return None;
+            }
+            // From here on, dropping `job` clears the limits and closes the handle.
+            let job = Job(handle);
+            if !set_limits(
+                handle,
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK,
+            ) {
+                return None;
+            }
+            // SAFETY: both handles are open: the job is ours, and `child` (not yet reaped)
+            // owns its process handle for the duration of this call.
+            if unsafe { AssignProcessToJobObject(handle, process as HANDLE) } == 0 {
+                return None;
+            }
+            Some(job)
+        }
+
+        /// Ends every process in the job: our child and what it started.
+        pub(super) fn terminate(self) {
+            // SAFETY: the handle is open until `drop`, which runs right after.
+            unsafe {
+                TerminateJobObject(self.0, 1);
+            }
+        }
+    }
+
+    impl Drop for Job {
+        fn drop(&mut self) {
+            // Disarm first: closing must never kill a process that is still running.
+            set_limits(self.0, 0);
+            // SAFETY: we own the handle and close it once.
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
+
+/// No Job Object off Windows: the runner kills only its own child there.
+#[cfg(not(windows))]
+mod win_job {
+    pub(super) struct Job;
+
+    impl Job {
+        pub(super) fn assign(_child: &tokio::process::Child) -> Option<Job> {
+            None
+        }
+
+        pub(super) fn terminate(self) {}
     }
 }
 

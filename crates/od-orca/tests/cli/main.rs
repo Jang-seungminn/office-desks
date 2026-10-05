@@ -2,7 +2,8 @@
 //!
 //! This test binary is its own fake: copied into a scratch dir as `orca` (or `orca-real`), it
 //! reads `fake-orca.json` next to itself, logs the call to `calls.jsonl` and answers. The runner
-//! always gets the absolute path of a copy, so the user's real `orca` is never run.
+//! gets the absolute path of a copy, or a bare `orca` with a PATH that holds only the copy (and
+//! a guard that checks the lookup first), so the user's real `orca` is never run.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -11,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use libtest_mimic::{Arguments, Failed, Trial};
 use od_core::backend::BackendError;
-use od_core::native::env::EnvMap;
-use od_orca::cli::{probe_orca, OrcaCli, OrcaRunner};
+use od_core::native::env::{find_command, process_env, EnvMap};
+use od_orca::{probe_orca, OrcaCli, OrcaRunner};
 use serde_json::{json, Value};
 
 type R = Result<(), Failed>;
@@ -44,7 +45,14 @@ fn fake_orca(exe: &Path) -> ! {
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
-    let line = json!({"pid": std::process::id(), "exe": exe.to_string_lossy(), "argv": argv});
+    let home_key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    let line = json!({
+        "pid": std::process::id(),
+        "exe": exe.to_string_lossy(),
+        "argv": argv,
+        "mark": std::env::var("OD_FAKE_MARK").ok(),
+        "home": std::env::var_os(home_key).is_some(),
+    });
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -144,8 +152,16 @@ fn argv(xs: &[&str]) -> Vec<String> {
     xs.iter().map(|x| x.to_string()).collect()
 }
 
+/// The env the trials' children get: ours without PATH, so nothing can be looked up on the
+/// real PATH (the runners get absolute paths anyway).
+fn base_env() -> EnvMap {
+    let mut env = process_env();
+    env.retain(|k, _| !k.eq_ignore_ascii_case("PATH"));
+    env
+}
+
 fn runner(command: &Path, timeout: Duration) -> OrcaCli {
-    OrcaCli::new(s(command), timeout, &EnvMap::new())
+    OrcaCli::new(s(command), timeout, &base_env())
 }
 
 /// Runs `f` on its own runtime, and does not wait on stray blocking readers at the end.
@@ -224,6 +240,11 @@ fn trials() -> Vec<Trial> {
         Trial::test("output_too_large", output_too_large),
         Trial::test("not_found", not_found),
         Trial::test("probe", probe),
+        Trial::test("bare_name_uses_the_env_path", bare_name_uses_the_env_path),
+        Trial::test(
+            "bare_name_not_on_the_env_path",
+            bare_name_not_on_the_env_path,
+        ),
     ];
     #[cfg(windows)]
     list.extend([
@@ -234,6 +255,10 @@ fn trials() -> Vec<Trial> {
         ),
         Trial::test("exe_preferred_over_cmd", win::exe_preferred_over_cmd),
         Trial::test("cmd_only_install", win::cmd_only_install),
+        Trial::test(
+            "cmd_shim_timeout_kills_the_grandchild",
+            win::cmd_shim_timeout_kills_the_grandchild,
+        ),
     ]);
     list
 }
@@ -308,7 +333,8 @@ fn timeout_kills_its_child() -> R {
     let dir = scratch("timeout_kills_its_child");
     let orca = install(&dir, "orca");
     rules(&dir, json!([{"match": ["status"], "sleepMs": 30_000}]));
-    let r = block_on(runner(&orca, Duration::from_secs(3)).run(&argv(&["status"])));
+    // 8 s for the fake to start and log its pid before the kill (slow CI runners).
+    let r = block_on(runner(&orca, Duration::from_secs(8)).run(&argv(&["status"])));
     expect_err(r, "timeout", "orca status  timed out")?;
     let pid = calls(&dir)
         .first()
@@ -358,7 +384,7 @@ fn output_too_large() -> R {
 fn not_found() -> R {
     let dir = scratch("not_found");
     let missing = s(&dir.join("no-such-orca"));
-    let cli = OrcaCli::new(missing.clone(), Duration::from_secs(15), &EnvMap::new());
+    let cli = OrcaCli::new(missing.clone(), Duration::from_secs(15), &base_env());
     expect_err(
         block_on(cli.run(&argv(&["status"]))),
         "not_found",
@@ -384,7 +410,7 @@ fn probe() -> R {
     let missing = OrcaCli::new(
         s(&dir.join("no-such-orca")),
         Duration::from_secs(3),
-        &EnvMap::new(),
+        &base_env(),
     );
     check(
         !block_on(probe_orca(&missing)),
@@ -397,11 +423,75 @@ fn probe() -> R {
     )
 }
 
+/// A bare `orca` is looked up on the EnvMap's PATH, which holds only our fake, and the child
+/// gets exactly that env: our marker, and not the `HOME` this process has.
+fn bare_name_uses_the_env_path() -> R {
+    let dir = scratch("bare_name_uses_the_env_path").join("bin");
+    std::fs::create_dir_all(&dir).expect("bin");
+    let orca = install(&dir, "orca");
+    let mut env = EnvMap::from([
+        ("PATH".to_string(), s(&dir)),
+        ("OD_FAKE_MARK".to_string(), "from-the-env-map".to_string()),
+    ]);
+    if cfg!(windows) {
+        // Windows processes expect SystemRoot; it is not HOME/USERPROFILE.
+        if let Some(root) = std::env::var_os("SystemRoot") {
+            env.insert("SystemRoot".into(), root.to_string_lossy().into_owned());
+        }
+    }
+    // The guard: the lookup must land on our copy, or nothing runs.
+    let found = find_command("orca", &env).ok_or("bare orca not found on the scratch PATH")?;
+    if found.parent() != Some(dir.as_path()) {
+        return Err(format!(
+            "bare orca resolved outside the scratch dir: {}",
+            found.display()
+        )
+        .into());
+    }
+    check(
+        std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).is_some(),
+        "this test process has no HOME to leave out",
+    )?;
+    let got =
+        block_on(OrcaCli::new("orca", Duration::from_secs(15), &env).run(&argv(&["status"])))?;
+    check(
+        got == json!({"argv": ["status", "--json"]}),
+        format!("got {got}"),
+    )?;
+    let logged = calls(&dir);
+    let call = logged.first().ok_or("the fake never ran")?;
+    let exe = PathBuf::from(call["exe"].as_str().unwrap_or_default());
+    check(
+        exe.file_name() == orca.file_name() && exe.parent() == Some(dir.as_path()),
+        format!("ran {}", exe.display()),
+    )?;
+    check(
+        call["mark"] == json!("from-the-env-map"),
+        format!("the child did not get the EnvMap: {call}"),
+    )?;
+    check(
+        call["home"] == json!(false),
+        format!("the child inherited this process's env: {call}"),
+    )
+}
+
+/// A bare `orca` that the EnvMap's PATH does not have is `not_found` without a spawn, even
+/// though std alone would search its own default folders.
+fn bare_name_not_on_the_env_path() -> R {
+    let dir = scratch("bare_name_not_on_the_env_path");
+    let env = EnvMap::from([("PATH".to_string(), s(&dir))]);
+    expect_err(
+        block_on(OrcaCli::new("orca", Duration::from_secs(15), &env).run(&argv(&["status"]))),
+        "not_found",
+        "Orca CLI \"orca\" not found on PATH",
+    )
+}
+
 #[cfg(windows)]
 mod win {
     use super::*;
     use od_core::native::env::resolve_windows_command;
-    use od_orca::cli::UNSAFE_FOR_CMD;
+    use od_orca::UNSAFE_FOR_CMD;
 
     /// `<trial>\my bin` with `orca-real.exe` (the fake) and an `orca.cmd` shim forwarding to it.
     fn shim_dir(trial: &str) -> PathBuf {
@@ -412,8 +502,13 @@ mod win {
         dir
     }
 
+    /// Only our dir on PATH, plus SystemRoot (cmd.exe and Windows processes expect it).
     fn path_env(dir: &Path) -> EnvMap {
-        EnvMap::from([("PATH".to_string(), s(dir))])
+        let mut env = EnvMap::from([("PATH".to_string(), s(dir))]);
+        if let Some(root) = std::env::var_os("SystemRoot") {
+            env.insert("SystemRoot".into(), root.to_string_lossy().into_owned());
+        }
+        env
     }
 
     /// A bare `orca` must resolve inside our scratch folder, or the trial must not run it: an
@@ -432,7 +527,7 @@ mod win {
         let cli = OrcaCli::new(
             s(&dir.join("orca.cmd")),
             Duration::from_secs(15),
-            &EnvMap::new(),
+            &base_env(),
         );
         let args = argv(&[
             "search",
@@ -451,7 +546,7 @@ mod win {
         let cli = OrcaCli::new(
             s(&dir.join("orca.cmd")),
             Duration::from_secs(15),
-            &EnvMap::new(),
+            &base_env(),
         );
         expect_err(
             block_on(cli.run(&argv(&["terminal", "send", "--text=a&b"]))),
@@ -489,5 +584,46 @@ mod win {
             .and_then(|c| c["exe"].as_str().map(String::from))
             .unwrap_or_default();
         check(exe.ends_with("orca-real.exe"), format!("ran {exe}"))
+    }
+
+    /// A `.cmd` shim's `orca-real.exe` is our grandchild. On a timeout the runner terminates the
+    /// child's Job Object, so the grandchild dies too (it would otherwise sleep on for 30 s
+    /// holding our pipes).
+    pub fn cmd_shim_timeout_kills_the_grandchild() -> R {
+        let dir = shim_dir("cmd_shim_timeout_kills_the_grandchild");
+        rules(&dir, json!([{"match": ["status"], "sleepMs": 30_000}]));
+        let cli = OrcaCli::new(
+            s(&dir.join("orca.cmd")),
+            Duration::from_secs(8),
+            &base_env(),
+        );
+        let started = Instant::now();
+        expect_err(
+            block_on(cli.run(&argv(&["status"]))),
+            "timeout",
+            "orca status  timed out",
+        )?;
+        let call = calls(&dir)
+            .into_iter()
+            .next()
+            .ok_or("the fake orca-real never logged its pid (it started too slowly?)")?;
+        let exe = call["exe"].as_str().unwrap_or_default().to_string();
+        check(exe.ends_with("orca-real.exe"), format!("ran {exe}"))?;
+        let pid = call["pid"].as_u64().ok_or("no pid")? as u32;
+        let start = Instant::now();
+        while pid_alive(pid) {
+            if start.elapsed() > Duration::from_secs(5) {
+                return Err(format!(
+                    "the shim's grandchild {pid} is still alive after the timeout"
+                )
+                .into());
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // The readers ended with the pipes: the call did not wait for the 30 s sleep.
+        check(
+            started.elapsed() < Duration::from_secs(20),
+            format!("the call took {:?}", started.elapsed()),
+        )
     }
 }

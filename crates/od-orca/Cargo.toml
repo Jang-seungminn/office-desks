@@ -16,6 +16,9 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 regex = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "test-util", "time", "process", "io-util"] }
