@@ -123,6 +123,7 @@ pub fn scratch_config(dir: &std::path::Path) -> ServerConfig {
         awards_file: dir.join("awards.json"),
         default_org: None,
         assets: Arc::new(MemAssets(HashMap::new())),
+        app_assets: None,
         ws_buffer: 256,
         term_buffer: 1024,
     }

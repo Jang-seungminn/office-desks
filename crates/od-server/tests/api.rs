@@ -2601,3 +2601,67 @@ async fn stop_and_remove_keep_the_gates() {
     assert_eq!(r.status, 403);
     assert_eq!(r.text(), r#"{"error":"forbidden origin"}"#);
 }
+
+fn web_and_app(c: &mut od_server::ServerConfig) {
+    let mem = |s: &str| {
+        MemAssets(HashMap::from([(
+            "index.html".to_string(),
+            s.as_bytes().to_vec(),
+        )]))
+    };
+    c.assets = Arc::new(mem("WEB"));
+    c.app_assets = Some(Arc::new(mem("APP")));
+}
+
+#[tokio::test]
+async fn app_mount_serves_the_app_with_the_app_csp() {
+    let s = start_cfg(&Arc::new(FakeBackend::default()), web_and_app).await;
+    for p in ["/app/", "/app"] {
+        let r = s.client.get(p).await;
+        assert_eq!(r.status, 200, "{p}");
+        assert_eq!(r.text(), "APP", "{p}");
+        let csp = r.header("content-security-policy").unwrap();
+        assert!(csp.contains("style-src 'self' 'unsafe-inline'"), "{p}");
+        assert!(
+            csp.contains("connect-src 'self' ipc: http://ipc.localhost"),
+            "{p}"
+        );
+    }
+    for p in ["/", "/desk/x"] {
+        let r = s.client.get(p).await;
+        assert_eq!(r.text(), "WEB", "{p}");
+        assert_security_headers(&r);
+        assert!(r
+            .header("content-security-policy")
+            .unwrap()
+            .contains("style-src 'self';"));
+    }
+    assert_security_headers(&s.client.get("/api/snapshot").await);
+}
+
+#[tokio::test]
+async fn app_mount_keeps_the_guard() {
+    let s = start_cfg(&Arc::new(FakeBackend::default()), web_and_app).await;
+    for h in [
+        ("origin", "tauri://localhost"),
+        ("origin", "http://tauri.localhost"),
+        ("sec-fetch-site", "cross-site"),
+    ] {
+        let r = s.client.request("GET", "/app/", &[h], None).await;
+        assert_eq!(r.status, 403, "{h:?}");
+        assert_eq!(r.text(), r#"{"error":"forbidden origin"}"#, "{h:?}");
+        assert_security_headers(&r);
+    }
+}
+
+#[tokio::test]
+async fn no_app_assets_keeps_the_old_fallback() {
+    let s = start_cfg(&Arc::new(FakeBackend::default()), |c| {
+        web_and_app(c);
+        c.app_assets = None;
+    })
+    .await;
+    let r = s.client.get("/app/").await;
+    assert_eq!(r.text(), "WEB");
+    assert_security_headers(&r);
+}
