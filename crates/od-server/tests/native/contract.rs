@@ -47,7 +47,7 @@ const NOT_NORMALIZED: [&str; 4] = ["PORT", "HOST", "REPO", "NOTREPO"];
 const WAIT_FOR_TIMEOUT: Duration = Duration::from_secs(20);
 const WAIT_FOR_EVERY: Duration = Duration::from_millis(200);
 const WS_TIMEOUT: Duration = Duration::from_secs(10);
-const AGENT_EXE: &str = if cfg!(windows) {
+pub(crate) const AGENT_EXE: &str = if cfg!(windows) {
     "claude.exe"
 } else {
     "claude"
@@ -498,16 +498,16 @@ fn load_fixture(group: &str) -> Map<String, Value> {
 // The scratch world
 // ---------------------------------------------------------------------------------------------
 
-struct World {
+pub(crate) struct World {
     /// Canonical, native form.
-    root: PathBuf,
+    pub root: PathBuf,
     /// `ROOT`: canonical with `/`.
-    root_slash: String,
-    env: EnvMap,
-    upload_dir: PathBuf,
+    pub root_slash: String,
+    pub env: EnvMap,
+    pub upload_dir: PathBuf,
 }
 
-fn path_str(p: &Path) -> String {
+pub(crate) fn path_str(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
 
@@ -571,7 +571,7 @@ fn install_agent(root: &Path) -> PathBuf {
     bin
 }
 
-fn build_world(root: &Path, setup: &Value) -> World {
+pub(crate) fn build_world(root: &Path, setup: &Value) -> World {
     std::fs::create_dir_all(root).expect("trial root");
     let root = dunce::canonicalize(root).expect("canonical root");
     let root_slash = path_str(&root).replace('\\', "/");
@@ -679,7 +679,7 @@ fn preflight_message(name: &str, at: &str) -> String {
 }
 
 /// No agent but our fake `claude` may resolve on the scratch PATH.
-fn preflight(env: &EnvMap, root: &Path) -> Result<(), String> {
+pub(crate) fn preflight(env: &EnvMap, root: &Path) -> Result<(), String> {
     let ours = dunce::canonicalize(root.join("bin").join(AGENT_EXE)).expect("fake agent");
     for name in od_core::hire::KNOWN_AGENTS {
         let found = find_command(name, env);
@@ -711,7 +711,7 @@ fn agent_lines(out: &Path) -> Vec<Value> {
         .collect()
 }
 
-fn agent_pids(out: &Path) -> Vec<u32> {
+pub(crate) fn agent_pids(out: &Path) -> Vec<u32> {
     agent_lines(out)
         .iter()
         .filter_map(|l| l["pid"].as_u64().and_then(|p| u32::try_from(p).ok()))
@@ -762,7 +762,7 @@ fn pid_exe(pid: u32) -> Option<PathBuf> {
 }
 
 /// `pid` is alive and runs our fake agent `exe` (never act on a recycled pid).
-fn is_our_agent(pid: u32, exe: &Path) -> bool {
+pub(crate) fn is_our_agent(pid: u32, exe: &Path) -> bool {
     pid_exe(pid)
         .and_then(|p| dunce::canonicalize(p).ok())
         .is_some_and(|p| p == exe)
@@ -790,9 +790,9 @@ fn kill_pid(pid: u32) {
 
 /// Kills this trial's own fake agents (the pids in its own `agents.jsonl` whose executable is
 /// still its own `bin/claude`) if the trial panics.
-struct PidGuard {
-    out: PathBuf,
-    exe: PathBuf,
+pub(crate) struct PidGuard {
+    pub out: PathBuf,
+    pub exe: PathBuf,
 }
 
 impl Drop for PidGuard {

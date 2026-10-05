@@ -83,8 +83,9 @@ PtyHost (xterm-headless to vt100, node-pty to portable-pty):
 - Resize does not reflow (xterm reflows on column change). Reason: vt100.
 - `set_replies(bool)` is replaced by `mute_replies(id) -> Option<ReplyMute>`, a counted guard. Reason: two attached terminals cannot unmute each other.
 - Query replies. xterm.js answers many queries itself; the vt100 responder answers only these, with the bytes xterm.js 6 sends (probed with `@xterm/headless` 6.0.0), and only while no `ReplyMute` is held:
-  - DA1 `CSI c` / `CSI 0 c` → `CSI ?1;2c`;
-  - DA2 `CSI > c` / `CSI > 0 c` → `CSI >0;276;0c`;
+  - DA1 `CSI c` / `CSI 0 c` → `CSI ?1;2c`. Like xterm.js `sendDeviceAttributesPrimary`, only the first parameter counts: `CSI 0;1 c` is answered, `CSI 1 c` is not (R2 Task 9);
+  - DA2 `CSI > c` / `CSI > 0 c` → `CSI >0;276;0c`. Only the first parameter counts: `CSI > 0;1 c` is answered, `CSI > 1 c` is not (R2 Task 9);
+  - DECSTR `CSI ! p` (soft reset) is not a query but changes what DECRQM and `serialize` report: IRM off, DECAWM on, cursor shown, and focus reporting `?1004` off, as xterm.js (probed: `?1004h`, `CSI ! p`, `CSI ? 1004 $ p` → `CSI ?1004;2$y`; R2 Task 9);
   - DSR `CSI 5 n` → `CSI 0n`; `CSI 6 n` → `CSI row;col R` (1-based, at the moment of the query);
   - DECRQM `CSI ? Ps $ p` → `CSI ? Ps;Pm $ y` and `CSI Ps $ p` → `CSI Ps;Pm $ y`, with Pm 1 (set) or 2 (reset) for the modes we track: DEC 1 (app cursor), 7 (autowrap), 25 (cursor visible), 47/1047/1049 (alternate screen), 1004 (focus), 2004 (bracketed paste) and ANSI 4 (insert). Only the first parameter is answered, as in xterm.js.
 

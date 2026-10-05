@@ -1,6 +1,6 @@
 //! The request dispatcher, a port of the `createServer` callback in `server.ts`:
-//! guard → URL → `POST /hook/` → `/api/` → static. WS upgrades go before this chain (`/ws`
-//! here, `/term/` in Task 9), as Node's `'upgrade'` event never reaches the request handler.
+//! guard → URL → `POST /hook/` → `/api/` → `/term/` → static. WS upgrades go before this chain
+//! (`/ws` and `/term/…`), as Node's `'upgrade'` event never reaches the request handler.
 
 use std::any::Any;
 use std::collections::HashSet;
@@ -25,7 +25,7 @@ use crate::hub::Hub;
 use crate::poller::Poller;
 use crate::reqs::{json, RequestUrl};
 use crate::security::{apply_headers, is_allowed_request};
-use crate::{routes, ws, ServerConfig, DEV_WEB_PORT};
+use crate::{routes, term, ws, ServerConfig, DEV_WEB_PORT};
 
 pub(crate) struct AppState {
     pub port: u16,
@@ -45,6 +45,8 @@ pub(crate) struct AppState {
     pub commands: Arc<CommandCatalog>,
     /// Terminals currently being driven through a question dialog (one at a time each).
     pub answering: Mutex<HashSet<String>>,
+    /// The `/term` secret (`ServerHandle::term_token`).
+    pub term_token: String,
     /// Becomes true on `ServerHandle::shutdown` (and errors once every handle is dropped).
     /// Upgraded WS connections outlive the graceful shutdown, so every WS loop and background
     /// task `select!`s on this to end itself.
@@ -169,6 +171,11 @@ async fn dispatch(State(st): State<Arc<AppState>>, req: Request) -> Response {
     if url.pathname.starts_with("/api/") {
         return routes::dispatch(st, req, url).await;
     }
+    // Upgrades went to `upgrade`; anything else on `/term/` (any method) is refused, where TS
+    // would have served the web UI.
+    if url.pathname.starts_with(term::PREFIX) {
+        return term::upgrade_required();
+    }
     serve_static(&st)
 }
 
@@ -195,13 +202,21 @@ fn is_raw_target(uri: &axum::http::Uri, target: &str) -> bool {
         && uri.path_and_query().map(|p| p.as_str()) == Some(target)
 }
 
-/// The `'upgrade'` handler: only the raw target `/ws` (no query, as TS compares `req.url`) with
-/// a passing guard is accepted. TS destroys the socket of anything else; this answers 403
+/// The `'upgrade'` handler: with a passing guard, the raw target `/ws` (no query, as TS compares
+/// `req.url`) and any origin-form target whose path is under `/term/` (R2's own socket, which
+/// does its own checks) are accepted. TS destroys the socket of anything else; this answers 403
 /// `forbidden origin` and closes, which a client sees as the same failed handshake.
 async fn upgrade(st: Arc<AppState>, req: Request) -> Response {
     let allowed = is_allowed_request(req.headers(), &st.allowed_ports);
     if allowed && is_raw_target(req.uri(), "/ws") {
         return ws::upgrade(st, req).await;
+    }
+    if allowed && req.uri().scheme().is_none() && req.uri().authority().is_none() {
+        if let Ok(url) = RequestUrl::parse(&req.uri().to_string(), st.port) {
+            if url.pathname.starts_with(term::PREFIX) {
+                return term::upgrade(st, req, url).await;
+            }
+        }
     }
     let mut res = json(
         StatusCode::FORBIDDEN,

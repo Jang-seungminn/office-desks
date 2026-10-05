@@ -8,7 +8,8 @@
 //!    between two rules of 16 `─`), so `composerState` reads the screen as `ready`;
 //! 4. stdin bytes accumulate into a line; on `\r` the bracketed-paste markers are stripped and
 //!    `query` writes `ESC [ c`, `exit` writes `bye\r\n` and exits 3, `menu` clears the screen
-//!    and draws an unframed `❯ 1. Yes` (a dialog: `composerState` reads `menu`), anything else
+//!    and draws an unframed `❯ 1. Yes` (a dialog: `composerState` reads `menu`), `flood` writes
+//!    5 MiB of `x` in 64 KiB writes and then `\r\nflood done\r\n` ([`FLOOD_DONE`]), anything else
 //!    writes `got:<line>\r\n`. A read that starts with `ESC [ ?` is first echoed as
 //!    `in:<{:?}>\r\n`.
 //!
@@ -30,6 +31,8 @@ pub struct AgentLine {
 
 /// Claude's composer as `screen.ts` recognizes it: `❯` framed by rules of at least 8 `─`.
 pub const COMPOSER: &str = "────────────────\r\n❯ \r\n────────────────\r\n";
+/// The line `flood` prints after its 5 MiB.
+pub const FLOOD_DONE: &str = "flood done";
 /// A dialog: clear the screen, then an unframed `❯` option.
 pub const MENU: &str = "\x1b[2J\x1b[H❯ 1. Yes\r\n";
 
@@ -64,6 +67,13 @@ pub fn run() -> ! {
             match text.as_str() {
                 "query" => {
                     let _ = out.write_all(b"\x1b[c");
+                }
+                "flood" => {
+                    let chunk = vec![b'x'; 64 * 1024];
+                    for _ in 0..80 {
+                        let _ = out.write_all(&chunk);
+                    }
+                    let _ = out.write_all(format!("\r\n{FLOOD_DONE}\r\n").as_bytes());
                 }
                 "menu" => {
                     let _ = out.write_all(MENU.as_bytes());

@@ -14,6 +14,7 @@ pub mod poller;
 pub mod reqs;
 mod routes;
 pub mod security;
+mod term;
 mod ws;
 
 use std::path::PathBuf;
@@ -65,7 +66,8 @@ pub struct ServerConfig {
     pub assets: Arc<dyn Assets>,
     /// Hub broadcast capacity, 256.
     pub ws_buffer: usize,
-    /// `/term` outbound queue length per client, 1024 (Task 9).
+    /// `/term` outbound queue length per client, in output chunks, 1024. A client that falls
+    /// this far behind is closed with 1013 `slow consumer`.
     pub term_buffer: usize,
 }
 
@@ -158,6 +160,7 @@ pub async fn serve(
         Box::pin(async move { enricher.enrich(s).await })
     });
     let poller = Poller::new(source, enrich, cfg.poll_interval, cfg.idle_interval);
+    let term_token = random_token();
     let state = Arc::new(AppState {
         port,
         allowed_ports: [port, DEV_WEB_PORT],
@@ -181,6 +184,7 @@ pub async fn serve(
             }),
         )),
         answering: Mutex::new(std::collections::HashSet::new()),
+        term_token: term_token.clone(),
         stop: stop_tx.subscribe(),
     });
     start_background(&state);
@@ -199,7 +203,7 @@ pub async fn serve(
     });
     ServerHandle {
         port,
-        term_token: random_token(),
+        term_token,
         inner: Arc::new(HandleInner {
             backend,
             poller,
@@ -320,9 +324,9 @@ async fn refresh_usage(st: &AppState) {
     }
 }
 
-/// 32 hex chars from the OS RNG.
+/// 32 bytes from the OS RNG as 64 lowercase hex chars.
 fn random_token() -> String {
-    let mut b = [0u8; 16];
+    let mut b = [0u8; 32];
     getrandom::fill(&mut b).expect("OS random source");
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
@@ -347,7 +351,8 @@ struct HandleInner {
 #[must_use = "dropping every ServerHandle stops the server"]
 pub struct ServerHandle {
     pub port: u16,
-    /// The secret a `/term` client must present (Task 9).
+    /// The secret a `/term` client must present: 32 random bytes as 64 lowercase hex chars, made
+    /// once per `serve`. Never sent over HTTP; only an in-process client knows it.
     pub term_token: String,
     inner: Arc<HandleInner>,
 }

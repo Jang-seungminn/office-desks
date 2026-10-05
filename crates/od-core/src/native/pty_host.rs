@@ -290,7 +290,7 @@ impl Default for ExtraModes {
 /// sequence it does handle, right after the one that asked for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Inject {
-    /// DECSTR: cursor visible again (and IRM off, DECAWM on in `ExtraModes`).
+    /// DECSTR: cursor visible again (and IRM off, DECAWM on, focus reporting off in `ExtraModes`).
     ShowCursor,
     /// `?1047h`/`?1047l`: the alternate screen, as vt100's `?47`.
     AltOn,
@@ -366,8 +366,9 @@ impl vt100::Callbacks for Hooks {
                 self.replies.extend_from_slice(reply.as_bytes());
                 return;
             }
-            // DA2: `CSI > c` / `CSI > 0 c`, xterm.js's fixed answer.
-            (Some(b'>'), None, 'c') if params.len() <= 1 && first_param(params) == 0 => {
+            // DA2: `CSI > c` / `CSI > 0 c`, xterm.js's fixed answer. Like xterm.js, only the
+            // first parameter counts (`CSI > 0 ; 1 c` is answered too).
+            (Some(b'>'), None, 'c') if first_param(params) == 0 => {
                 self.replies.extend_from_slice(b"\x1b[>0;276;0c");
                 return;
             }
@@ -375,7 +376,8 @@ impl vt100::Callbacks for Hooks {
         }
         match (i1, c) {
             // DA1: `CSI c` / `CSI 0 c`, answered as xterm.js does (VT100 with advanced video).
-            (None, 'c') if params.len() <= 1 && first_param(params) == 0 => {
+            // xterm.js's `sendDeviceAttributesPrimary` checks only the first parameter.
+            (None, 'c') if first_param(params) == 0 => {
                 self.replies.extend_from_slice(b"\x1b[?1;2c");
             }
             (None, 'n') => match first_param(params) {
@@ -389,9 +391,11 @@ impl vt100::Callbacks for Hooks {
                 _ => {}
             },
             (None, 'h' | 'l') if has_param(params, 4) => self.modes.insert = c == 'h',
+            // DECSTR (soft reset), as xterm: IRM off, DECAWM on, focus reporting off, cursor shown.
             (Some(b'!'), 'p') => {
                 self.modes.insert = false;
                 self.modes.autowrap = true;
+                self.modes.focus = false;
                 self.inject.push(Inject::ShowCursor);
             }
             // vt100 calls this once per param it doesn't handle, with all params: set, don't toggle.
@@ -1423,6 +1427,26 @@ mod tests {
         assert_eq!(t.process(b"\x1b[c\x1b[>c"), b"\x1b[?1;2c\x1b[>0;276;0c");
     }
 
+    // Probed with @xterm/headless 6.0.0: DA1 and DA2 look at the first parameter only.
+    #[test]
+    fn device_attributes_check_only_the_first_param_like_xterm_js() {
+        let mut t = term(5, 20);
+        assert_eq!(t.process(b"\x1b[>0;1c"), b"\x1b[>0;276;0c");
+        assert!(t.process(b"\x1b[>1c").is_empty());
+        assert_eq!(t.process(b"\x1b[0;1c"), b"\x1b[?1;2c");
+        assert!(t.process(b"\x1b[1c").is_empty());
+    }
+
+    #[test]
+    fn decstr_turns_focus_reporting_off() {
+        let mut t = term(5, 20);
+        t.process(b"\x1b[?1004h");
+        assert_eq!(t.process(b"\x1b[?1004$p"), b"\x1b[?1004;1$y");
+        t.process(b"\x1b[!p");
+        assert_eq!(t.process(b"\x1b[?1004$p"), b"\x1b[?1004;2$y");
+        assert!(!t.serialize().contains("\x1b[?1004h"));
+    }
+
     /// Expected replies probed from @xterm/headless 6 (`node -e`), defaults then all set.
     #[test]
     fn answers_mode_requests_for_the_modes_it_tracks() {
@@ -1607,17 +1631,8 @@ mod tests {
         let mut replay = term(3, 20);
         replay.process(s.as_bytes());
         assert_eq!(replay.parser.callbacks().modes, m);
-        // DECSTR: insert off, autowrap on; focus stays
+        // DECSTR: insert off, autowrap on, focus reporting off (xterm's soft reset)
         t.process(b"\x1b[!p");
-        assert_eq!(
-            t.parser.callbacks().modes,
-            ExtraModes {
-                focus: true,
-                autowrap: true,
-                insert: false
-            }
-        );
-        t.process(b"\x1b[?1004l");
         assert_eq!(t.parser.callbacks().modes, ExtraModes::default());
         assert!(!t.serialize().contains("\x1b[?1004h"));
     }

@@ -1,5 +1,5 @@
 //! The `native` test binary (libtest-mimic, `harness = false`): the contract replay against the
-//! Node fixtures, and the fake agent.
+//! Node fixtures, the `/term` trials (`term.rs`), and the fake agent.
 //!
 //! Started as `claude` (a copy in a trial's `bin/`), this binary *is* the fake agent. Otherwise it
 //! points the process-wide `HOME`/`TMPDIR`/`CLAUDE_CONFIG_DIR`/`OFFICE_DESKS_HOME`/git config at
@@ -11,6 +11,7 @@ mod support;
 
 mod contract;
 mod fake_agent;
+mod term;
 
 use std::path::{Path, PathBuf};
 
@@ -31,7 +32,9 @@ fn main() {
     let root = dunce::canonicalize(scratch.path()).expect("canonical scratch root");
     scrub_process_env(&root);
 
-    let conclusion = libtest_mimic::run(&args, contract::trials(&root));
+    let mut trials = contract::trials(&root);
+    trials.extend(term::trials(&root));
+    let conclusion = libtest_mimic::run(&args, trials);
     drop(scratch);
     conclusion.exit();
 }

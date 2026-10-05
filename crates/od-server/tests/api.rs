@@ -231,7 +231,12 @@ async fn shutdown_is_idempotent_and_closes() {
     assert!(tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await
         .is_err());
-    assert_eq!(s.handle.term_token.len(), 32);
+    assert_eq!(s.handle.term_token.len(), 64);
+    assert!(s
+        .handle
+        .term_token
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
 }
 
 #[test]
@@ -441,7 +446,15 @@ async fn snapshot_changes_are_broadcast_once() {
 #[tokio::test]
 async fn rejected_upgrades_are_403() {
     let s = start_fake().await;
-    for path in ["/ws?x=1", "/ws?", "/other", "/api/snapshot", "/term/x"] {
+    // `/term/…` has its own checks (the `term_rejects` trial); `/term` itself is not under it.
+    for path in [
+        "/ws?x=1",
+        "/ws?",
+        "/other",
+        "/api/snapshot",
+        "/term",
+        "/terms/x",
+    ] {
         match ws_connect(s.handle.port, path).await {
             Err(tokio_tungstenite::tungstenite::Error::Http(res)) => {
                 assert_eq!(res.status(), 403, "{path}");
