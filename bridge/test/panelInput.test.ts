@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { PanelInput } from '../src/tui/panelInput.js';
+import { describe, expect, it, vi } from 'vitest';
+import { INCOMPLETE_ESCAPE, PanelInput } from '../src/tui/panelInput.js';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -63,5 +63,45 @@ describe('PanelInput', () => {
     await wait(50);
     expect(flushed).toEqual([]);
     expect(p.feed('ok')).toEqual({ send: 'ok', leave: false });
+  });
+});
+
+describe('PanelInput: split mouse reports', () => {
+  it('holds a cut-off mouse report for the long wait, not the escape wait, and joins its rest', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const flushed: string[] = [];
+      const p = new PanelInput((h) => flushed.push(h), 50, 1000);
+      expect(p.feed('a\x1b[<0;3')).toEqual({ send: 'a', leave: false });
+      vi.advanceTimersByTime(100);
+      expect(flushed).toEqual([]);
+      expect(p.feed(';14m')).toEqual({ send: '\x1b[<0;3;14m', leave: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops a cut-off mouse report whose rest never comes, but still flushes a lone ESC after the short wait', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const flushed: string[] = [];
+      const p = new PanelInput((h) => flushed.push(h), 50, 1000);
+      p.feed('\x1b[<0;3');
+      vi.advanceTimersByTime(1100);
+      expect(flushed).toEqual([]);
+      expect(p.feed('x')).toEqual({ send: 'x', leave: false });
+      p.feed('\x1b');
+      vi.advanceTimersByTime(60);
+      expect(flushed).toEqual(['\x1b']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('INCOMPLETE_ESCAPE', () => {
+  it('holds a chunk cut off inside an SGR mouse report', () => {
+    expect(INCOMPLETE_ESCAPE.test('x\x1b[<0;10')).toBe(true);
+    expect(INCOMPLETE_ESCAPE.test('x\x1b[<0;10;5M')).toBe(false);
   });
 });

@@ -3,12 +3,16 @@
 // sequence cut off at the end of a chunk, is held until the rest comes, so the agent gets it whole
 // (and encodePanelInput sees it whole). Held bytes are flushed through `onTimeout` if the rest
 // never comes: an escape after `escWaitMs` (a lone ESC is a real key), a paste after `pasteWaitMs`.
+// A cut-off mouse report (ESC [ <) is never a keypress: it waits `pasteWaitMs` for its rest (a
+// slow link can split it wide apart) and is dropped, never typed, if the rest doesn't come.
 
 const PASTE_START = '\x1b[200~';
 const PASTE_END = '\x1b[201~';
 const ESCAPE_FORMS = ['\x1d', '\x1b[93;5u', '\x1b[27;5;93~'];
-const INCOMPLETE_ESCAPE = /\x1b(?:\[[0-9;?]*[ -/]*|O)?$/;
+// An escape sequence cut off at the end of a chunk (lone ESC, ESC [ 9, ESC [ < 0;1, ESC O).
+export const INCOMPLETE_ESCAPE = /\x1b(?:\[[0-9;?<]*[ -/]*|O)?$/;
 const PASTE_WAIT_MS = 1000;
+const MOUSE_START = '\x1b[<';
 
 export class PanelInput {
   private held = '';
@@ -29,8 +33,15 @@ export class PanelInput {
     const start = data.lastIndexOf(PASTE_START);
     if (start >= 0 && data.indexOf(PASTE_END, start) < 0) return this.hold(data, start, this.pasteWaitMs);
     const cut = INCOMPLETE_ESCAPE.exec(data);
-    if (cut) return this.hold(data, cut.index, this.escWaitMs);
+    if (cut) return this.hold(data, cut.index, cut[0].startsWith(MOUSE_START) ? this.pasteWaitMs : this.escWaitMs);
     return { send: dropOrphanEnds(data), leave: false };
+  }
+
+  /** Hand over whatever is held (panel focus ended mid-sequence) and stop waiting for its rest. */
+  take(): string {
+    const held = this.held;
+    this.reset();
+    return held;
   }
 
   /** Drop whatever is held (panel focus ended). */
@@ -45,7 +56,7 @@ export class PanelInput {
     this.timer = setTimeout(() => {
       const held = this.held;
       this.reset();
-      if (held) this.onTimeout(held);
+      if (held && !held.startsWith(MOUSE_START)) this.onTimeout(held);
     }, ms);
     return { send: dropOrphanEnds(data.slice(0, from)), leave: false };
   }

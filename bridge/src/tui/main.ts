@@ -5,6 +5,7 @@ import { format } from 'node:util';
 import { NativeBackend } from '../backend/native.js';
 import { officeHome } from '../home.js';
 import { App, type TuiDeps } from './app.js';
+import { copyText } from './clipboard.js';
 import { restoreSequence } from './screen.js';
 
 const PORT_RANGE = 20;
@@ -21,6 +22,17 @@ function portFree(port: number): Promise<boolean> {
 export function portFromEnv(env: NodeJS.ProcessEnv): { port: number; explicit: boolean } {
   const raw = env.OFFICE_DESKS_PORT?.trim();
   return raw ? { port: Number(raw), explicit: true } : { port: 4317, explicit: false };
+}
+
+/**
+ * Mouse reporting: on for macOS and Linux, off on Windows until it is verified there.
+ * OFFICE_DESKS_MOUSE=1 forces it on, =0 off.
+ */
+export function mouseFromEnv(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): boolean {
+  const raw = env.OFFICE_DESKS_MOUSE?.trim();
+  if (raw === '1') return true;
+  if (raw === '0') return false;
+  return platform !== 'win32';
 }
 
 /** An explicit --port is kept as is; otherwise the first free port from the default up. */
@@ -178,15 +190,15 @@ export async function runTui(): Promise<void> {
       // PtyHost hands out its headless xterm Terminal, which has `modes`.
       terminal: (pty) => backend.pty.terminal(pty) as ReturnType<TuiDeps['terminal']>,
       cursorHidden: (pty) => backend.pty.cursorHidden(pty),
-      resizeAgents: (c, r) => {
-        for (const id of backend.pty.ids()) {
-          try {
-            backend.pty.resize(id, c, r);
-          } catch {
-            // a dying PTY: its exit event follows; never let a resize take the TUI down
-          }
+      resizeAgent: (id, c, r) => {
+        try {
+          backend.pty.resize(id, c, r);
+        } catch {
+          // a dying PTY: its exit event follows; never let a resize take the TUI down
         }
       },
+      copyText: (t) => copyText(t, { writeOsc: (s) => stdout.write(s) }),
+      mouse: mouseFromEnv(process.platform, process.env),
       host: backend.pty,
       url: `http://127.0.0.1:${port}`,
     },

@@ -40,3 +40,14 @@ describe('isAttachEscape', () => {
     expect(isAttachEscape('\x1b[A')).toBe(false);
   });
 });
+
+describe('mouse and shift-tab keys', () => {
+  it('decodes SGR mouse sequences and Shift+Tab, never as typed text', () => {
+    expect(decodeKeys('\x1b[<0;10;5Ma\x1b[Z')).toEqual([
+      { name: 'mouse', event: { kind: 'press', x: 9, y: 4, button: 0, shift: false, alt: false, ctrl: false } },
+      { name: 'char', ch: 'a' },
+      { name: 'shift-tab' },
+    ]);
+    expect(decodeKeys('\x1b[<66;1;1M')).toEqual([]); // ignored, not garbage
+  });
+});
