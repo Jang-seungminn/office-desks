@@ -6,7 +6,9 @@
 //! - `calls` logs every call as `"<method> <args…>"` (space separated, args as given).
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
+
+use od_core::util::lock;
 
 use async_trait::async_trait;
 use od_core::backend::{
@@ -45,10 +47,6 @@ pub struct FakeBackend {
     /// A gate per method name (`send_prompt`, `hire`): the method logs its call, waits for one
     /// `notify_one`, then logs `"<method>_done <first arg>"` (the native paste's Enter).
     pub gates: Mutex<HashMap<&'static str, Arc<Notify>>>,
-}
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn no_capabilities() -> BackendCapabilities {

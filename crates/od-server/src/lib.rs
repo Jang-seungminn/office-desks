@@ -6,6 +6,7 @@
 
 mod app;
 pub mod assets;
+mod backends;
 mod enrich;
 mod hook;
 mod hub;
@@ -34,6 +35,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{watch, OnceCell};
 
 pub use assets::{Assets, MemAssets, WebDist};
+pub use backends::{create_backend, default_probe, unknown_backend, BackendKind, CreatedBackend};
 pub use hub::{Hub, ServerMessageJson};
 pub use poller::Poller;
 
@@ -183,11 +185,7 @@ pub async fn serve(
         commands: Arc::new(od_core::commands::CommandCatalog::with(
             30_000,
             cfg.commands_home.clone(),
-            Box::new(|| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as i64)
-            }),
+            Box::new(od_core::util::epoch_ms),
         )),
         answering: Mutex::new(std::collections::HashSet::new()),
         term_token: term_token.clone(),
@@ -294,7 +292,7 @@ fn start_background(st: &Arc<AppState>) {
     {
         let dir = st.cfg.upload_dir.clone();
         tokio::task::spawn_blocking(move || {
-            od_core::uploads::clean_old_uploads(&dir, poller::now_ms())
+            od_core::uploads::clean_old_uploads(&dir, od_core::util::epoch_ms())
         });
     }
     // Until a browser connects (the TUI is a live viewer), then poll.

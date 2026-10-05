@@ -902,6 +902,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "od-orca"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures-util",
+ "libc",
+ "libtest-mimic",
+ "od-core",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "windows-sys",
+]
+
+[[package]]
 name = "od-server"
 version = "0.1.0"
 dependencies = [
@@ -918,6 +936,7 @@ dependencies = [
  "libc",
  "libtest-mimic",
  "od-core",
+ "od-orca",
  "regex",
  "rust-embed",
  "serde",
@@ -940,6 +959,7 @@ dependencies = [
  "libc",
  "od-core",
  "od-server",
+ "serde_json",
  "tempfile",
  "tokio",
  "ureq",

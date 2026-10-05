@@ -42,9 +42,12 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       # The contract replay (fixtures recorded on macOS) must really run on Windows. If the harness
-      # silently had no trials, this list would lack `contract` and the step would fail.
-      - name: Windows contract trials are present
+      # silently had no trials, this list would lack `contract` (or the demo replay `contract_demo`)
+      # and the step would fail. Same for od-orca's Windows-only `.cmd` shim trials.
+      - name: Windows contract and .cmd shim trials are present
         if: runner.os == 'Windows'
         shell: bash
         run: |
           cargo test -p od-server --test native -- --list | grep -x 'contract: test'
+          cargo test -p od-server --test native -- --list | grep -x 'contract_demo: test'
+          cargo test -p od-orca --test cli -- --list | grep -x 'cmd_shim_round_trip: test'

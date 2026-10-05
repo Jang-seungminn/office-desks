@@ -1,0 +1,1439 @@
+{
+  "demo-changes-gated": {
+    "body": {
+      "json": {
+        "error": "unknown worktree"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 404
+  },
+  "demo-conversation": {
+    "body": {
+      "json": {
+        "after": 0,
+        "claudeVersion": null,
+        "fileId": "${FILE_ID}",
+        "found": true,
+        "messages": [
+          {
+            "role": "user",
+            "text": "Demo task for main",
+            "ts": "2026-10-01T11:30:00.000Z"
+          },
+          {
+            "role": "assistant",
+            "text": "**main** 작업을 시작합니다.\n\n1. 코드 읽기\n2. 수정\n3. 테스트\n\n```ts\nexport const ok = true;\n```",
+            "ts": "2026-10-01T11:31:00.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Read: src/index.ts",
+            "ts": "2026-10-01T11:32:00.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "관련 파일 찾기",
+            "toolUseId": "sa-p1",
+            "ts": "2026-10-01T11:33:00.000Z"
+          }
+        ],
+        "pending": [],
+        "questions": [],
+        "screenSupport": "unknown",
+        "subagents": [
+          {
+            "agentId": null,
+            "agentType": "Explore",
+            "description": "관련 파일 찾기",
+            "status": "running",
+            "toolUseId": "sa-p1"
+          }
+        ],
+        "title": "main 작업",
+        "total": 4
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "demo-conversation-question": {
+    "body": {
+      "json": {
+        "after": 0,
+        "claudeVersion": null,
+        "fileId": "${FILE_ID}",
+        "found": true,
+        "messages": [
+          {
+            "role": "user",
+            "text": "Demo task for feat/checkout-flow",
+            "ts": "2026-10-01T11:30:00.000Z"
+          },
+          {
+            "role": "assistant",
+            "text": "**feat/checkout-flow** 작업을 시작합니다.\n\n1. 코드 읽기\n2. 수정\n3. 테스트\n\n```ts\nexport const ok = true;\n```",
+            "ts": "2026-10-01T11:31:00.000Z"
+          },
+          {
+            "role": "tool",
+            "text": "Read: src/index.ts",
+            "ts": "2026-10-01T11:32:00.000Z"
+          },
+          {
+            "role": "subagent",
+            "text": "관련 파일 찾기",
+            "toolUseId": "sa-p2",
+            "ts": "2026-10-01T11:33:00.000Z"
+          },
+          {
+            "role": "question",
+            "text": "레이트 리밋 카운터를 어디에 둘까요?\n어떤 API에 적용할까요?",
+            "toolUseId": "ask-p2",
+            "ts": "2026-10-01T11:59:00.000Z"
+          }
+        ],
+        "pending": [],
+        "questions": [
+          {
+            "answers": {},
+            "questions": [
+              {
+                "header": "저장소",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "description": "여러 서버가 공유, 운영 부담 조금",
+                    "label": "Redis"
+                  },
+                  {
+                    "description": "가장 간단, 서버마다 따로 셈",
+                    "label": "메모리"
+                  }
+                ],
+                "question": "레이트 리밋 카운터를 어디에 둘까요?"
+              },
+              {
+                "header": "대상",
+                "multiSelect": true,
+                "options": [
+                  {
+                    "description": "",
+                    "label": "로그인"
+                  },
+                  {
+                    "description": "",
+                    "label": "검색"
+                  },
+                  {
+                    "description": "",
+                    "label": "결제"
+                  }
+                ],
+                "question": "어떤 API에 적용할까요?"
+              }
+            ],
+            "status": "pending",
+            "toolUseId": "ask-p2"
+          }
+        ],
+        "screenSupport": "unknown",
+        "subagents": [
+          {
+            "agentId": null,
+            "agentType": "Explore",
+            "description": "관련 파일 찾기",
+            "status": "running",
+            "toolUseId": "sa-p2"
+          }
+        ],
+        "title": "feat/checkout-flow 작업",
+        "total": 5
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "demo-focus": {
+    "body": {
+      "json": {
+        "ok": true
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "demo-hire": {
+    "body": {
+      "json": {
+        "error": "데모 모드에서는 만들 수 없어요"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "demo-keys": {
+    "body": {
+      "json": {
+        "ok": true
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "demo-org": {
+    "body": {
+      "json": {
+        "departments": [
+          {
+            "id": "d-dev",
+            "name": "쇼핑 개발팀",
+            "repoIds": [
+              "demo-shop-web"
+            ],
+            "theme": "dev"
+          },
+          {
+            "id": "d-ops",
+            "name": "플랫폼팀",
+            "repoIds": [
+              "demo-api-server"
+            ],
+            "theme": "ops"
+          },
+          {
+            "id": "d-doc",
+            "name": "기획·문서팀",
+            "repoIds": [
+              "demo-docs"
+            ],
+            "theme": "design"
+          }
+        ]
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "demo-repos": {
+    "body": {
+      "json": {
+        "error": "이 백엔드에서는 여기서 프로젝트를 추가할 수 없어요"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 400
+  },
+  "demo-retry-unknown": {
+    "body": {
+      "json": {
+        "error": "다시 보낼 메시지를 찾지 못했습니다. 새로 보내주세요"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 404
+  },
+  "demo-search": {
+    "body": {
+      "json": {
+        "results": []
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "demo-send": {
+    "body": {
+      "json": {
+        "ok": true
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "demo-send-menu": {
+    "body": {
+      "json": {
+        "code": "menu_open",
+        "error": "에이전트 터미널에 메뉴가 열려 있어 메시지가 전달되지 않습니다"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 409
+  },
+  "demo-snapshot": {
+    "body": {
+      "json": {
+        "desks": [
+          {
+            "agents": [
+              {
+                "activity": "Grep: rateLimit",
+                "agentType": "codex",
+                "effort": "high",
+                "id": "p4:leaf",
+                "lastMessage": null,
+                "model": "gpt-5.4",
+                "prompt": "Demo task for main",
+                "rawState": "working",
+                "since": 0,
+                "state": "reading",
+                "stats": {
+                  "hiredAt": "2026-09-10T12:00:00.000Z",
+                  "instructions": 64,
+                  "instructionsToday": 7,
+                  "subagents": 9,
+                  "toolCalls": 690,
+                  "toolCallsToday": 70
+                },
+                "subagentsRunning": 0,
+                "terminalHandle": "demo_p4",
+                "terminalTitle": "main"
+              }
+            ],
+            "branch": "main",
+            "changes": {
+              "added": 12,
+              "deleted": 0,
+              "files": 1
+            },
+            "comment": "",
+            "id": "demo-api-server::/demo/api-server/api-server",
+            "isActive": false,
+            "isMain": true,
+            "lastActivityAt": 0,
+            "name": "api-server",
+            "parentId": null,
+            "path": "/demo/api-server/api-server",
+            "pr": null,
+            "preview": "",
+            "repo": "api-server",
+            "repoId": "demo-api-server",
+            "status": "working",
+            "unread": false,
+            "workspaceStatus": "in-progress"
+          },
+          {
+            "agents": [
+              {
+                "activity": "완료 · 다음 지시 대기",
+                "agentType": "codex",
+                "effort": "medium",
+                "id": "p10:leaf",
+                "lastMessage": "perf/query-cache 작업을 끝냈습니다. 테스트 통과.",
+                "model": "claude-opus-5-5",
+                "prompt": "Demo task for perf/query-cache",
+                "rawState": "done",
+                "since": 0,
+                "state": "done",
+                "stats": {
+                  "hiredAt": "2026-09-30T12:00:00.000Z",
+                  "instructions": 10,
+                  "instructionsToday": 1,
+                  "subagents": 0,
+                  "toolCalls": 50,
+                  "toolCallsToday": 5
+                },
+                "subagentsRunning": 0,
+                "terminalHandle": "demo_p10",
+                "terminalTitle": "perf/query-cache"
+              }
+            ],
+            "branch": "perf/query-cache",
+            "changes": {
+              "added": 49,
+              "deleted": 9,
+              "files": 2
+            },
+            "comment": "",
+            "id": "demo-api-server::/demo/api-server/perf-tuning",
+            "isActive": false,
+            "isMain": false,
+            "lastActivityAt": 0,
+            "name": "perf-tuning",
+            "parentId": null,
+            "path": "/demo/api-server/perf-tuning",
+            "pr": null,
+            "preview": "",
+            "repo": "api-server",
+            "repoId": "demo-api-server",
+            "status": "active",
+            "unread": false,
+            "workspaceStatus": "in-progress"
+          },
+          {
+            "agents": [
+              {
+                "activity": "Edit: internal/limiter/bucket.go",
+                "agentType": "claude",
+                "effort": "medium",
+                "id": "p5:leaf",
+                "lastMessage": null,
+                "model": "claude-sonnet-5-5",
+                "prompt": "Demo task for feat/rate-limit",
+                "rawState": "working",
+                "since": 0,
+                "state": "typing",
+                "stats": {
+                  "hiredAt": "2026-08-02T12:00:00.000Z",
+                  "instructions": 211,
+                  "instructionsToday": 18,
+                  "subagents": 44,
+                  "toolCalls": 2650,
+                  "toolCallsToday": 210
+                },
+                "subagentsRunning": 1,
+                "terminalHandle": "demo_p5",
+                "terminalTitle": "feat/rate-limit"
+              },
+              {
+                "activity": "Read: docs/limits.md",
+                "agentType": "claude",
+                "effort": "low",
+                "id": "p6:leaf",
+                "lastMessage": null,
+                "model": "claude-haiku-4-5-20251001",
+                "prompt": "Demo task for feat/rate-limit",
+                "rawState": "working",
+                "since": 0,
+                "state": "reading",
+                "stats": {
+                  "hiredAt": "2026-09-26T12:00:00.000Z",
+                  "instructions": 19,
+                  "instructionsToday": 3,
+                  "subagents": 2,
+                  "toolCalls": 230,
+                  "toolCallsToday": 31
+                },
+                "subagentsRunning": 0,
+                "terminalHandle": "demo_p6",
+                "terminalTitle": "feat/rate-limit"
+              }
+            ],
+            "branch": "feat/rate-limit",
+            "changes": {
+              "added": 86,
+              "deleted": 18,
+              "files": 3
+            },
+            "comment": "",
+            "id": "demo-api-server::/demo/api-server/rate-limit",
+            "isActive": false,
+            "isMain": false,
+            "lastActivityAt": 0,
+            "name": "rate-limit",
+            "parentId": null,
+            "path": "/demo/api-server/rate-limit",
+            "pr": null,
+            "preview": "",
+            "repo": "api-server",
+            "repoId": "demo-api-server",
+            "status": "working",
+            "unread": false,
+            "workspaceStatus": "in-progress"
+          },
+          {
+            "agents": [
+              {
+                "activity": "완료 · 다음 지시 대기",
+                "agentType": "gemini",
+                "effort": "medium",
+                "id": "p7:leaf",
+                "lastMessage": "main 작업을 끝냈습니다. 테스트 통과.",
+                "model": "gemini-3-pro",
+                "prompt": "Demo task for main",
+                "rawState": "done",
+                "since": 0,
+                "state": "done",
+                "stats": {
+                  "hiredAt": "2026-09-01T12:00:00.000Z",
+                  "instructions": 90,
+                  "instructionsToday": 4,
+                  "subagents": 6,
+                  "toolCalls": 512,
+                  "toolCallsToday": 25
+                },
+                "subagentsRunning": 0,
+                "terminalHandle": "demo_p7",
+                "terminalTitle": "main"
+              }
+            ],
+            "branch": "main",
+            "changes": {
+              "added": 123,
+              "deleted": 27,
+              "files": 4
+            },
+            "comment": "",
+            "id": "demo-docs::/demo/docs/docs",
+            "isActive": false,
+            "isMain": true,
+            "lastActivityAt": 0,
+            "name": "docs",
+            "parentId": null,
+            "path": "/demo/docs/docs",
+            "pr": null,
+            "preview": "",
+            "repo": "docs",
+            "repoId": "demo-docs",
+            "status": "active",
+            "unread": false,
+            "workspaceStatus": "in-progress"
+          },
+          {
+            "agents": [
+              {
+                "activity": "완료 · 다음 지시 대기",
+                "agentType": "claude",
+                "effort": "medium",
+                "id": "p8:leaf",
+                "lastMessage": "docs/faq-rewrite 작업을 끝냈습니다. 테스트 통과.",
+                "model": "claude-opus-5-5",
+                "prompt": "Demo task for docs/faq-rewrite",
+                "rawState": "done",
+                "since": 0,
+                "state": "done",
+                "stats": {
+                  "hiredAt": "2026-09-30T12:00:00.000Z",
+                  "instructions": 10,
+                  "instructionsToday": 1,
+                  "subagents": 0,
+                  "toolCalls": 50,
+                  "toolCallsToday": 5
+                },
+                "subagentsRunning": 0,
+                "terminalHandle": "demo_p8",
+                "terminalTitle": "docs/faq-rewrite"
+              },
+              {
+                "activity": "완료 · 다음 지시 대기",
+                "agentType": "claude",
+                "effort": "medium",
+                "id": "p9:leaf",
+                "lastMessage": "docs/faq-rewrite 작업을 끝냈습니다. 테스트 통과.",
+                "model": "claude-opus-5-5",
+                "prompt": "Demo task for docs/faq-rewrite",
+                "rawState": "done",
+                "since": 0,
+                "state": "done",
+                "stats": {
+                  "hiredAt": "2026-09-30T12:00:00.000Z",
+                  "instructions": 10,
+                  "instructionsToday": 1,
+                  "subagents": 0,
+                  "toolCalls": 50,
+                  "toolCallsToday": 5
+                },
+                "subagentsRunning": 0,
+                "terminalHandle": "demo_p9",
+                "terminalTitle": "docs/faq-rewrite"
+              }
+            ],
+            "branch": "docs/faq-rewrite",
+            "changes": {
+              "added": 160,
+              "deleted": 36,
+              "files": 1
+            },
+            "comment": "",
+            "id": "demo-docs::/demo/docs/faq-rewrite",
+            "isActive": false,
+            "isMain": false,
+            "lastActivityAt": 0,
+            "name": "faq-rewrite",
+            "parentId": null,
+            "path": "/demo/docs/faq-rewrite",
+            "pr": null,
+            "preview": "",
+            "repo": "docs",
+            "repoId": "demo-docs",
+            "status": "active",
+            "unread": false,
+            "workspaceStatus": "in-progress"
+          },
+          {
+            "agents": [
+              {
+                "activity": "확인 필요: ExitPlanMode",
+                "agentType": "claude",
+                "effort": "high",
+                "id": "p2:leaf",
+                "lastMessage": null,
+                "model": "claude-fable-5-1",
+                "prompt": "Demo task for feat/checkout-flow",
+                "rawState": "waiting",
+                "since": 0,
+                "state": "waiting",
+                "stats": {
+                  "hiredAt": "2026-09-22T12:00:00.000Z",
+                  "instructions": 37,
+                  "instructionsToday": 5,
+                  "subagents": 4,
+                  "toolCalls": 402,
+                  "toolCallsToday": 44
+                },
+                "subagentsRunning": 0,
+                "terminalHandle": "demo_p2",
+                "terminalTitle": "feat/checkout-flow"
+              }
+            ],
+            "branch": "feat/checkout-flow",
+            "changes": {
+              "added": 197,
+              "deleted": 45,
+              "files": 2
+            },
+            "comment": "결제 플로우 플랜 승인 대기",
+            "id": "demo-shop-web::/demo/shop-web/checkout-flow",
+            "isActive": false,
+            "isMain": false,
+            "lastActivityAt": 0,
+            "name": "checkout-flow",
+            "parentId": "demo-shop-web::/demo/shop-web/shop-web",
+            "path": "/demo/shop-web/checkout-flow",
+            "pr": null,
+            "preview": "",
+            "repo": "shop-web",
+            "repoId": "demo-shop-web",
+            "status": "permission",
+            "unread": false,
+            "workspaceStatus": "in-progress"
+          },
+          {
+            "agents": [],
+            "branch": "chore/deps-bump",
+            "changes": null,
+            "comment": "",
+            "id": "demo-shop-web::/demo/shop-web/deps-bump",
+            "isActive": false,
+            "isMain": false,
+            "lastActivityAt": 0,
+            "name": "deps-bump",
+            "parentId": null,
+            "path": "/demo/shop-web/deps-bump",
+            "pr": null,
+            "preview": "",
+            "repo": "shop-web",
+            "repoId": "demo-shop-web",
+            "status": "inactive",
+            "unread": false,
+            "workspaceStatus": "in-progress"
+          },
+          {
+            "agents": [
+              {
+                "activity": "exec_command: pnpm vitest login",
+                "agentType": "codex",
+                "effort": "medium",
+                "id": "p3:leaf",
+                "lastMessage": null,
+                "model": "gpt-5.4",
+                "prompt": "Demo task for fix/login-redirect",
+                "rawState": "working",
+                "since": 0,
+                "state": "typing",
+                "stats": {
+                  "hiredAt": "2026-09-29T12:00:00.000Z",
+                  "instructions": 8,
+                  "instructionsToday": 2,
+                  "subagents": 0,
+                  "toolCalls": 77,
+                  "toolCallsToday": 12
+                },
+                "subagentsRunning": 0,
+                "terminalHandle": "demo_p3",
+                "terminalTitle": "fix/login-redirect"
+              }
+            ],
+            "branch": "fix/login-redirect",
+            "changes": {
+              "added": 271,
+              "deleted": 63,
+              "files": 4
+            },
+            "comment": "",
+            "id": "demo-shop-web::/demo/shop-web/login-bug",
+            "isActive": false,
+            "isMain": false,
+            "lastActivityAt": 0,
+            "name": "login-bug",
+            "parentId": "demo-shop-web::/demo/shop-web/shop-web",
+            "path": "/demo/shop-web/login-bug",
+            "pr": null,
+            "preview": "",
+            "repo": "shop-web",
+            "repoId": "demo-shop-web",
+            "status": "working",
+            "unread": false,
+            "workspaceStatus": "in-progress"
+          },
+          {
+            "agents": [
+              {
+                "activity": "Edit: src/cart/Cart.tsx",
+                "agentType": "claude",
+                "effort": "xhigh",
+                "id": "p1:leaf",
+                "lastMessage": null,
+                "model": "claude-opus-5-5",
+                "prompt": "Demo task for main",
+                "rawState": "working",
+                "since": 0,
+                "state": "typing",
+                "stats": {
+                  "hiredAt": "2026-08-22T12:00:00.000Z",
+                  "instructions": 142,
+                  "instructionsToday": 12,
+                  "subagents": 31,
+                  "toolCalls": 1840,
+                  "toolCallsToday": 160
+                },
+                "subagentsRunning": 2,
+                "terminalHandle": "demo_p1",
+                "terminalTitle": "main"
+              }
+            ],
+            "branch": "main",
+            "changes": {
+              "added": 308,
+              "deleted": 72,
+              "files": 1
+            },
+            "comment": "",
+            "id": "demo-shop-web::/demo/shop-web/shop-web",
+            "isActive": false,
+            "isMain": true,
+            "lastActivityAt": 0,
+            "name": "shop-web",
+            "parentId": null,
+            "path": "/demo/shop-web/shop-web",
+            "pr": null,
+            "preview": "",
+            "repo": "shop-web",
+            "repoId": "demo-shop-web",
+            "status": "working",
+            "unread": false,
+            "workspaceStatus": "in-progress"
+          }
+        ],
+        "error": null,
+        "updatedAt": 0
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "demo-terminal-asking": {
+    "body": {
+      "json": {
+        "composer": "menu",
+        "found": true,
+        "lines": [
+          "(demo)",
+          "────────────────────────────────────────────────",
+          "←  ☐ 저장소  ☐ 대상  ✔ Submit  →",
+          "레이트 리밋 카운터를 어디에 둘까요?",
+          "❯ 1. Redis",
+          "  2. 메모리",
+          "  3. Type something.",
+          "────────────────────────────────────────────────"
+        ]
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "demo-terminal-working": {
+    "body": {
+      "json": {
+        "composer": "ready",
+        "found": true,
+        "lines": [
+          "(demo) ⏺ 작업 중입니다…",
+          "",
+          "────────────────────────────────────────────────",
+          "❯ ",
+          "────────────────────────────────────────────────",
+          "  ⏵⏵ auto mode on"
+        ]
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "demo-worktree-gated": {
+    "body": {
+      "json": {
+        "error": "unknown worktree"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 404
+  },
+  "demo-ws": {
+    "messages": [
+      {
+        "backend": {
+          "capabilities": {
+            "board": false,
+            "changes": false,
+            "focus": false,
+            "hire": false,
+            "remove": false,
+            "repos": false,
+            "search": false,
+            "stop": false,
+            "transcripts": false,
+            "usage": true
+          },
+          "name": "demo"
+        },
+        "type": "backend"
+      },
+      {
+        "snapshot": {
+          "desks": [
+            {
+              "agents": [
+                {
+                  "activity": "Grep: rateLimit",
+                  "agentType": "codex",
+                  "effort": "high",
+                  "id": "p4:leaf",
+                  "lastMessage": null,
+                  "model": "gpt-5.4",
+                  "prompt": "Demo task for main",
+                  "rawState": "working",
+                  "since": 0,
+                  "state": "reading",
+                  "stats": {
+                    "hiredAt": "2026-09-10T12:00:00.000Z",
+                    "instructions": 64,
+                    "instructionsToday": 7,
+                    "subagents": 9,
+                    "toolCalls": 690,
+                    "toolCallsToday": 70
+                  },
+                  "subagentsRunning": 0,
+                  "terminalHandle": "demo_p4",
+                  "terminalTitle": "main"
+                }
+              ],
+              "branch": "main",
+              "changes": {
+                "added": 12,
+                "deleted": 0,
+                "files": 1
+              },
+              "comment": "",
+              "id": "demo-api-server::/demo/api-server/api-server",
+              "isActive": false,
+              "isMain": true,
+              "lastActivityAt": 0,
+              "name": "api-server",
+              "parentId": null,
+              "path": "/demo/api-server/api-server",
+              "pr": null,
+              "preview": "",
+              "repo": "api-server",
+              "repoId": "demo-api-server",
+              "status": "working",
+              "unread": false,
+              "workspaceStatus": "in-progress"
+            },
+            {
+              "agents": [
+                {
+                  "activity": "완료 · 다음 지시 대기",
+                  "agentType": "codex",
+                  "effort": "medium",
+                  "id": "p10:leaf",
+                  "lastMessage": "perf/query-cache 작업을 끝냈습니다. 테스트 통과.",
+                  "model": "claude-opus-5-5",
+                  "prompt": "Demo task for perf/query-cache",
+                  "rawState": "done",
+                  "since": 0,
+                  "state": "done",
+                  "stats": {
+                    "hiredAt": "2026-09-30T12:00:00.000Z",
+                    "instructions": 10,
+                    "instructionsToday": 1,
+                    "subagents": 0,
+                    "toolCalls": 50,
+                    "toolCallsToday": 5
+                  },
+                  "subagentsRunning": 0,
+                  "terminalHandle": "demo_p10",
+                  "terminalTitle": "perf/query-cache"
+                }
+              ],
+              "branch": "perf/query-cache",
+              "changes": {
+                "added": 49,
+                "deleted": 9,
+                "files": 2
+              },
+              "comment": "",
+              "id": "demo-api-server::/demo/api-server/perf-tuning",
+              "isActive": false,
+              "isMain": false,
+              "lastActivityAt": 0,
+              "name": "perf-tuning",
+              "parentId": null,
+              "path": "/demo/api-server/perf-tuning",
+              "pr": null,
+              "preview": "",
+              "repo": "api-server",
+              "repoId": "demo-api-server",
+              "status": "active",
+              "unread": false,
+              "workspaceStatus": "in-progress"
+            },
+            {
+              "agents": [
+                {
+                  "activity": "Edit: internal/limiter/bucket.go",
+                  "agentType": "claude",
+                  "effort": "medium",
+                  "id": "p5:leaf",
+                  "lastMessage": null,
+                  "model": "claude-sonnet-5-5",
+                  "prompt": "Demo task for feat/rate-limit",
+                  "rawState": "working",
+                  "since": 0,
+                  "state": "typing",
+                  "stats": {
+                    "hiredAt": "2026-08-02T12:00:00.000Z",
+                    "instructions": 211,
+                    "instructionsToday": 18,
+                    "subagents": 44,
+                    "toolCalls": 2650,
+                    "toolCallsToday": 210
+                  },
+                  "subagentsRunning": 1,
+                  "terminalHandle": "demo_p5",
+                  "terminalTitle": "feat/rate-limit"
+                },
+                {
+                  "activity": "Read: docs/limits.md",
+                  "agentType": "claude",
+                  "effort": "low",
+                  "id": "p6:leaf",
+                  "lastMessage": null,
+                  "model": "claude-haiku-4-5-20251001",
+                  "prompt": "Demo task for feat/rate-limit",
+                  "rawState": "working",
+                  "since": 0,
+                  "state": "reading",
+                  "stats": {
+                    "hiredAt": "2026-09-26T12:00:00.000Z",
+                    "instructions": 19,
+                    "instructionsToday": 3,
+                    "subagents": 2,
+                    "toolCalls": 230,
+                    "toolCallsToday": 31
+                  },
+                  "subagentsRunning": 0,
+                  "terminalHandle": "demo_p6",
+                  "terminalTitle": "feat/rate-limit"
+                }
+              ],
+              "branch": "feat/rate-limit",
+              "changes": {
+                "added": 86,
+                "deleted": 18,
+                "files": 3
+              },
+              "comment": "",
+              "id": "demo-api-server::/demo/api-server/rate-limit",
+              "isActive": false,
+              "isMain": false,
+              "lastActivityAt": 0,
+              "name": "rate-limit",
+              "parentId": null,
+              "path": "/demo/api-server/rate-limit",
+              "pr": null,
+              "preview": "",
+              "repo": "api-server",
+              "repoId": "demo-api-server",
+              "status": "working",
+              "unread": false,
+              "workspaceStatus": "in-progress"
+            },
+            {
+              "agents": [
+                {
+                  "activity": "완료 · 다음 지시 대기",
+                  "agentType": "gemini",
+                  "effort": "medium",
+                  "id": "p7:leaf",
+                  "lastMessage": "main 작업을 끝냈습니다. 테스트 통과.",
+                  "model": "gemini-3-pro",
+                  "prompt": "Demo task for main",
+                  "rawState": "done",
+                  "since": 0,
+                  "state": "done",
+                  "stats": {
+                    "hiredAt": "2026-09-01T12:00:00.000Z",
+                    "instructions": 90,
+                    "instructionsToday": 4,
+                    "subagents": 6,
+                    "toolCalls": 512,
+                    "toolCallsToday": 25
+                  },
+                  "subagentsRunning": 0,
+                  "terminalHandle": "demo_p7",
+                  "terminalTitle": "main"
+                }
+              ],
+              "branch": "main",
+              "changes": {
+                "added": 123,
+                "deleted": 27,
+                "files": 4
+              },
+              "comment": "",
+              "id": "demo-docs::/demo/docs/docs",
+              "isActive": false,
+              "isMain": true,
+              "lastActivityAt": 0,
+              "name": "docs",
+              "parentId": null,
+              "path": "/demo/docs/docs",
+              "pr": null,
+              "preview": "",
+              "repo": "docs",
+              "repoId": "demo-docs",
+              "status": "active",
+              "unread": false,
+              "workspaceStatus": "in-progress"
+            },
+            {
+              "agents": [
+                {
+                  "activity": "완료 · 다음 지시 대기",
+                  "agentType": "claude",
+                  "effort": "medium",
+                  "id": "p8:leaf",
+                  "lastMessage": "docs/faq-rewrite 작업을 끝냈습니다. 테스트 통과.",
+                  "model": "claude-opus-5-5",
+                  "prompt": "Demo task for docs/faq-rewrite",
+                  "rawState": "done",
+                  "since": 0,
+                  "state": "done",
+                  "stats": {
+                    "hiredAt": "2026-09-30T12:00:00.000Z",
+                    "instructions": 10,
+                    "instructionsToday": 1,
+                    "subagents": 0,
+                    "toolCalls": 50,
+                    "toolCallsToday": 5
+                  },
+                  "subagentsRunning": 0,
+                  "terminalHandle": "demo_p8",
+                  "terminalTitle": "docs/faq-rewrite"
+                },
+                {
+                  "activity": "완료 · 다음 지시 대기",
+                  "agentType": "claude",
+                  "effort": "medium",
+                  "id": "p9:leaf",
+                  "lastMessage": "docs/faq-rewrite 작업을 끝냈습니다. 테스트 통과.",
+                  "model": "claude-opus-5-5",
+                  "prompt": "Demo task for docs/faq-rewrite",
+                  "rawState": "done",
+                  "since": 0,
+                  "state": "done",
+                  "stats": {
+                    "hiredAt": "2026-09-30T12:00:00.000Z",
+                    "instructions": 10,
+                    "instructionsToday": 1,
+                    "subagents": 0,
+                    "toolCalls": 50,
+                    "toolCallsToday": 5
+                  },
+                  "subagentsRunning": 0,
+                  "terminalHandle": "demo_p9",
+                  "terminalTitle": "docs/faq-rewrite"
+                }
+              ],
+              "branch": "docs/faq-rewrite",
+              "changes": {
+                "added": 160,
+                "deleted": 36,
+                "files": 1
+              },
+              "comment": "",
+              "id": "demo-docs::/demo/docs/faq-rewrite",
+              "isActive": false,
+              "isMain": false,
+              "lastActivityAt": 0,
+              "name": "faq-rewrite",
+              "parentId": null,
+              "path": "/demo/docs/faq-rewrite",
+              "pr": null,
+              "preview": "",
+              "repo": "docs",
+              "repoId": "demo-docs",
+              "status": "active",
+              "unread": false,
+              "workspaceStatus": "in-progress"
+            },
+            {
+              "agents": [
+                {
+                  "activity": "확인 필요: ExitPlanMode",
+                  "agentType": "claude",
+                  "effort": "high",
+                  "id": "p2:leaf",
+                  "lastMessage": null,
+                  "model": "claude-fable-5-1",
+                  "prompt": "Demo task for feat/checkout-flow",
+                  "rawState": "waiting",
+                  "since": 0,
+                  "state": "waiting",
+                  "stats": {
+                    "hiredAt": "2026-09-22T12:00:00.000Z",
+                    "instructions": 37,
+                    "instructionsToday": 5,
+                    "subagents": 4,
+                    "toolCalls": 402,
+                    "toolCallsToday": 44
+                  },
+                  "subagentsRunning": 0,
+                  "terminalHandle": "demo_p2",
+                  "terminalTitle": "feat/checkout-flow"
+                }
+              ],
+              "branch": "feat/checkout-flow",
+              "changes": {
+                "added": 197,
+                "deleted": 45,
+                "files": 2
+              },
+              "comment": "결제 플로우 플랜 승인 대기",
+              "id": "demo-shop-web::/demo/shop-web/checkout-flow",
+              "isActive": false,
+              "isMain": false,
+              "lastActivityAt": 0,
+              "name": "checkout-flow",
+              "parentId": "demo-shop-web::/demo/shop-web/shop-web",
+              "path": "/demo/shop-web/checkout-flow",
+              "pr": null,
+              "preview": "",
+              "repo": "shop-web",
+              "repoId": "demo-shop-web",
+              "status": "permission",
+              "unread": false,
+              "workspaceStatus": "in-progress"
+            },
+            {
+              "agents": [],
+              "branch": "chore/deps-bump",
+              "changes": null,
+              "comment": "",
+              "id": "demo-shop-web::/demo/shop-web/deps-bump",
+              "isActive": false,
+              "isMain": false,
+              "lastActivityAt": 0,
+              "name": "deps-bump",
+              "parentId": null,
+              "path": "/demo/shop-web/deps-bump",
+              "pr": null,
+              "preview": "",
+              "repo": "shop-web",
+              "repoId": "demo-shop-web",
+              "status": "inactive",
+              "unread": false,
+              "workspaceStatus": "in-progress"
+            },
+            {
+              "agents": [
+                {
+                  "activity": "exec_command: pnpm vitest login",
+                  "agentType": "codex",
+                  "effort": "medium",
+                  "id": "p3:leaf",
+                  "lastMessage": null,
+                  "model": "gpt-5.4",
+                  "prompt": "Demo task for fix/login-redirect",
+                  "rawState": "working",
+                  "since": 0,
+                  "state": "typing",
+                  "stats": {
+                    "hiredAt": "2026-09-29T12:00:00.000Z",
+                    "instructions": 8,
+                    "instructionsToday": 2,
+                    "subagents": 0,
+                    "toolCalls": 77,
+                    "toolCallsToday": 12
+                  },
+                  "subagentsRunning": 0,
+                  "terminalHandle": "demo_p3",
+                  "terminalTitle": "fix/login-redirect"
+                }
+              ],
+              "branch": "fix/login-redirect",
+              "changes": {
+                "added": 271,
+                "deleted": 63,
+                "files": 4
+              },
+              "comment": "",
+              "id": "demo-shop-web::/demo/shop-web/login-bug",
+              "isActive": false,
+              "isMain": false,
+              "lastActivityAt": 0,
+              "name": "login-bug",
+              "parentId": "demo-shop-web::/demo/shop-web/shop-web",
+              "path": "/demo/shop-web/login-bug",
+              "pr": null,
+              "preview": "",
+              "repo": "shop-web",
+              "repoId": "demo-shop-web",
+              "status": "working",
+              "unread": false,
+              "workspaceStatus": "in-progress"
+            },
+            {
+              "agents": [
+                {
+                  "activity": "Edit: src/cart/Cart.tsx",
+                  "agentType": "claude",
+                  "effort": "xhigh",
+                  "id": "p1:leaf",
+                  "lastMessage": null,
+                  "model": "claude-opus-5-5",
+                  "prompt": "Demo task for main",
+                  "rawState": "working",
+                  "since": 0,
+                  "state": "typing",
+                  "stats": {
+                    "hiredAt": "2026-08-22T12:00:00.000Z",
+                    "instructions": 142,
+                    "instructionsToday": 12,
+                    "subagents": 31,
+                    "toolCalls": 1840,
+                    "toolCallsToday": 160
+                  },
+                  "subagentsRunning": 2,
+                  "terminalHandle": "demo_p1",
+                  "terminalTitle": "main"
+                }
+              ],
+              "branch": "main",
+              "changes": {
+                "added": 308,
+                "deleted": 72,
+                "files": 1
+              },
+              "comment": "",
+              "id": "demo-shop-web::/demo/shop-web/shop-web",
+              "isActive": false,
+              "isMain": true,
+              "lastActivityAt": 0,
+              "name": "shop-web",
+              "parentId": null,
+              "path": "/demo/shop-web/shop-web",
+              "pr": null,
+              "preview": "",
+              "repo": "shop-web",
+              "repoId": "demo-shop-web",
+              "status": "working",
+              "unread": false,
+              "workspaceStatus": "in-progress"
+            }
+          ],
+          "error": null,
+          "updatedAt": 0
+        },
+        "type": "snapshot"
+      }
+    ]
+  },
+  "demo-ws-org": {
+    "messages": [
+      {
+        "org": {
+          "departments": [
+            {
+              "id": "d-dev",
+              "name": "쇼핑 개발팀",
+              "repoIds": [
+                "demo-shop-web"
+              ],
+              "theme": "dev"
+            },
+            {
+              "id": "d-ops",
+              "name": "플랫폼팀",
+              "repoIds": [
+                "demo-api-server"
+              ],
+              "theme": "ops"
+            },
+            {
+              "id": "d-doc",
+              "name": "기획·문서팀",
+              "repoIds": [
+                "demo-docs"
+              ],
+              "theme": "design"
+            }
+          ]
+        },
+        "type": "org"
+      }
+    ]
+  },
+  "demo-ws-usage": {
+    "messages": [
+      {
+        "type": "usage",
+        "usage": {
+          "providers": [
+            {
+              "provider": "claude",
+              "windows": [
+                {
+                  "key": "session",
+                  "label": "5시간",
+                  "resetDescription": "3:00 PM",
+                  "resetsAt": 0,
+                  "usedPercent": 62
+                },
+                {
+                  "key": "weekly",
+                  "label": "주간",
+                  "resetDescription": "Fri 4:00 AM",
+                  "resetsAt": 0,
+                  "usedPercent": 21
+                },
+                {
+                  "key": "fableWeekly",
+                  "label": "Fable 주간",
+                  "resetDescription": "Fri 4:00 AM",
+                  "resetsAt": 0,
+                  "usedPercent": 9
+                }
+              ]
+            }
+          ],
+          "updatedAt": 0
+        }
+      }
+    ]
+  }
+}

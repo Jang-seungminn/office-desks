@@ -2,6 +2,8 @@
 //! recorded step with the fixtures the Node bridge produced (`npm run contract:record`, see
 //! `bridge/scripts/contract-record.ts`). The step format, the normalizer and the template rules
 //! here mirror the recorder exactly; `normalize-cases.json` pins the normalizer on both sides.
+//! `contract_demo` does the same for the demo backend: `steps-demo.json` against
+//! `fixtures/demo.json`, both sides on the fixed demo clock (`OFFICE_DESKS_DEMO_EPOCH`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -69,6 +71,7 @@ pub fn trials(root: &Path) -> Vec<Trial> {
     let sub = |name: &str| root.join(name);
     let fake = sub("fake_agent_protocol");
     let contract_root = sub("contract");
+    let demo_root = sub("contract_demo");
     let preflight_root = sub("preflight_refuses_other_agents");
     let terminal_root = sub("terminal_matches_fixture");
     vec![
@@ -82,6 +85,7 @@ pub fn trials(root: &Path) -> Vec<Trial> {
             terminal_matches_fixture(&terminal_root)
         }),
         Trial::test("contract", move || contract(&contract_root)),
+        Trial::test("contract_demo", move || contract_demo(&demo_root)),
     ]
 }
 
@@ -446,6 +450,8 @@ fn unified(expected: &Value, actual: &Value) -> String {
 
 struct StepsFile {
     setup: Value,
+    /// The demo clock (`steps-demo.json`): `OFFICE_DESKS_DEMO_EPOCH` on both sides.
+    epoch: Option<i64>,
     steps: Vec<Value>,
 }
 
@@ -453,11 +459,19 @@ fn s<'a>(step: &'a Value, key: &str) -> Option<&'a str> {
     step.get(key).and_then(Value::as_str)
 }
 
-fn load_steps() -> StepsFile {
-    let path = contract_dir().join("steps.json");
-    let text = std::fs::read_to_string(&path).expect("steps.json");
-    let doc: Value = serde_json::from_str(&text).expect("steps.json is JSON");
-    assert_eq!(doc["version"], json!(1), "steps.json version");
+/// A steps document (`steps.json`, `steps-demo.json`): version 1, unique names, every group in
+/// `groups` and in that order.
+fn load_steps(file: &str, groups: &[&str]) -> StepsFile {
+    let path = contract_dir().join(file);
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{file}: {e}"));
+    let doc: Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("{file} is not JSON: {e}"));
+    assert_eq!(doc["version"], json!(1), "{file} version");
+    let epoch = doc.get("epoch").map(|v| {
+        v.as_i64()
+            .filter(|e| *e > 0)
+            .unwrap_or_else(|| panic!("{file}: epoch {v} is not a positive integer"))
+    });
     let steps = doc["steps"].as_array().expect("steps[]").clone();
     let mut names = std::collections::HashSet::new();
     let mut last_group = 0;
@@ -465,15 +479,16 @@ fn load_steps() -> StepsFile {
         let name = s(st, "name").expect("step name");
         assert!(names.insert(name.to_string()), "duplicate step {name}");
         let g = s(st, "group").expect("step group");
-        let gi = GROUPS
+        let gi = groups
             .iter()
             .position(|x| *x == g)
-            .unwrap_or_else(|| panic!("unknown group {g}"));
+            .unwrap_or_else(|| panic!("{file}: unknown group {g}"));
         assert!(gi >= last_group, "step {name}: groups out of order");
         last_group = gi;
     }
     StepsFile {
         setup: doc["setup"].clone(),
+        epoch,
         steps,
     }
 }
@@ -1301,7 +1316,7 @@ fn compare_step(
 }
 
 fn contract(sub: &Path) -> Result<(), Failed> {
-    let file = load_steps();
+    let file = load_steps("steps.json", &GROUPS);
     let world = build_world(sub, &file.setup);
     let out = world.root.join("out");
     let exe = dunce::canonicalize(world.root.join("bin").join(AGENT_EXE)).expect("fake agent");
@@ -1374,8 +1389,19 @@ fn contract(sub: &Path) -> Result<(), Failed> {
         }
         result
     });
+    conclude("contract", &skipped, result, tally)
+}
+
+/// The end of a replay: print the tally, then fail on a runner error, on any failed step, and
+/// (when no group is skipped) on anything left NOT VERIFIED.
+fn conclude(
+    trial: &str,
+    skipped: &[&str],
+    result: Result<(), String>,
+    mut tally: Tally,
+) -> Result<(), Failed> {
     println!(
-        "contract: {} passed, {} not verified, {} failed; skipped groups: {}",
+        "{trial}: {} passed, {} not verified, {} failed; skipped groups: {}",
         tally.passed,
         tally.unverified.len(),
         tally.failures.len(),
@@ -1386,7 +1412,7 @@ fn contract(sub: &Path) -> Result<(), Failed> {
         }
     );
     result.map_err(Failed::from)?;
-    if SKIP.is_empty() && !tally.unverified.is_empty() {
+    if skipped.is_empty() && !tally.unverified.is_empty() {
         tally.failures.push(format!(
             "nothing is skipped, so nothing may stay unverified: {:?}",
             tally.unverified
@@ -1397,6 +1423,94 @@ fn contract(sub: &Path) -> Result<(), Failed> {
     } else {
         Err(tally.failures.join("\n\n").into())
     }
+}
+
+/// The demo backend (fixed clock) against `fixtures/demo.json`, recorded from Node's demo with
+/// `npm run contract:record -- --only demo`. Nothing to set up: the demo runner is a fake Orca.
+fn contract_demo(sub: &Path) -> Result<(), Failed> {
+    let file = load_steps("steps-demo.json", &["demo"]);
+    std::fs::create_dir_all(sub).expect("trial root");
+    let root = dunce::canonicalize(sub).expect("canonical root");
+    let root_slash = path_str(&root).replace('\\', "/");
+    for d in ["tmp", "home", "office", "claude"] {
+        std::fs::create_dir_all(root.join(d)).expect("scratch dir");
+    }
+    let mut env = EnvMap::new();
+    if cfg!(windows) {
+        let pe = process_env();
+        for k in ["SystemRoot", "ComSpec", "PATHEXT"] {
+            if let Some(v) = pe.get(k) {
+                env.insert(k.into(), v.clone());
+            }
+        }
+    }
+    let home = path_str(&root.join("home"));
+    let tmp = path_str(&root.join("tmp"));
+    for (k, v) in [
+        ("HOME", home.clone()),
+        ("USERPROFILE", home),
+        ("TMPDIR", tmp.clone()),
+        ("TMP", tmp.clone()),
+        ("TEMP", tmp),
+        ("CLAUDE_CONFIG_DIR", path_str(&root.join("claude"))),
+        ("OFFICE_DESKS_HOME", path_str(&root.join("office"))),
+        ("OFFICE_DESKS_BACKEND", "demo".into()),
+        ("ORCA_CLI_COMMAND", path_str(&root.join("no-such-orca"))),
+    ] {
+        env.insert(k.into(), v);
+    }
+
+    let demo = od_orca::DemoBackend::new(od_orca::DemoOptions {
+        tmp_dir: root.join("tmp"),
+        epoch: file.epoch,
+        verify: Some(od_orca::transcript_verifier()),
+        windows: cfg!(windows),
+    })
+    .expect("demo backend");
+    let files = demo.server_files().expect("demo server files");
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    let mut tally = Tally::default();
+    let result: Result<(), String> = rt.block_on(async {
+        let bound = od_server::bind(0).await.expect("bind");
+        assert_ne!(bound.port, 4317, "never the real port");
+        let port = bound.port;
+        let backend: Arc<dyn OfficeBackend> = Arc::new(demo);
+        let mut cfg = ServerConfig::from_env(&env);
+        cfg.commands_home = root.join("home");
+        cfg.upload_dir = root.join("tmp").join("uploads");
+        cfg.org_file = files.org_file;
+        cfg.awards_file = files.awards_file;
+        cfg.default_org = Some(files.default_org);
+        cfg.assets = Arc::new(MemAssets(HashMap::new()));
+        let handle = od_server::serve(bound, backend, cfg).await;
+
+        let mut vars = BTreeMap::new();
+        vars.insert("ROOT".to_string(), root_slash.clone());
+        vars.insert("PORT".to_string(), port.to_string());
+        vars.insert("HOST".to_string(), format!("127.0.0.1:{port}"));
+        let mut ctx = Ctx {
+            client: Client::new(port),
+            port,
+            root: root.clone(),
+            out: root.join("out"),
+            vars,
+            sockets: HashMap::new(),
+            started: HashMap::new(),
+            captured: BTreeMap::new(),
+            problems: Vec::new(),
+        };
+        let result = run_steps(&mut ctx, &file.steps, &mut tally).await;
+        for (_, (_, task)) in ctx.sockets.drain() {
+            task.abort();
+        }
+        handle.shutdown().await;
+        result
+    });
+    conclude("contract_demo", &[], result, tally)
 }
 
 // ---------------------------------------------------------------------------------------------

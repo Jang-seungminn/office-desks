@@ -8,6 +8,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::nodepath::{win32_has_ext, win32_is_absolute, win32_join};
+
 pub type EnvMap = HashMap<String, String>;
 
 const SESSION_MARKERS: &[&str] = &[
@@ -56,50 +58,6 @@ pub fn agent_env(base: &EnvMap, extra: &EnvMap) -> EnvMap {
 pub struct ResolvedCommand {
     pub file: String,
     pub via_cmd: bool,
-}
-
-fn is_win_sep(c: char) -> bool {
-    c == '\\' || c == '/'
-}
-
-/// `path.win32.isAbsolute`.
-pub fn win32_is_absolute(p: &str) -> bool {
-    let b: Vec<char> = p.chars().take(3).collect();
-    match b.as_slice() {
-        [c, ..] if is_win_sep(*c) => true,
-        [d, ':', s, ..] if d.is_ascii_alphabetic() && is_win_sep(*s) => true,
-        _ => false,
-    }
-}
-
-/// `path.isAbsolute` with Node's rules for this OS (`/x` is absolute on Windows too).
-pub fn node_is_absolute(p: &str) -> bool {
-    if cfg!(windows) {
-        win32_is_absolute(p)
-    } else {
-        p.starts_with('/')
-    }
-}
-
-/// `path.win32.extname(p) != ""`.
-fn win32_has_ext(p: &str) -> bool {
-    let base = p.rsplit(is_win_sep).next().unwrap_or("");
-    // A leading dot is not an extension (".bashrc"); ".." has none either.
-    match base.rfind('.') {
-        Some(i) => i > 0 && base != "..",
-        None => false,
-    }
-}
-
-/// `path.win32.join(dir, file)` for the simple shapes PATH entries take.
-fn win32_join(dir: &str, file: &str) -> String {
-    let dir = dir.replace('/', "\\");
-    let file = file.replace('/', "\\");
-    if dir.ends_with('\\') {
-        format!("{dir}{file}")
-    } else {
-        format!("{dir}\\{file}")
-    }
 }
 
 /// On Windows find the real file behind a bare command name, preferring a native .exe.
