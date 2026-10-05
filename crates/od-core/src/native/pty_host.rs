@@ -776,12 +776,18 @@ struct Inner {
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     exits: Shared<ExitFn>,
     live: tokio::sync::watch::Sender<usize>,
+    /// Sessions already out of the map whose exit listeners are still running. They count as
+    /// live, so `dispose` returns only after every exit event has been delivered.
+    exiting: AtomicUsize,
     seq: AtomicU64,
 }
 
 impl Inner {
     fn publish_count(&self) {
-        let n = lock(&self.sessions).len();
+        let n = {
+            let map = lock(&self.sessions);
+            map.len() + self.exiting.load(Ordering::SeqCst)
+        };
         self.live.send_replace(n);
     }
 }
@@ -812,6 +818,7 @@ impl PtyHost {
                 sessions: Mutex::new(HashMap::new()),
                 exits: registry(),
                 live: tokio::sync::watch::channel(0).0,
+                exiting: AtomicUsize::new(0),
                 seq: AtomicU64::new(0),
             }),
         }
@@ -1247,6 +1254,7 @@ fn waiter(
         let mut map = lock(&inner.sessions);
         if map.get(&id).is_some_and(|s| Arc::ptr_eq(s, &session)) {
             map.remove(&id);
+            inner.exiting.fetch_add(1, Ordering::SeqCst);
             true
         } else {
             false
@@ -1257,6 +1265,7 @@ fn waiter(
         for f in listeners(&inner.exits) {
             let _ = catch_unwind(AssertUnwindSafe(|| f(&id, code)));
         }
+        inner.exiting.fetch_sub(1, Ordering::SeqCst);
     }
     inner.publish_count();
     drop(inner);
