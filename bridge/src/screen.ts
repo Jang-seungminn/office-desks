@@ -10,10 +10,11 @@ export function screenSupport(agentType: string, version: string | null): 'teste
 }
 
 const RULE = /^\s*[─━]{8,}/;
-const PROMPT = /^\s*❯(\s|$)/;
+// Windows builds of Claude Code draw the prompt as `>` instead of `❯`.
+const PROMPT = /^\s*[❯>](\s|$)/;
 
 /**
- * Is the agent's input box on screen? Claude Code draws its composer as a `❯` line framed
+ * Is the agent's input box on screen? Claude Code draws its composer as a `❯` (Windows: `>`) line framed
  * by horizontal rules. Dialogs such as /usage, /config or a permission prompt replace it
  * and swallow typed text, so the web UI must not send a message then.
  */

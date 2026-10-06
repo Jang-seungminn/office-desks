@@ -7,6 +7,7 @@ import { composerState } from '../src/screen.js';
 const root = new URL('./fixtures/screens/', import.meta.url);
 const expected: Record<string, { composer: string; question?: string | null; review?: boolean }> = {
   'composer-queued.txt': { composer: 'ready', question: null },
+  'composer-windows.txt': { composer: 'ready', question: null },
   'composer-working.txt': { composer: 'ready', question: null },
   'question-single-with-pane.txt': { composer: 'menu', question: '[화면 캡처용 테스트] 질문이 하나일 때의' },
   'question-multi-first.txt': { composer: 'menu', question: 'Which color?' },
