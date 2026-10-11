@@ -428,6 +428,7 @@ export class OfficeScene extends Phaser.Scene {
     this.podLayer = this.add.container(0, 0);
     this.crowd = new LoungeCrowd(this, (deskId, agentId) => this.onSelect({ deskId, agentId }));
     this.crowd.onReturned = () => (this.needsLayout = true);
+    this.crowd.awards = this.awards;
     this.crowd.department = (repoId) => this.org?.departments.find((d) => d.repoIds.includes(repoId))?.name ?? null;
 
     this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
@@ -538,7 +539,8 @@ export class OfficeScene extends Phaser.Scene {
 
   setAwards(awards: AwardBoard): void {
     this.awards = awards;
-    this.crowd.awards = awards;
+    // Awards can arrive over the socket before create() built the lounge crowd.
+    if (this.crowd) this.crowd.awards = awards;
     if (this.sys.isActive()) this.layout();
   }
 
