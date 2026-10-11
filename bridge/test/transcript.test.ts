@@ -1,8 +1,8 @@
-import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseTranscript, readTranscript } from '../src/transcript.js';
+import { scratch } from './scratch.js';
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
 
@@ -40,7 +40,7 @@ describe('parseTranscript (Codex)', () => {
 });
 
 describe('readTranscript', () => {
-  const tmpFile = () => path.join(mkdtempSync(path.join(tmpdir(), 'od-')), 's.jsonl');
+  const tmpFile = () => path.join(scratch('od-'), 's.jsonl');
   const line = (text: string, role = 'user') =>
     JSON.stringify({ type: role, message: { role, content: role === 'user' ? text : [{ type: 'text', text }] } }) + '\n';
 

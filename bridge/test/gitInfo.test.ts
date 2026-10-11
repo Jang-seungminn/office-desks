@@ -1,14 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { changeSummary, fileDiff, normalizePr, parseNumstat, parseStatus } from '../src/gitInfo.js';
+import { scratch } from './scratch.js';
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
 function repo(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'od-git-'));
+  const dir = scratch('od-git-');
   git(dir, 'init', '-q');
   git(dir, 'config', 'user.email', 't@example.com');
   git(dir, 'config', 'user.name', 't');

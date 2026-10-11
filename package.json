@@ -43,6 +43,7 @@
     "typecheck": "npm run typecheck -w bridge && npm run typecheck -w web",
     "demo": "npm run build && npm run demo -w bridge",
     "golden": "tsx bridge/scripts/golden.ts",
+    "contract:record": "tsx bridge/scripts/contract-record.ts",
     "prepack": "npm run build"
   },
   "dependencies": {

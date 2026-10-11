@@ -1,8 +1,8 @@
-import { chmodSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { chmodSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { agentTerminal, ensureSpawnHelper, PtyHost, resolveSpawn, watchCursor } from '../src/native/ptyHost.js';
+import { scratch } from './scratch.js';
 
 const ECHO = "process.stdin.setEncoding('utf8');process.stdout.write('ready\\r\\n');process.stdin.on('data',d=>process.stdout.write('got:'+d.trim()+'\\r\\n'))";
 
@@ -115,7 +115,7 @@ describe('resolveSpawn', () => {
 
 describe('ensureSpawnHelper', () => {
   it.skipIf(process.platform === 'win32')('makes a prebuilt spawn-helper executable', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'od-pty-'));
+    const root = scratch('od-pty-');
     const dir = path.join(root, 'prebuilds', `${process.platform}-${process.arch}`);
     mkdirSync(dir, { recursive: true });
     const helper = path.join(dir, 'spawn-helper');

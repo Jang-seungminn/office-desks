@@ -1,0 +1,120 @@
+{
+  "guard-fetch-dest-iframe": {
+    "body": {
+      "json": {
+        "error": "forbidden origin"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 403
+  },
+  "guard-fetch-site-cross-site": {
+    "body": {
+      "json": {
+        "error": "forbidden origin"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 403
+  },
+  "guard-fetch-site-same-site": {
+    "body": {
+      "json": {
+        "error": "forbidden origin"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 403
+  },
+  "guard-hook-origin-evil": {
+    "body": {
+      "json": {
+        "error": "forbidden origin"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 403
+  },
+  "guard-host-evil": {
+    "body": {
+      "json": {
+        "error": "forbidden origin"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 403
+  },
+  "guard-origin-evil": {
+    "body": {
+      "json": {
+        "error": "forbidden origin"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 403
+  },
+  "guard-origin-null": {
+    "body": {
+      "json": {
+        "error": "forbidden origin"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 403
+  },
+  "guard-ws-origin-evil": {
+    "rejected": true
+  },
+  "guard-ws-query": {
+    "rejected": true
+  }
+}

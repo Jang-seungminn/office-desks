@@ -45,10 +45,10 @@ Legend: **done** = ported in R1. **R2/R3/R5** = deliberately left for that miles
 
 | TS module | Goes to | Why |
 |---|---|---|
-| `server.ts` | R2 | HTTP and WebSocket layer; R1 only ported its `conversation()` builder |
-| `security.ts` | R2 | request guards (origin, host) belong to the server. Only the token compare is in R1, as `security::same_token` |
-| `poller.ts` | R2 | drives the backend on a timer and broadcasts snapshots |
-| `backend/index.ts` (`createBackend`, `probeOrca`) | R2 | backend selection at server start |
+| `server.ts` | done in R2 | `crates/od-server` (see `crates/od-server/PARITY.md`) |
+| `security.ts` | done in R2 | `od-server` `security` module; the token compare stays here as `security::same_token` |
+| `poller.ts` | done in R2 | `od-server` `poller` and `enrich` modules |
+| `backend/index.ts` | `createNativeBackend` done in R2; `createBackend` and `probeOrca` R3 | `od-server` `native_backend`; the `office-desks` binary refuses `orca` and `demo` until R3 |
 | `backend/orca.ts` | R3 | Orca backend |
 | `orcaCli.ts` (`resolveOrcaCommand`, `createOrcaRunner`, `OrcaCliError`) | R3 | Orca CLI runner (`resolveWindowsCommand` and `unsafeForCmdShim` are already ported) |
 | `sessionResolver.ts` | R3 | Orca-side transcript lookup (the native backend finds sessions itself) |
@@ -77,14 +77,18 @@ PtyHost (xterm-headless to vt100, node-pty to portable-pty):
 - `serialize` replays only the alternate screen when active, and history rows lose their soft-wrap flag. Reason: vt100 does not expose the hidden normal screen.
 - `serialize` appends `?1004h`, `?7l` and `4h` when they differ from the defaults. Reason: keep attached terminals in sync with modes vt100 does not replay.
 - `dispose` escalates to SIGKILL after 1.5 s (TS only sent SIGHUP). Reason: really kill and reap; needs a tokio runtime with time.
+- `spawn` is refused once `dispose` has started, with `DISPOSED` (`종료 중이라 에이전트 터미널을 시작할 수 없어요`, code `backend_error`); the flag is set and checked under the sessions lock, so a hire racing a shutdown cannot leave an agent behind. TS has no such check. The host cannot be reused after `dispose`.
 - The exit event waits up to 200 ms for the reader (on Windows always the full 200 ms). Reason: final output lands first; ConPTY EOF only after the pseudoconsole closes.
 - `feed` runs the parser and responder but is not broadcast to `on_data` (same as TS `term.write`).
 - Unicode widths come from unicode-width 0.2 (Unicode 16), not xterm's Unicode 11. Reason: vt100. Rare characters may differ.
 - Resize does not reflow (xterm reflows on column change). Reason: vt100.
 - `set_replies(bool)` is replaced by `mute_replies(id) -> Option<ReplyMute>`, a counted guard. Reason: two attached terminals cannot unmute each other.
+- `resize` ignores sizes over `MAX_COLS` × `MAX_ROWS` (1000 × 500), as well as sizes under 2; node-pty and xterm.js take any size. Reason: vt100 allocates every cell, so a `/term` client or the TUI could otherwise make the server allocate gigabytes (R2 Task 9, fix round 1). `/term` ignores a resize outside cols 1..=1000, rows 1..=500.
+- `feed_output(id, data)` (`#[doc(hidden)]`) feeds the screen *and* the `on_data`/`attach` subscribers, as if the process printed `data`. It is for tests only (R2's deterministic slow-consumer trial).
 - Query replies. xterm.js answers many queries itself; the vt100 responder answers only these, with the bytes xterm.js 6 sends (probed with `@xterm/headless` 6.0.0), and only while no `ReplyMute` is held:
-  - DA1 `CSI c` / `CSI 0 c` → `CSI ?1;2c`;
-  - DA2 `CSI > c` / `CSI > 0 c` → `CSI >0;276;0c`;
+  - DA1 `CSI c` / `CSI 0 c` → `CSI ?1;2c`. Like xterm.js `sendDeviceAttributesPrimary`, only the first parameter counts: `CSI 0;1 c` is answered, `CSI 1 c` is not (R2 Task 9);
+  - DA2 `CSI > c` / `CSI > 0 c` → `CSI >0;276;0c`. Only the first parameter counts: `CSI > 0;1 c` is answered, `CSI > 1 c` is not (R2 Task 9);
+  - DECSTR `CSI ! p` (soft reset) is not a query but changes what DECRQM and `serialize` report: IRM off, DECAWM on, cursor shown, and focus reporting `?1004` off, as xterm.js (probed: `?1004h`, `CSI ! p`, `CSI ? 1004 $ p` → `CSI ?1004;2$y`; R2 Task 9);
   - DSR `CSI 5 n` → `CSI 0n`; `CSI 6 n` → `CSI row;col R` (1-based, at the moment of the query);
   - DECRQM `CSI ? Ps $ p` → `CSI ? Ps;Pm $ y` and `CSI Ps $ p` → `CSI Ps;Pm $ y`, with Pm 1 (set) or 2 (reset) for the modes we track: DEC 1 (app cursor), 7 (autowrap), 25 (cursor visible), 47/1047/1049 (alternate screen), 1004 (focus), 2004 (bracketed paste) and ANSI 4 (insert). Only the first parameter is answered, as in xterm.js.
 
@@ -95,7 +99,7 @@ PtyHost (xterm-headless to vt100, node-pty to portable-pty):
 
 Backend and errors:
 
-- `BackendError` is `{ code: Option<String>, message, request_id: Option<String> }`: it merges TS `BackendError`, `BackendBusyError` and plain `Error` into one type (see Notes for R2). Reason: one error type per Global Constraints, no information lost.
+- `BackendError` is `{ code: Option<String>, message, request_id: Option<String> }`: it merges TS `BackendError`, `BackendBusyError` and plain `Error` into one type (see R2 status). Reason: one error type per Global Constraints, no information lost.
 - Git, IO and spawn failures in `hire` are plain errors (no code), as in TS; PtyHost's duplicate-id error is coded `backend_error`.
 - `NativeBackend` is generic over `PtyLike`, a smaller trait than TS `Pick<PtyHost, ...>`; TUI-only members are reached through `pty()`. Reason: Rust generics.
 - `OfficeBackend` is an `async_trait` trait used as `Arc<dyn OfficeBackend>`. Reason: runtime backend choice in R2; costs a box per call.
@@ -110,7 +114,7 @@ Backend and errors:
 - `os.homedir` is approximated by absolute HOME or USERPROFILE, else the OS home, else the temp dir.
 - Unix `find_command` checks any exec mode bit, not `access(X_OK)`. Reason: no libc call for it.
 - Windows path helpers (isAbsolute, extname, join) are hand-rolled so they are testable on macOS.
-- Node path helpers are spread over several modules: `win32_is_absolute` / `win32_has_ext` / `win32_join` (`native/env.rs`), `normalize_path` (`native/worktrees.rs`), `node_is_absolute` and `resolve_lexical` (`backend/native_backend.rs`). Left as they are in R1; R3 should consolidate them into one `nodepath` module when the Orca backend adds more.
+- Node path helpers are spread over several modules: `win32_is_absolute` / `win32_has_ext` / `win32_join` (`native/env.rs`), `normalize_path` (`native/worktrees.rs`), `node_is_absolute` (`native/env.rs`) and `resolve_lexical` (`backend/native_backend.rs`). Left as they are in R1; R3 should consolidate them into one `nodepath` module when the Orca backend adds more.
 
 Git:
 
@@ -153,9 +157,9 @@ Awards, uploads, commands, answers:
 
 Parked (known, accepted): localeCompare for symbols and non-Latin scripts, float timestamps truncated to ms, `win32_join` without normalize, `win32_has_ext` with a trailing separator, git error text approximation, an alias grandchild orphaned after a git timeout (same as Node), `ureq` pulls the `url`/ICU crates, a panic on `thread::spawn` in the relay, ConPTY exit about 200 ms late, signal-kill exit code 1.
 
-## Notes for R2
+## R2 status
 
-The server (axum or similar) must do the following. Each item is checked against the code and `bridge/src/server.ts`.
+Implemented in `crates/od-server` (HTTP, `/ws`, `/hook`, static files, the poller) and `crates/office-desks` (the binary). The differences from the Node server are in `crates/od-server/PARITY.md`. The notes below are what R2 had to do; they are kept because R3 and R4 build on the same rules. Each item is checked against the code and `bridge/src/server.ts`.
 
 - **Runtime.** Use a tokio runtime with the `time` feature on. `NativeBackend` and `PtyHost::dispose` use `spawn_blocking` and `tokio::time`.
 - **`spawn_blocking` for sync IO.** These APIs are sync and block on disk or processes; call them from `spawn_blocking`:
@@ -183,6 +187,10 @@ The server (axum or similar) must do the following. Each item is checked against
   | catch-all | anything else, coded or plain | 502 `{ error }`, plus `code` only when the error has one |
 
   So `UploadError::Rejected` (bad images, a bad or foreign upload folder) gives 400 and `UploadError::Io` (a raw fs error, a plain `Error` in TS) gives 502. The 400 text for a JSON parse error is V8's message, which Rust cannot reproduce byte for byte: a deliberate difference. A malformed `/hook/<id>` body gives a bare 400 with no body.
+
+  Two more route-level rules, parked from R1 and now implemented in `od-server`:
+  - `POST /api/org` answers 400 `{ error }` when `sanitize_org` fails. The route comes before the 415 content-type check in `server.ts`, so it never answers 415.
+  - An unknown `/api/*` path answers 405 `{"error":"method not allowed"}` for any method other than POST (GET included), and 404 `{"error":"not found"}` only for a POST with a JSON content-type. Another POST content-type gets 415 first.
 - **Request bodies.** TS reads every body with `JSON.parse` and checks each field by hand. R2 must parse every request body as `serde_json::Value` and port each route's checks; it must not use axum's `Json<T>` with the typed structs (`SendRequest`, `KeyRequest`, `WorktreeUpdate`, `HireRequest`, and the others), which are stricter than TS and would answer 422. The checks, from `server.ts`:
   - all POST routes: 405 for another method (before the body), 415 unless `content-type` starts with `application/json`; size cap 64 000 bytes (80 MB on `/api/send`, 2 MB on `/hook`), over the cap is `UploadError` `요청이 너무 큽니다` → 400. A JSON `null` body makes `body.x` throw a `TypeError` in TS → 502 through the catch-all.
   - `terminalHandle` (`/api/send`, `/api/keys`, `/api/queue`, `/api/focus`): missing, non-string or not in the snapshot → 404 `unknown terminal`.

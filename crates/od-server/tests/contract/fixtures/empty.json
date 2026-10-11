@@ -1,0 +1,193 @@
+{
+  "empty-get-nope": {
+    "body": {
+      "json": {
+        "error": "method not allowed"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 405
+  },
+  "empty-head-snapshot": {
+    "body": {
+      "empty": true
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 405
+  },
+  "empty-host-localhost": {
+    "body": {
+      "json": {
+        "desks": [],
+        "error": null,
+        "updatedAt": 0
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "empty-org": {
+    "body": {
+      "json": {
+        "departments": []
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "empty-origin-dev-web": {
+    "body": {
+      "json": {
+        "desks": [],
+        "error": null,
+        "updatedAt": 0
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "empty-post-nope": {
+    "body": {
+      "json": {
+        "error": "not found"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 404
+  },
+  "empty-send-no-content-type": {
+    "body": {
+      "json": {
+        "error": "expected application/json"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 415
+  },
+  "empty-send-text-plain": {
+    "body": {
+      "json": {
+        "error": "expected application/json"
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 415
+  },
+  "empty-snapshot": {
+    "body": {
+      "json": {
+        "desks": [],
+        "error": null,
+        "updatedAt": 0
+      }
+    },
+    "headers": {
+      "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "content-type": "application/json",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    },
+    "status": 200
+  },
+  "empty-ws-open": {
+    "messages": [
+      {
+        "backend": {
+          "capabilities": {
+            "board": true,
+            "changes": true,
+            "focus": false,
+            "hire": true,
+            "remove": true,
+            "repos": true,
+            "search": false,
+            "stop": true,
+            "transcripts": true,
+            "usage": false
+          },
+          "name": "native"
+        },
+        "type": "backend"
+      },
+      {
+        "snapshot": {
+          "desks": [],
+          "error": null,
+          "updatedAt": 0
+        },
+        "type": "snapshot"
+      },
+      {
+        "org": {
+          "departments": []
+        },
+        "type": "org"
+      },
+      {
+        "awards": {
+          "hall": [],
+          "leader": null
+        },
+        "type": "awards"
+      }
+    ]
+  }
+}

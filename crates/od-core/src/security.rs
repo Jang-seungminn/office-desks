@@ -1,9 +1,9 @@
 //! The token comparison the TS code does with `crypto.timingSafeEqual`. Only this helper lives
-//! here; the request guards of `bridge/src/security.ts` (origin, host) are R2's.
+//! here; the request guards of `bridge/src/security.ts` (origin, host) live in `od-server`.
 
 /// Whether a presented token equals the expected one, in constant time for equal lengths (like
 /// `timingSafeEqual`). A length mismatch returns early, as in TS, which only reveals the length.
-/// Used by the native backend's hook endpoint; R2's `/term` can share it.
+/// Used by the native backend's hook endpoint; `od-server`'s `/term` shares it.
 pub fn same_token(want: &str, got: &str) -> bool {
     let (want, got) = (want.as_bytes(), got.as_bytes());
     if want.len() != got.len() {

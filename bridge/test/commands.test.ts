@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { frontMatter, listCommands } from '../src/commands.js';
 import { keyBytes } from '../src/keys.js';
+import { scratch } from './scratch.js';
 
 function write(file: string, text: string) {
   mkdirSync(path.dirname(file), { recursive: true });
@@ -20,8 +20,8 @@ describe('frontMatter', () => {
 
 describe('listCommands', () => {
   it('merges Claude built-ins, user/project commands and skills, and enabled plugin skills', async () => {
-    const home = mkdtempSync(path.join(tmpdir(), 'od-home-'));
-    const proj = mkdtempSync(path.join(tmpdir(), 'od-proj-'));
+    const home = scratch('od-home-');
+    const proj = scratch('od-proj-');
     write(path.join(home, '.claude/commands/git/push.md'), '---\ndescription: Push it\n---');
     write(path.join(home, '.claude/skills/browse/SKILL.md'), '---\nname: browse\ndescription: Browser\n---');
     write(path.join(proj, '.claude/skills/deploy/SKILL.md'), '---\nname: deploy\ndescription: Ship\n---');
@@ -42,7 +42,7 @@ describe('listCommands', () => {
   });
 
   it('gives Codex its built-ins and prompts', async () => {
-    const home = mkdtempSync(path.join(tmpdir(), 'od-home-'));
+    const home = scratch('od-home-');
     write(path.join(home, '.codex/prompts/fix.md'), 'Fix the failing test');
     const names = (await listCommands('codex', '/nowhere', home)).map((c) => c.name);
     expect(names).toEqual(expect.arrayContaining(['model', 'approvals', 'prompts:fix']));

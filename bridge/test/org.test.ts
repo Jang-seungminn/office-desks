@@ -1,9 +1,9 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
-import os from 'node:os';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadOrg, sanitizeOrg, saveOrg } from '../src/org.js';
 import { agentStats } from '../src/stats.js';
+import { scratch } from './scratch.js';
 
 describe('org chart', () => {
   it('normalises names, themes and ids, and seats a project in one department only', () => {
@@ -27,7 +27,7 @@ describe('org chart', () => {
   });
 
   it('round-trips through the file and survives a missing or broken one', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'org-'));
+    const dir = scratch('org-');
     const file = path.join(dir, 'sub', 'org.json');
     expect(await loadOrg(file)).toEqual({ departments: [] });
     const org = { departments: [{ id: 'd-x', name: 'X', theme: 'ops' as const, repoIds: ['r'] }] };

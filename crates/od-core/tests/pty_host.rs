@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use od_core::native::env::process_env;
-use od_core::native::pty_host::{PtyHost, PtyOptions, TermModes, TermSize, GONE};
+use od_core::native::pty_host::{
+    PtyHost, PtyOptions, TermModes, TermSize, DISPOSED, GONE, MAX_COLS, MAX_ROWS,
+};
 
 const ECHO_ENV: &str = "OD_TEST_ECHO";
 
@@ -249,6 +251,21 @@ async fn streams_output_to_subscribers_until_unsubscribed_resizes_and_serializes
     host.resize("a2", 80, 20); // same size: no-op
     host.resize("a2", 1, 20); // too small: ignored
     assert_eq!(host.size("a2"), Some(TermSize { cols: 80, rows: 20 }));
+    // too large (the screen allocates every cell): ignored; the limits themselves are fine
+    host.resize("a2", 5000, 20);
+    host.resize("a2", 80, 501);
+    host.resize("a2", u16::MAX, u16::MAX);
+    assert_eq!(host.size("a2"), Some(TermSize { cols: 80, rows: 20 }));
+    host.resize("a2", MAX_COLS, MAX_ROWS);
+    assert_eq!(
+        host.size("a2"),
+        Some(TermSize {
+            cols: MAX_COLS,
+            rows: MAX_ROWS
+        })
+    );
+    host.resize("a2", 80, 20);
+    assert_eq!(host.size("a2"), Some(TermSize { cols: 80, rows: 20 }));
     host.resize("nope", 10, 10);
 
     let snap = host.serialize("a2");
@@ -381,6 +398,40 @@ async fn dispose_kills_and_reaps_every_child() {
     }
     let _ = pids;
     host.dispose().await; // nothing left: returns at once
+}
+
+#[tokio::test]
+async fn spawn_is_refused_once_dispose_has_started() {
+    // An empty host: dispose returns at once but still closes the host.
+    let host = PtyHost::new();
+    host.dispose().await;
+    let e = host.spawn("late", echo("line")).unwrap_err();
+    assert_eq!(e.message, DISPOSED);
+    assert!(!host.has("late"));
+    assert!(host.ids().is_empty());
+
+    // A host with a live session: refused while dispose runs and after it.
+    let host = Arc::new(PtyHost::new());
+    host.spawn("s1", echo("line")).unwrap();
+    until("ready", || shows(&host, "s1", "ready")).await;
+    let disposing = {
+        let host = host.clone();
+        tokio::spawn(async move { host.dispose().await })
+    };
+    // Current-thread runtime: one yield runs dispose up to its first await, by which point it
+    // has set the flag (before it awaits anything).
+    tokio::task::yield_now().await;
+    assert!(!disposing.is_finished(), "dispose is still waiting for s1");
+    assert_eq!(
+        host.spawn("during", echo("line")).unwrap_err().message,
+        DISPOSED
+    );
+    disposing.await.unwrap();
+    assert_eq!(
+        host.spawn("after", echo("line")).unwrap_err().message,
+        DISPOSED
+    );
+    assert!(host.ids().is_empty());
 }
 
 /// SIGKILLs a child we spawned if the test panics, so a failed assertion can't leave a process

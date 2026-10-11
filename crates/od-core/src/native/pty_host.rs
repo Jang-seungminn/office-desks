@@ -16,7 +16,7 @@ use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread;
 use std::time::Duration;
@@ -26,10 +26,17 @@ use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, Master
 use crate::backend::BackendError;
 use crate::native::env::{resolve_windows_command, win32_is_absolute, EnvMap, ResolvedCommand};
 
+/// `spawn` after `dispose` has started (the server is shutting down).
+pub const DISPOSED: &str = "종료 중이라 에이전트 터미널을 시작할 수 없어요";
+
 /// Default PTY width.
 pub const COLS: u16 = 120;
 /// Default PTY height.
 pub const ROWS: u16 = 40;
+/// Widest size `resize` accepts (the screen allocates rows × cols cells).
+pub const MAX_COLS: u16 = 1000;
+/// Tallest size `resize` accepts.
+pub const MAX_ROWS: u16 = 500;
 /// Lines of history kept per agent.
 pub const SCROLLBACK: usize = 1000;
 /// `write` to a PTY that is gone.
@@ -290,7 +297,7 @@ impl Default for ExtraModes {
 /// sequence it does handle, right after the one that asked for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Inject {
-    /// DECSTR: cursor visible again (and IRM off, DECAWM on in `ExtraModes`).
+    /// DECSTR: cursor visible again (and IRM off, DECAWM on, focus reporting off in `ExtraModes`).
     ShowCursor,
     /// `?1047h`/`?1047l`: the alternate screen, as vt100's `?47`.
     AltOn,
@@ -366,8 +373,9 @@ impl vt100::Callbacks for Hooks {
                 self.replies.extend_from_slice(reply.as_bytes());
                 return;
             }
-            // DA2: `CSI > c` / `CSI > 0 c`, xterm.js's fixed answer.
-            (Some(b'>'), None, 'c') if params.len() <= 1 && first_param(params) == 0 => {
+            // DA2: `CSI > c` / `CSI > 0 c`, xterm.js's fixed answer. Like xterm.js, only the
+            // first parameter counts (`CSI > 0 ; 1 c` is answered too).
+            (Some(b'>'), None, 'c') if first_param(params) == 0 => {
                 self.replies.extend_from_slice(b"\x1b[>0;276;0c");
                 return;
             }
@@ -375,7 +383,8 @@ impl vt100::Callbacks for Hooks {
         }
         match (i1, c) {
             // DA1: `CSI c` / `CSI 0 c`, answered as xterm.js does (VT100 with advanced video).
-            (None, 'c') if params.len() <= 1 && first_param(params) == 0 => {
+            // xterm.js's `sendDeviceAttributesPrimary` checks only the first parameter.
+            (None, 'c') if first_param(params) == 0 => {
                 self.replies.extend_from_slice(b"\x1b[?1;2c");
             }
             (None, 'n') => match first_param(params) {
@@ -389,9 +398,11 @@ impl vt100::Callbacks for Hooks {
                 _ => {}
             },
             (None, 'h' | 'l') if has_param(params, 4) => self.modes.insert = c == 'h',
+            // DECSTR (soft reset), as xterm: IRM off, DECAWM on, focus reporting off, cursor shown.
             (Some(b'!'), 'p') => {
                 self.modes.insert = false;
                 self.modes.autowrap = true;
+                self.modes.focus = false;
                 self.inject.push(Inject::ShowCursor);
             }
             // vt100 calls this once per param it doesn't handle, with all params: set, don't toggle.
@@ -831,6 +842,9 @@ struct Inner {
     /// live, so `dispose` returns only after every exit event has been delivered.
     exiting: AtomicUsize,
     seq: AtomicU64,
+    /// Set by `dispose` under the `sessions` lock; `spawn` checks it under the same lock before
+    /// it inserts, so no session can appear after dispose took its list.
+    disposed: AtomicBool,
 }
 
 impl Inner {
@@ -871,6 +885,7 @@ impl PtyHost {
                 live: tokio::sync::watch::channel(0).0,
                 exiting: AtomicUsize::new(0),
                 seq: AtomicU64::new(0),
+                disposed: AtomicBool::new(false),
             }),
         }
     }
@@ -885,8 +900,12 @@ impl PtyHost {
 
     /// Start `opts.file` in a new PTY under `id`. Fails for an id that is still live (TS would
     /// silently orphan the old process), for arguments a Windows .cmd shim can't carry safely
-    /// (`unsafe_for_cmd`), and when the PTY or process can't be created.
+    /// (`unsafe_for_cmd`), when the PTY or process can't be created, and once `dispose` has
+    /// started ([`DISPOSED`]).
     pub fn spawn(&self, id: &str, opts: PtyOptions) -> Result<(), BackendError> {
+        if self.inner.disposed.load(Ordering::SeqCst) {
+            return Err(BackendError::new(DISPOSED));
+        }
         if self.has(id) {
             return Err(BackendError::new(format!(
                 "이미 실행 중인 에이전트 터미널이에요: {id}"
@@ -947,22 +966,26 @@ impl PtyHost {
                 killer: child.clone_killer(),
             }),
         });
-        let raced = {
+        let refused = {
             let mut map = lock(&self.inner.sessions);
-            if map.contains_key(id) {
-                true // another spawn took this id while ours started
+            if self.inner.disposed.load(Ordering::SeqCst) {
+                // dispose started while ours started: it would never see this child
+                Some(BackendError::new(DISPOSED))
+            } else if map.contains_key(id) {
+                // another spawn took this id while ours started
+                Some(BackendError::new(format!(
+                    "이미 실행 중인 에이전트 터미널이에요: {id}"
+                )))
             } else {
                 map.insert(id.to_string(), session.clone());
-                false
+                None
             }
         };
-        if raced {
+        if let Some(e) = refused {
             session.close();
             let _ = child.kill();
             let _ = child.wait();
-            return Err(BackendError::new(format!(
-                "이미 실행 중인 에이전트 터미널이에요: {id}"
-            )));
+            return Err(e);
         }
         self.inner.publish_count();
 
@@ -1092,13 +1115,14 @@ impl PtyHost {
         Some((snapshot, sub))
     }
 
-    /// Resize the PTY and the screen. Ignored for unknown ids, sizes under 2, the current size,
-    /// and when the PTY refuses (the process exited and its exit event is on the way).
+    /// Resize the PTY and the screen. Ignored for unknown ids, sizes under 2, more than
+    /// [`MAX_COLS`] × [`MAX_ROWS`] (the screen allocates every cell), the current size, and when
+    /// the PTY refuses (the process exited and its exit event is on the way).
     pub fn resize(&self, id: &str, cols: u16, rows: u16) {
         let Some(s) = self.get(id) else {
             return;
         };
-        if cols < 2 || rows < 2 {
+        if !(2..=MAX_COLS).contains(&cols) || !(2..=MAX_ROWS).contains(&rows) {
             return;
         }
         let mut term = lock(&s.term);
@@ -1182,6 +1206,15 @@ impl PtyHost {
         }
     }
 
+    /// Like [`PtyHost::feed`], but also delivered to `on_data`/`attach` subscribers, exactly as
+    /// output the process printed. For tests (a deterministic flood).
+    #[doc(hidden)]
+    pub fn feed_output(&self, id: &str, data: impl AsRef<[u8]>) {
+        if let Some(s) = self.get(id) {
+            s.output(data.as_ref(), true);
+        }
+    }
+
     /// Called with `(id, exit_code)` on the waiter thread after a PTY's process exited and it
     /// was removed. A process killed by a signal (unix) reports 1, as portable-pty maps it;
     /// node-pty reported 0 plus the signal. Agents are only told apart by exit, not by code.
@@ -1197,11 +1230,16 @@ impl PtyHost {
     }
 
     /// Kill every agent and wait (at most 2 s) until all have exited and been reaped.
-    /// Survivors of the hang-up are force-killed after 1.5 s.
+    /// Survivors of the hang-up are force-killed after 1.5 s. From the first call on, `spawn`
+    /// refuses with [`DISPOSED`]; the host cannot be reused.
     /// Needs a tokio runtime with the time driver enabled (it panics without one); a sync
     /// caller can `block_on` it on a small current-thread runtime built with `enable_time()`.
     pub async fn dispose(&self) {
-        let sessions = self.all();
+        let sessions: Vec<Arc<Session>> = {
+            let map = lock(&self.inner.sessions);
+            self.inner.disposed.store(true, Ordering::SeqCst);
+            map.values().cloned().collect()
+        };
         if sessions.is_empty() {
             return;
         }
@@ -1423,6 +1461,26 @@ mod tests {
         assert_eq!(t.process(b"\x1b[c\x1b[>c"), b"\x1b[?1;2c\x1b[>0;276;0c");
     }
 
+    // Probed with @xterm/headless 6.0.0: DA1 and DA2 look at the first parameter only.
+    #[test]
+    fn device_attributes_check_only_the_first_param_like_xterm_js() {
+        let mut t = term(5, 20);
+        assert_eq!(t.process(b"\x1b[>0;1c"), b"\x1b[>0;276;0c");
+        assert!(t.process(b"\x1b[>1c").is_empty());
+        assert_eq!(t.process(b"\x1b[0;1c"), b"\x1b[?1;2c");
+        assert!(t.process(b"\x1b[1c").is_empty());
+    }
+
+    #[test]
+    fn decstr_turns_focus_reporting_off() {
+        let mut t = term(5, 20);
+        t.process(b"\x1b[?1004h");
+        assert_eq!(t.process(b"\x1b[?1004$p"), b"\x1b[?1004;1$y");
+        t.process(b"\x1b[!p");
+        assert_eq!(t.process(b"\x1b[?1004$p"), b"\x1b[?1004;2$y");
+        assert!(!t.serialize().contains("\x1b[?1004h"));
+    }
+
     /// Expected replies probed from @xterm/headless 6 (`node -e`), defaults then all set.
     #[test]
     fn answers_mode_requests_for_the_modes_it_tracks() {
@@ -1607,17 +1665,8 @@ mod tests {
         let mut replay = term(3, 20);
         replay.process(s.as_bytes());
         assert_eq!(replay.parser.callbacks().modes, m);
-        // DECSTR: insert off, autowrap on; focus stays
+        // DECSTR: insert off, autowrap on, focus reporting off (xterm's soft reset)
         t.process(b"\x1b[!p");
-        assert_eq!(
-            t.parser.callbacks().modes,
-            ExtraModes {
-                focus: true,
-                autowrap: true,
-                insert: false
-            }
-        );
-        t.process(b"\x1b[?1004l");
         assert_eq!(t.parser.callbacks().modes, ExtraModes::default());
         assert!(!t.serialize().contains("\x1b[?1004h"));
     }

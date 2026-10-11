@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { officeHome } from '../src/home.js';
 import { Registry } from '../src/native/registry.js';
+import { scratch } from './scratch.js';
 
 describe('officeHome', () => {
   it('honors OFFICE_DESKS_HOME, else ~/.office-desks', () => {
@@ -14,7 +15,7 @@ describe('officeHome', () => {
 
 describe('Registry', () => {
   it('persists repos and desk metadata atomically and reloads them', async () => {
-    const file = path.join(mkdtempSync(path.join(os.tmpdir(), 'od-reg-')), 'state.json');
+    const file = path.join(scratch('od-reg-'), 'state.json');
     const r = new Registry(file);
     await r.load();
     expect(r.repos).toEqual([]);
@@ -34,7 +35,7 @@ describe('Registry', () => {
 
 describe('Registry concurrent saves', () => {
   it('serializes overlapping saves and keeps the latest data', async () => {
-    const file = path.join(mkdtempSync(path.join(os.tmpdir(), 'od-reg-')), 'state.json');
+    const file = path.join(scratch('od-reg-'), 'state.json');
     const r = new Registry(file);
     await r.load();
     const writes = Array.from({ length: 20 }, (_, i) => r.setMeta(`d${i}`, { comment: `c${i}` }));

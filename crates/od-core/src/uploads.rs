@@ -45,6 +45,13 @@ pub enum UploadError {
 const UNSUPPORTED: &str = "지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)";
 const TOO_BIG: &str = "이미지가 비어 있거나 10MB를 넘습니다";
 
+/// More than [`MAX_IMAGES`] images in one send.
+pub fn too_many() -> UploadError {
+    UploadError::Rejected(format!(
+        "이미지는 한 번에 {MAX_IMAGES}장까지 보낼 수 있습니다"
+    ))
+}
+
 fn rejected(msg: &str) -> UploadError {
     UploadError::Rejected(msg.to_string())
 }
@@ -94,7 +101,7 @@ pub fn upload_dir() -> PathBuf {
 }
 
 /// Create the folder 0700 and refuse one that is a symlink or owned by someone else.
-fn ensure_private_dir(dir: &Path) -> Result<(), UploadError> {
+pub fn ensure_private_dir(dir: &Path) -> Result<(), UploadError> {
     fsio::create_private_dir_all(dir)?;
     // Check our own folders (.../office-desks-<uid> and .../uploads), not the system temp root.
     let parent = dir.parent().filter(|p| {
@@ -169,22 +176,26 @@ pub fn random_file_id() -> String {
 /// input: a missing/null field is no images. Each image is checked in the TS order, shape (a
 /// known string `mediaType` and a string `data`, else the "unsupported type" rejection) and then
 /// decoded size (empty or over 10 MB), stopping at the first failure, so several bad images
-/// report the same error TS does (HTTP 400). More than 6 images is rejected first.
+/// report the same error TS does (HTTP 400). More than 6 images is rejected first; a non-empty
+/// string is iterable in JS, so it is counted by UTF-16 length and then rejected as unsupported.
+/// Any object is no images here: the server handles an object with a truthy `length` itself
+/// (TS throws `images is not iterable` after the count check).
 pub fn parse_images(raw: &serde_json::Value) -> Result<Vec<ImageUpload>, UploadError> {
     use serde_json::Value;
     let list = match raw {
         Value::Array(a) => a,
+        // A string is iterable in JS: its UTF-16 length is counted first, then its first
+        // "image" (a one-character string) has no media type.
         Value::String(s) if !s.is_empty() => {
-            return Err(rejected(
-                "지원하지 않는 이미지 형식입니다 (png, jpg, gif, webp)",
-            ))
+            if crate::jsstr::utf16_len(s) > MAX_IMAGES {
+                return Err(too_many());
+            }
+            return Err(rejected(UNSUPPORTED));
         }
         _ => return Ok(Vec::new()),
     };
     if list.len() > MAX_IMAGES {
-        return Err(UploadError::Rejected(format!(
-            "이미지는 한 번에 {MAX_IMAGES}장까지 보낼 수 있습니다"
-        )));
+        return Err(too_many());
     }
     list.iter()
         .map(|img| {
@@ -484,6 +495,19 @@ mod tests {
         assert!(matches!(parse_images(&two), Err(UploadError::Rejected(m)) if m == msg));
         let seven = json!(vec![json!({ "mediaType": "image/png", "data": "x" }); 7]);
         assert!(matches!(parse_images(&seven), Err(UploadError::Rejected(m)) if m.contains("6장")));
+        // A string counts its UTF-16 length against the limit before its "images" are checked.
+        let many = "이미지는 한 번에 6장까지 보낼 수 있습니다";
+        for (s, want) in [
+            ("abcdef", msg),
+            ("abcdefg", many),
+            ("😀😀😀", msg),
+            ("😀😀😀😀", many),
+        ] {
+            assert!(
+                matches!(parse_images(&json!(s)), Err(UploadError::Rejected(m)) if m == want),
+                "{s}"
+            );
+        }
     }
 
     // uploads.test.ts: serves uploads by bare name only

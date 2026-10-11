@@ -1,14 +1,14 @@
-import { existsSync, mkdtempSync, readFileSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { cleanOldUploads, composePrompt, saveImages, uploadPath } from '../src/uploads.js';
+import { scratch } from './scratch.js';
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64');
 
 describe('uploads', () => {
   it('saves images and appends one path per line to the prompt', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'od-up-'));
+    const dir = scratch('od-up-');
     const [file] = await saveImages([{ mediaType: 'image/png', data: PNG }], dir);
     expect(file.startsWith(dir)).toBe(true);
     expect(file.endsWith('.png')).toBe(true);
@@ -18,7 +18,7 @@ describe('uploads', () => {
   });
 
   it('writes into a private folder with private files', async () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'od-up-'));
+    const root = scratch('od-up-');
     const dir = path.join(root, 'office-desks-1', 'uploads');
     const [file] = await saveImages([{ mediaType: 'image/png', data: PNG }], dir);
     if (process.platform !== 'win32') {
@@ -30,14 +30,14 @@ describe('uploads', () => {
 
   it('refuses an upload folder that is a symlink', async () => {
     if (process.platform === 'win32') return;
-    const root = mkdtempSync(path.join(tmpdir(), 'od-up-'));
-    const elsewhere = mkdtempSync(path.join(tmpdir(), 'od-evil-'));
+    const root = scratch('od-up-');
+    const elsewhere = scratch('od-evil-');
     symlinkSync(elsewhere, path.join(root, 'uploads'));
     await expect(saveImages([{ mediaType: 'image/png', data: PNG }], path.join(root, 'uploads'))).rejects.toThrow();
   });
 
   it('rejects unknown types, empty data and too many images', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'od-up-'));
+    const dir = scratch('od-up-');
     await expect(saveImages([{ mediaType: 'image/svg+xml', data: PNG }], dir)).rejects.toThrow();
     await expect(saveImages([{ mediaType: 'image/png', data: '' }], dir)).rejects.toThrow();
     await expect(saveImages(Array(7).fill({ mediaType: 'image/png', data: PNG }), dir)).rejects.toThrow();
@@ -50,7 +50,7 @@ describe('uploads', () => {
   });
 
   it('deletes uploads older than a day', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'od-up-'));
+    const dir = scratch('od-up-');
     const old = path.join(dir, 'old.png');
     const fresh = path.join(dir, 'fresh.png');
     writeFileSync(old, 'x');

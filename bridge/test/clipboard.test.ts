@@ -1,9 +1,9 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { clipboardCommand, copyText, encodeForClipboard, spawnRunner } from '../src/tui/clipboard.js';
+import { scratch } from './scratch.js';
 
 const only = (...cmds: string[]) => (c: string) => cmds.includes(c);
 
@@ -32,7 +32,7 @@ describe('encodeForClipboard', () => {
 
 describe('copyText', () => {
   it('writes the test hook file and never runs a command', async () => {
-    const tmp = path.join(mkdtempSync(path.join(tmpdir(), 'od-copy-')), 'out.txt');
+    const tmp = path.join(scratch('od-copy-'), 'out.txt');
     const run = vi.fn();
     const r = await copyText('안녕', { platform: 'darwin', env: { OFFICE_DESKS_COPY_FILE: tmp }, run, has: () => true, writeFile });
     expect(r).toBe('file');
