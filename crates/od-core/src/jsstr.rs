@@ -45,7 +45,7 @@ pub fn collapse_ws(s: &str) -> String {
 
 /// `s.slice(0, units)` on UTF-16 code units. A cut inside a surrogate pair drops the whole
 /// character instead of leaving a lone surrogate (which a Rust string cannot hold).
-pub(crate) fn slice_utf16(s: &str, units: usize) -> &str {
+pub fn slice_utf16(s: &str, units: usize) -> &str {
     let mut used = 0;
     for (i, c) in s.char_indices() {
         let w = c.len_utf16();

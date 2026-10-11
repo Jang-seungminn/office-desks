@@ -12,7 +12,6 @@
 //! terminal is injected through [`AnswerIO`] (a fake in tests, [`BackendAnswerIO`] in the server).
 
 use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use regex::Regex;
@@ -168,9 +167,7 @@ pub trait AnswerIO: Send {
     async fn sleep(&mut self, ms: u64);
     /// Milliseconds on any monotone clock; the driver only compares differences. Tests fake it.
     fn now_ms(&self) -> i64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as i64)
+        crate::util::epoch_ms()
     }
 }
 

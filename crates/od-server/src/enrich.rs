@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use chrono::Local;
 use futures_util::future::join_all;
@@ -16,7 +16,7 @@ use od_core::stats::agent_stats;
 use od_core::transcript::{read_transcript, ReadOptions};
 
 use crate::hub::{Hub, ServerMessageJson};
-use crate::poller::now_ms;
+use od_core::util::{epoch_ms, lock};
 
 /// git change counts are refreshed in the background at most this often per worktree.
 const CHANGES_TTL_MS: i64 = 10_000;
@@ -28,10 +28,6 @@ struct ChangeEntry {
 }
 
 type ChangeCache = Arc<Mutex<HashMap<String, ChangeEntry>>>;
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 pub(crate) struct Enricher {
     pub backend: Arc<dyn OfficeBackend>,
@@ -77,7 +73,7 @@ impl Enricher {
         let mut cache = lock(&self.changes);
         let stale = match cache.get(path) {
             None => true,
-            Some(hit) => now_ms() - hit.at > CHANGES_TTL_MS && !hit.busy,
+            Some(hit) => epoch_ms() - hit.at > CHANGES_TTL_MS && !hit.busy,
         };
         if stale {
             let entry = cache.entry(path.to_string()).or_insert(ChangeEntry {
@@ -96,7 +92,7 @@ impl Enricher {
                 });
                 if let Some(e) = lock(&changes).get_mut(&path) {
                     e.value = value;
-                    e.at = now_ms();
+                    e.at = epoch_ms();
                     e.busy = false;
                 }
             });

@@ -4,7 +4,7 @@
 
 use std::any::Any;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
@@ -20,11 +20,12 @@ use od_core::model::{OfficeAgent, OfficeDesk, OfficeSnapshot, OrgChart, UsageSna
 use serde_json::Value;
 use tokio::sync::watch;
 
+use crate::assets::AppPage;
 use crate::assets::Assets;
 use crate::hub::Hub;
 use crate::poller::Poller;
 use crate::reqs::{json, RequestUrl};
-use crate::security::{apply_headers, is_allowed_request};
+use crate::security::{apply_app_headers, apply_headers, is_allowed_request};
 use crate::{routes, term, ws, ServerConfig};
 
 pub(crate) struct AppState {
@@ -53,9 +54,7 @@ pub(crate) struct AppState {
     pub stop: watch::Receiver<bool>,
 }
 
-pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
+pub(crate) use od_core::util::lock;
 
 impl AppState {
     pub fn org(&self) -> OrgChart {
@@ -140,7 +139,11 @@ fn layered(r: Router) -> Router {
 }
 
 async fn security_headers(mut res: Response) -> Response {
-    apply_headers(res.headers_mut());
+    if res.extensions().get::<AppPage>().is_some() {
+        apply_app_headers(res.headers_mut());
+    } else {
+        apply_headers(res.headers_mut());
+    }
     res
 }
 
@@ -175,6 +178,12 @@ async fn dispatch(State(st): State<Arc<AppState>>, req: Request) -> Response {
     // would have served the web UI.
     if url.pathname.starts_with(term::PREFIX) {
         return term::upgrade_required();
+    }
+    if let Some(app) = &st.cfg.app_assets {
+        let p = url.pathname.as_str();
+        if p == "/app" || p.starts_with("/app/") {
+            return crate::assets::serve_app(&**app, &p[4..]);
+        }
     }
     crate::assets::serve_static(&*st.assets, &url.pathname)
 }

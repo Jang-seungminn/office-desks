@@ -6,6 +6,7 @@
 
 mod app;
 pub mod assets;
+mod backends;
 mod enrich;
 mod hook;
 mod hub;
@@ -34,6 +35,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{watch, OnceCell};
 
 pub use assets::{Assets, MemAssets, WebDist};
+pub use backends::{create_backend, default_probe, unknown_backend, BackendKind, CreatedBackend};
 pub use hub::{Hub, ServerMessageJson};
 pub use poller::Poller;
 
@@ -70,6 +72,10 @@ pub struct ServerConfig {
     /// R3 demo: used when the loaded org has no departments.
     pub default_org: Option<OrgChart>,
     pub assets: Arc<dyn Assets>,
+    /// R4: the desktop app UI, served under `/app/` with the app CSP. None (the default from
+    /// `from_env`, the `office-desks` binary and every existing test): `/app/...` is the web UI's
+    /// SPA fallback, exactly as before.
+    pub app_assets: Option<Arc<dyn Assets>>,
     /// Hub broadcast capacity, 256.
     pub ws_buffer: usize,
     /// `/term` outbound queue length per client, in output chunks, 1024. A client that falls
@@ -94,6 +100,7 @@ impl ServerConfig {
             awards_file: od_core::awards::awards_file(None, env),
             default_org: None,
             assets: Arc::new(WebDist),
+            app_assets: None,
             ws_buffer: 256,
             term_buffer: 1024,
         }
@@ -183,11 +190,7 @@ pub async fn serve(
         commands: Arc::new(od_core::commands::CommandCatalog::with(
             30_000,
             cfg.commands_home.clone(),
-            Box::new(|| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as i64)
-            }),
+            Box::new(od_core::util::epoch_ms),
         )),
         answering: Mutex::new(std::collections::HashSet::new()),
         term_token: term_token.clone(),
@@ -294,7 +297,7 @@ fn start_background(st: &Arc<AppState>) {
     {
         let dir = st.cfg.upload_dir.clone();
         tokio::task::spawn_blocking(move || {
-            od_core::uploads::clean_old_uploads(&dir, poller::now_ms())
+            od_core::uploads::clean_old_uploads(&dir, od_core::util::epoch_ms())
         });
     }
     // Until a browser connects (the TUI is a live viewer), then poll.

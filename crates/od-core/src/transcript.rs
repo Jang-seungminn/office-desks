@@ -838,7 +838,7 @@ pub struct ReadOptions {
 }
 
 fn entry_for(key: &str) -> Arc<Mutex<FileState>> {
-    let mut g = FILES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut g = crate::util::lock(&FILES);
     let cache = g.get_or_insert_with(Cache::default);
     cache.clock += 1;
     let stamp = cache.clock;
@@ -872,7 +872,7 @@ fn entry_for(key: &str) -> Arc<Mutex<FileState>> {
 pub fn read_transcript(file_path: &Path, opts: ReadOptions) -> std::io::Result<TranscriptResult> {
     let key = file_path.to_string_lossy().into_owned();
     let arc = entry_for(&key);
-    let mut fs = arc.lock().unwrap_or_else(|e| e.into_inner());
+    let mut fs = crate::util::lock(&arc);
     let size = std::fs::metadata(file_path)?.len();
     if fs.st.is_none() || size < fs.offset {
         let generation = fs.generation + 1;
@@ -924,5 +924,5 @@ fn file_id(path: &str, generation: u64) -> String {
 
 /// Forget cached parse state (tests).
 pub fn reset_transcript_cache() {
-    *FILES.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *crate::util::lock(&FILES) = None;
 }

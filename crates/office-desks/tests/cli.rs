@@ -25,6 +25,8 @@ fn command(dir: &Path) -> Command {
     std::fs::create_dir_all(&tmp).unwrap();
     cmd.env("OFFICE_DESKS_HOME", dir.join("office-desks"))
         .env("OFFICE_DESKS_BACKEND", "native")
+        // No bin test may ever reach the user's Orca.
+        .env("ORCA_CLI_COMMAND", dir.join("no-such-orca"))
         .env("HOME", &home)
         .env("USERPROFILE", &home)
         .env("CLAUDE_CONFIG_DIR", dir.join("claude"))
@@ -111,23 +113,117 @@ fn bad_backend_exits_one() {
     );
 }
 
-#[test]
-fn demo_and_orca_are_not_in_the_rust_build() {
-    let dir = tempfile::tempdir().unwrap();
-    for (args, kind) in [
-        (vec!["--backend", "demo"], "demo"),
-        (vec!["--demo"], "demo"),
-        (vec!["--backend", "orca"], "orca"),
-    ] {
-        let out = run(command(dir.path())
-            .env_remove("OFFICE_DESKS_BACKEND")
-            .args(&args));
-        assert_eq!(out.code, Some(1), "{args:?}");
-        assert_eq!(
-            out.stderr.trim(),
-            format!("office-desks: the {kind} backend is not in the Rust build yet; use the Node bridge (npx office-desks) for it")
-        );
+/// Spawn the server with extra args/env tweaks; returns the child and the `bridge on` line.
+fn start_with(
+    dir: &Path,
+    port: u16,
+    args: &[&str],
+    tweak: impl FnOnce(&mut Command),
+) -> (Guard, String) {
+    assert_ne!(port, 4317);
+    let mut cmd = command(dir);
+    cmd.args(["--port", &port.to_string(), "--no-tui"])
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
+    tweak(&mut cmd);
+    let mut child = Guard(cmd.spawn().unwrap());
+    let stdout = child.0.stdout.take().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            let _ = tx.send(line);
+        }
+    });
+    let line = rx
+        .recv_timeout(Duration::from_secs(15))
+        .expect("bridge on line");
+    (child, line)
+}
+
+fn stop(mut child: Guard) {
+    #[cfg(unix)]
+    {
+        // SAFETY: signalling the child this test spawned.
+        assert_eq!(unsafe { libc::kill(child.0.id() as i32, libc::SIGINT) }, 0);
+        assert!(wait_exit(&mut child.0, Duration::from_secs(5)).is_some());
     }
+    #[cfg(windows)]
+    {
+        child.0.kill().unwrap();
+        assert!(wait_exit(&mut child.0, Duration::from_secs(5)).is_some());
+    }
+}
+
+/// Poll `/api/snapshot` until `done(json)` holds, at most 15 s.
+fn poll_snapshot(port: u16, done: impl Fn(&serde_json::Value) -> bool) -> serde_json::Value {
+    let start = Instant::now();
+    loop {
+        let (status, body) = get(port, "/api/snapshot");
+        if status == 200 {
+            let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+            if done(&v) {
+                return v;
+            }
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(15),
+            "snapshot: {body}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+fn demo_serves_the_demo_office() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let (child, line) = start_with(dir.path(), port, &["--demo"], |c| {
+        c.env_remove("OFFICE_DESKS_BACKEND")
+            .env("OFFICE_DESKS_DEMO_EPOCH", "1790856000000");
+    });
+    assert!(line.ends_with("(DEMO data)"), "{line}");
+    poll_snapshot(port, |v| {
+        v["desks"].as_array().is_some_and(|d| d.len() == 9)
+    });
+    assert!(dir
+        .path()
+        .join("tmp")
+        .join("office-desks-demo")
+        .join("awards.json")
+        .exists());
+    stop(child);
+}
+
+#[test]
+fn orca_backend_shows_a_missing_cli() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let (child, line) = start_with(dir.path(), port, &["--backend", "orca"], |c| {
+        c.env_remove("OFFICE_DESKS_BACKEND");
+    });
+    let missing = dir.path().join("no-such-orca");
+    let missing = missing.to_str().unwrap();
+    assert!(
+        line.ends_with(&format!("(orca backend, orca cli: {missing})")),
+        "{line}"
+    );
+    let want = format!("Orca CLI \"{missing}\" not found on PATH");
+    poll_snapshot(port, |v| v["error"] == want.as_str());
+    stop(child);
+}
+
+#[test]
+fn auto_without_orca_is_native() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let (child, line) = start_with(dir.path(), port, &[], |c| {
+        c.env_remove("OFFICE_DESKS_BACKEND");
+    });
+    assert!(line.ends_with("(native backend)"), "{line}");
+    stop(child);
 }
 
 #[test]

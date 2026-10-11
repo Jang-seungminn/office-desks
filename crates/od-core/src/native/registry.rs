@@ -155,7 +155,7 @@ impl Registry {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, RegistryData> {
         // A panic mid-save must not wedge every later call.
-        self.data.lock().unwrap_or_else(|e| e.into_inner())
+        crate::util::lock(&self.data)
     }
 
     /// Read the file; a missing or corrupt one leaves an empty registry.

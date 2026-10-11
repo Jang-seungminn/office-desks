@@ -1,14 +1,13 @@
-//! `office-desks`: the Office Desks server (native backend) in one binary. Port of
-//! `bin/office-desks.mjs` plus the server start in `server.ts`.
+//! `office-desks`: the Office Desks server in one binary, on the Orca, native or demo backend
+//! (`od_server::create_backend` picks it). Port of `bin/office-desks.mjs` plus the server start
+//! in `server.ts`.
 
 mod cli;
 
 use std::process::exit;
-use std::sync::Arc;
 
-use cli::BackendKind;
 use od_core::native::env::process_env;
-use od_server::{bind, native_backend, serve, ServerConfig};
+use od_server::{bind, serve, ServerConfig};
 
 fn main() {
     // The default agent hook command is `<this exe> hook-relay`: nothing else may start first.
@@ -34,13 +33,6 @@ fn main() {
     if cli.help {
         println!("{}", cli::HELP);
         return;
-    }
-    if cli.backend != BackendKind::Native {
-        eprintln!(
-            "office-desks: the {} backend is not in the Rust build yet; use the Node bridge (npx office-desks) for it",
-            cli.backend.name()
-        );
-        exit(1);
     }
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -69,9 +61,21 @@ async fn run(cli: cli::Cli, env: od_core::native::env::EnvMap) -> i32 {
     let port = bound.port;
     // Installed before the backend exists, so an early signal is not lost to the default action.
     let signals = Signals::install();
-    let backend = Arc::new(native_backend(&env, port).await);
-    let handle = serve(bound, backend, ServerConfig::from_env(&env)).await;
-    println!("[office-desks] bridge on http://127.0.0.1:{port} (native backend)");
+    // Node probes before it binds; here a busy port fails first, before anything is spawned.
+    let mut cfg = ServerConfig::from_env(&env);
+    let probe = od_server::default_probe(&env);
+    let created = match od_server::create_backend(cli.backend, &env, port, &mut cfg, probe).await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[office-desks] {e}");
+            return 1;
+        }
+    };
+    let handle = serve(bound, created.backend, cfg).await;
+    println!(
+        "[office-desks] bridge on http://127.0.0.1:{port} ({})",
+        created.label
+    );
     signals.wait().await;
     // Later signals are ignored: the handlers stay installed but nobody listens.
     handle.shutdown().await;

@@ -48,11 +48,13 @@ fn mime(key: &str) -> &'static str {
     };
     match ext {
         ".html" => "text/html; charset=utf-8",
-        ".js" => "text/javascript; charset=utf-8",
+        ".js" | ".mjs" => "text/javascript; charset=utf-8",
         ".css" => "text/css; charset=utf-8",
         ".png" => "image/png",
         ".json" => "application/json",
         ".svg" => "image/svg+xml",
+        ".woff2" => "font/woff2",
+        ".wasm" => "application/wasm",
         _ => "application/octet-stream",
     }
 }
@@ -112,6 +114,25 @@ pub fn serve_static(assets: &dyn Assets, pathname: &str) -> Response {
     res
 }
 
+/// Response extension: this response is an app page; the header layer sends the app CSP.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AppPage;
+
+/// `/app` + `rest`: the app file, else the app's `index.html`; 404 `{"error":"app UI not built"}`
+/// when the app has no index. Every response carries [`AppPage`].
+pub fn serve_app(assets: &dyn Assets, rest: &str) -> Response {
+    let mut res = if assets.get("index.html").is_none() {
+        reqs::json(
+            StatusCode::NOT_FOUND,
+            &json!({ "error": "app UI not built" }),
+        )
+    } else {
+        serve_static(assets, rest)
+    };
+    res.extensions_mut().insert(AppPage);
+    res
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,10 +189,10 @@ mod tests {
             (200, "text/javascript; charset=utf-8", "JS")
         );
         let (_, ct, b) = get(&a, "/a.woff2").await;
-        assert_eq!(
-            (ct.as_str(), b.as_str()),
-            ("application/octet-stream", "FONT")
-        );
+        assert_eq!((ct.as_str(), b.as_str()), ("font/woff2", "FONT"));
+        assert_eq!(mime("x/m.mjs"), "text/javascript; charset=utf-8");
+        assert_eq!(mime("x.wasm"), "application/wasm");
+        assert_eq!(mime("x.bin"), "application/octet-stream");
     }
 
     #[tokio::test]
@@ -212,5 +233,37 @@ mod tests {
         let a = MemAssets(HashMap::from([("index.html".to_string(), b"<p>".to_vec())]));
         assert_eq!(a.get("index.html").as_deref(), Some(&b"<p>"[..]));
         assert!(a.get("missing").is_none());
+    }
+
+    #[tokio::test]
+    async fn serve_app_serves_files_and_falls_back_to_its_index() {
+        let a = mem(&[("index.html", "APP"), ("assets/a.js", "JS")]);
+        for p in ["", "/", "/nope"] {
+            let res = serve_app(&a, p);
+            assert!(res.extensions().get::<AppPage>().is_some(), "{p}");
+            assert_eq!(
+                res.headers()[header::CONTENT_TYPE],
+                "text/html; charset=utf-8"
+            );
+            let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(&body[..], b"APP", "{p}");
+        }
+        let res = serve_app(&a, "/assets/a.js");
+        assert!(res.extensions().get::<AppPage>().is_some());
+        assert_eq!(
+            res.headers()[header::CONTENT_TYPE],
+            "text/javascript; charset=utf-8"
+        );
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(&body[..], b"JS");
+    }
+
+    #[tokio::test]
+    async fn serve_app_without_index_is_404() {
+        let res = serve_app(&mem(&[("assets/a.js", "JS")]), "/");
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        assert!(res.extensions().get::<AppPage>().is_some());
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(&body[..], br#"{"error":"app UI not built"}"#);
     }
 }

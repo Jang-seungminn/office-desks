@@ -1,14 +1,14 @@
 //! JavaScript and Node semantics the server's request handling relies on.
 //!
-//! The whitespace, length and truthiness helpers come from od-core and are only re-exported
-//! here (with Node's `path.isAbsolute`). This module writes `Number()`, `String()`,
-//! `decodeURIComponent` / `encodeURIComponent` and Node's `path.basename`.
-
-use serde_json::Value;
+//! The whitespace, length, truthiness, `String()` and Node `path` helpers come from od-core and
+//! are only re-exported here. This module writes `Number()` and `decodeURIComponent` /
+//! `encodeURIComponent`.
 
 pub use od_core::jsstr::{collapse_ws as collapse_spaces, is_js_space, trim, utf16_len};
-pub use od_core::jsval::truthy;
-pub use od_core::native::env::{node_is_absolute, win32_is_absolute};
+pub use od_core::jsval::{number_to_string, string, truthy};
+pub use od_core::nodepath::{
+    node_basename, node_is_absolute, posix_basename, win32_basename, win32_is_absolute,
+};
 
 /// JS `Number(string)` (StringToNumber).
 pub fn number(s: &str) -> f64 {
@@ -94,63 +94,6 @@ pub fn number_of_param(v: Option<&str>) -> f64 {
     v.map_or(0.0, number)
 }
 
-/// JS `String(value)` for a JSON value.
-pub fn string(v: &Value) -> String {
-    match v {
-        Value::Null => "null".into(),
-        Value::Bool(b) => b.to_string(),
-        Value::Number(n) => number_to_string(n.as_f64().unwrap_or(f64::NAN)),
-        Value::String(s) => s.clone(),
-        Value::Array(items) => items
-            .iter()
-            .map(|x| match x {
-                Value::Null => String::new(),
-                x => string(x),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
-        Value::Object(_) => "[object Object]".into(),
-    }
-}
-
-/// JS `Number::toString(x)` (radix 10).
-pub fn number_to_string(x: f64) -> String {
-    if x.is_nan() {
-        return "NaN".into();
-    }
-    if x == 0.0 {
-        return "0".into();
-    }
-    if x < 0.0 {
-        return format!("-{}", number_to_string(-x));
-    }
-    if x.is_infinite() {
-        return "Infinity".into();
-    }
-    // `{:e}` gives the shortest round-trip digits: "d[.ddd]e<exp>".
-    let sci = format!("{x:e}");
-    let (mantissa, exp) = sci.split_once('e').expect("LowerExp has an exponent");
-    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
-    let k = digits.len() as i32;
-    let n = exp.parse::<i32>().expect("LowerExp exponent") + 1;
-    if k <= n && n <= 21 {
-        format!("{digits}{}", "0".repeat((n - k) as usize))
-    } else if 0 < n && n <= 21 {
-        format!("{}.{}", &digits[..n as usize], &digits[n as usize..])
-    } else if -6 < n && n <= 0 {
-        format!("0.{}{digits}", "0".repeat((-n) as usize))
-    } else {
-        let e = n - 1;
-        let sign = if e < 0 { '-' } else { '+' };
-        let mant = if k == 1 {
-            digits
-        } else {
-            format!("{}.{}", &digits[..1], &digits[1..])
-        };
-        format!("{mant}e{sign}{}", e.abs())
-    }
-}
-
 fn hex_val(b: u8) -> Option<u8> {
     match b {
         b'0'..=b'9' => Some(b - b'0'),
@@ -193,40 +136,6 @@ pub fn encode_uri_component(s: &str) -> String {
         }
     }
     out
-}
-
-/// Node `path.posix.basename(p)`.
-pub fn posix_basename(p: &str) -> &str {
-    let t = p.trim_end_matches('/');
-    if t.is_empty() {
-        return "";
-    }
-    t.rsplit('/').next().unwrap_or(t)
-}
-
-/// Node `path.win32.basename(p)`: `\` and `/` separate, and a drive prefix (`C:`) is dropped.
-pub fn win32_basename(p: &str) -> &str {
-    let b = p.as_bytes();
-    let p = if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
-        &p[2..]
-    } else {
-        p
-    };
-    let sep = |c: char| c == '/' || c == '\\';
-    let t = p.trim_end_matches(sep);
-    if t.is_empty() {
-        return "";
-    }
-    t.rsplit(sep).next().unwrap_or(t)
-}
-
-/// Node `path.basename(p)` for the OS the server runs on.
-pub fn node_basename(p: &str) -> &str {
-    if cfg!(windows) {
-        win32_basename(p)
-    } else {
-        posix_basename(p)
-    }
 }
 
 #[cfg(test)]
@@ -272,28 +181,6 @@ mod tests {
     }
 
     #[test]
-    fn string_follows_js() {
-        assert_eq!(string(&json!(null)), "null");
-        assert_eq!(string(&json!(true)), "true");
-        assert_eq!(string(&json!(false)), "false");
-        assert_eq!(string(&json!(1.0)), "1");
-        assert_eq!(string(&json!(-0.0)), "0");
-        assert_eq!(string(&json!(1.5)), "1.5");
-        assert_eq!(string(&json!("x y")), "x y");
-        assert_eq!(string(&json!([1, [2, 3], null])), "1,2,3,");
-        assert_eq!(string(&json!({})), "[object Object]");
-        assert_eq!(string(&json!(1e21)), "1e+21");
-        assert_eq!(string(&json!(1.5e21)), "1.5e+21");
-        assert_eq!(string(&json!(1e20)), "100000000000000000000");
-        assert_eq!(string(&json!(0.000001)), "0.000001");
-        assert_eq!(string(&json!(1e-7)), "1e-7");
-        assert_eq!(string(&json!(1.25e-7)), "1.25e-7");
-        assert_eq!(string(&json!(123.456)), "123.456");
-        assert_eq!(string(&json!(-42)), "-42");
-        assert_eq!(string(&json!(0.1)), "0.1");
-    }
-
-    #[test]
     fn reexported_helpers_smoke() {
         assert_eq!(collapse_spaces("a\u{3000}\u{FEFF} b"), "a b");
         assert_eq!(utf16_len("😀"), 2);
@@ -321,43 +208,5 @@ mod tests {
         assert_eq!(encode_uri_component("A-z_0.9!~*'()"), "A-z_0.9!~*'()");
         assert_eq!(encode_uri_component("한"), "%ED%95%9C");
         assert_eq!(encode_uri_component("?&=#+"), "%3F%26%3D%23%2B");
-    }
-
-    #[test]
-    fn basenames_follow_node() {
-        assert_eq!(posix_basename("/a/b.png"), "b.png");
-        assert_eq!(posix_basename("/a/b/"), "b");
-        assert_eq!(posix_basename("/"), "");
-        assert_eq!(posix_basename(""), "");
-        assert_eq!(posix_basename("a\\b"), "a\\b");
-        assert_eq!(win32_basename("C:\\x\\y.png"), "y.png");
-        assert_eq!(win32_basename("C:\\x\\y\\\\"), "y");
-        assert_eq!(win32_basename("C:y.png"), "y.png");
-        assert_eq!(win32_basename("C:"), "");
-        assert_eq!(win32_basename("a/b\\c"), "c");
-        assert_eq!(win32_basename("\\"), "");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn node_is_absolute_on_unix() {
-        assert!(node_is_absolute("/x"));
-        assert!(!node_is_absolute("x/y"));
-        assert!(!node_is_absolute("C:\\x"));
-        assert!(!node_is_absolute("\\x"));
-        assert_eq!(node_basename("/a/b"), "b");
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn node_is_absolute_on_windows() {
-        assert!(node_is_absolute("C:\\x"));
-        assert!(node_is_absolute("c:/x"));
-        assert!(node_is_absolute("\\x"));
-        assert!(node_is_absolute("/x"));
-        assert!(!node_is_absolute("C:x"));
-        assert!(!node_is_absolute("C:"));
-        assert!(!node_is_absolute("x\\y"));
-        assert_eq!(node_basename("C:\\a\\b"), "b");
     }
 }

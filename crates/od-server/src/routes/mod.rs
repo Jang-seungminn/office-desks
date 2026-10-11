@@ -121,6 +121,8 @@ pub(crate) async fn dispatch(st: Arc<AppState>, req: Request, url: RequestUrl) -
         "/api/worktree" => done(manage::worktree(&st, req).await),
         "/api/focus" => done(input::focus(&st, req).await),
         "/api/repos" => done(manage::repos(&st, req).await),
+        "/api/stop" => done(manage::stop(&st, req).await),
+        "/api/remove" => done(manage::remove(&st, req).await),
         // 6.
         _ => not_found(),
     }
