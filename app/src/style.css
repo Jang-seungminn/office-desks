@@ -1,0 +1,94 @@
+/* Simple v1 theme. The 공방 look (wood, hanji, 창살, 단청) is a later design pass: change the variables first. */
+:root {
+  --bg: #1f1a16;
+  --panel: #2a231d;
+  --line: #3d3329;
+  --text: #efe6d8;
+  --muted: #a89a87;
+  --accent: #d9822b;
+  --danger: #c8553d;
+  --ok: #6a9a5b;
+  --font-ui: system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-term: "SF Mono", Menlo, Consolas, "D2Coding", monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+#app { display: grid; grid-template-columns: 260px 1fr; height: 100%; }
+body.sidebar-hidden #app { grid-template-columns: 0 1fr; }
+body.sidebar-hidden .sidebar { display: none; }
+.sidebar { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; overflow: auto; }
+.sidebar-head { display: flex; align-items: center; gap: 6px; padding: 10px; border-bottom: 1px solid var(--line); }
+.sidebar-head h1 { font-size: 15px; margin: 0 auto 0 0; }
+.workspace { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; color: var(--muted); }
+/* With terminals: tab bar on top, panes fill the rest (a centered flex would measure them at 0). */
+.workspace.has-tabs { flex-direction: column; align-items: stretch; justify-content: flex-start; }
+button {
+  background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.danger { color: var(--danger); }
+.term { font-family: var(--font-term); }
+.sidebar-banner { margin: 8px 10px 0; padding: 6px 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--danger); color: var(--danger); }
+.sidebar-banner[hidden] { display: none; }
+.empty, .muted { color: var(--muted); }
+.project-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.worktree { border-left: 2px solid var(--line); padding: 2px 0 2px 8px; margin: 6px 0; }
+.worktree-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--text); }
+.worktree-actions { display: flex; gap: 4px; margin-left: auto; }
+.agent { display: flex; align-items: center; gap: 8px; padding: 2px; margin-top: 4px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); color: var(--text); }
+.agent:hover, .agent:focus-within { border-color: var(--accent); }
+.agent .agent-open { flex: 1; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; text-align: left; min-width: 0; }
+.agent .stop-agent { margin-left: auto; }
+.state { font-size: 12px; }
+.state-waiting { color: var(--accent); font-weight: 600; }
+.state-done { color: var(--ok); }
+.state-away { color: var(--muted); }
+.empty-seat { padding: 4px 6px; }
+#modal-root { position: fixed; inset: 0; z-index: 100; pointer-events: none; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
+.modal { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: min(460px, 92vw); max-height: 90vh; overflow: auto; padding: 14px; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; }
+.modal-head h2 { font-size: 15px; margin: 0; }
+.modal-form { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.modal-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field-label { color: var(--muted); }
+.modal input, .modal select, .modal textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; }
+button.modal-ok { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+button.modal-ok.danger { background: var(--danger); color: var(--text); border-color: var(--danger); }
+#toast-root { position: fixed; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 200; pointer-events: none; }
+.toast { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; max-width: 360px; overflow-wrap: anywhere; }
+.toast.error { border-color: var(--danger); color: var(--danger); }
+
+/* Terminal tabs (Task 7). */
+.tabbar { display: flex; gap: 2px; padding: 4px 6px 0; border-bottom: 1px solid var(--line); background: var(--panel); overflow-x: auto; flex: none; }
+.tabbar:empty { display: none; }
+.tab { display: flex; align-items: center; border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; background: var(--bg); color: var(--muted); max-width: 240px; min-width: 0; }
+.tab button { border: 0; background: transparent; color: inherit; border-radius: 6px 6px 0 0; }
+.tab .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tab .tab-close { padding: 4px 6px; }
+.tab .tab-close:hover { color: var(--danger); }
+.tab.visible { color: var(--text); }
+.tab.active { border-color: var(--accent); }
+.tab.in-split { border-color: var(--muted); }
+.tab.gone .tab-title { color: var(--muted); text-decoration: line-through; }
+.panes { flex: 1; display: flex; min-height: 0; min-width: 0; background: #151210; }
+.panes[hidden] { display: none; }
+.pane { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden; }
+.pane[hidden] { display: none; }
+.pane-left { order: 0; }
+.pane-right { order: 1; border-left: 1px solid var(--line); }
+.term-screen { position: absolute; inset: 4px 0 0 6px; }
+.term-banner { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 5; padding: 6px 10px; border-radius: 6px; background: var(--panel); border: 1px solid var(--accent); color: var(--text); pointer-events: none; }
+.term-banner[hidden] { display: none; }
+.pane.term-ended .term-banner { border-color: var(--danger); }
+.workspace-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.workspace-empty[hidden] { display: none; }

@@ -1,10 +1,11 @@
-//! Management routes: `POST /api/org`, `/api/hire`, `/api/worktree` and `/api/repos`.
+//! Management routes: `POST /api/org`, `/api/hire`, `/api/worktree`, `/api/repos`, and the
+//! R4 additions `POST /api/stop` and `POST /api/remove` (no `server.ts` counterpart).
 //! Bodies are raw `Value`s checked by hand, as `server.ts` does.
 
 use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::response::Response;
-use od_core::backend::BoardUpdate;
+use od_core::backend::{BackendError, BoardUpdate};
 use od_core::model::{HireRequest, OkResponse};
 use od_core::org::{sanitize_org, save_org};
 use serde_json::{json, Value};
@@ -174,4 +175,85 @@ pub(crate) async fn repos(st: &AppState, req: Request) -> Result<Response, ApiEr
     }
     st.poller.refresh_detached();
     Ok(json(StatusCode::OK, &json!({ "ok": true })))
+}
+
+/// The error body of `stop` and `remove`: the backend's message and, when it has one, its code.
+fn lifecycle_error(e: BackendError) -> Response {
+    let status = match e.code.as_deref() {
+        Some("not_found") => StatusCode::NOT_FOUND,
+        Some("main_checkout" | "has_agents" | "dirty") => StatusCode::CONFLICT,
+        Some("unsupported") => StatusCode::BAD_REQUEST,
+        _ => StatusCode::BAD_GATEWAY,
+    };
+    json(
+        status,
+        &ErrorBody {
+            error: &e.message,
+            code: e.code.as_deref(),
+        },
+    )
+}
+
+/// The shared front of `stop` and `remove`: the capability, then the id. `Err` is the answer.
+fn lifecycle_id(
+    body: &Value,
+    supported: bool,
+    name: &'static str,
+) -> Result<String, Box<Response>> {
+    if !supported {
+        return Err(Box::new(json(
+            StatusCode::BAD_REQUEST,
+            &ErrorBody {
+                error: "이 백엔드에서는 할 수 없어요",
+                code: Some("unsupported"),
+            },
+        )));
+    }
+    let id = match field(body, name) {
+        Ok(v) => v,
+        Err(e) => return Err(Box::new(axum::response::IntoResponse::into_response(e))),
+    };
+    match id.and_then(Value::as_str) {
+        Some(s) if !js::trim(s).is_empty() && js::utf16_len(s) <= 1000 => Ok(s.to_string()),
+        _ => Err(Box::new(json(
+            StatusCode::BAD_REQUEST,
+            &json!({ "error": format!("{name}가 필요해요") }),
+        ))),
+    }
+}
+
+/// `POST /api/stop`: `{"agentId"}`.
+pub(crate) async fn stop(st: &AppState, req: Request) -> Result<Response, ApiError> {
+    let body = post_body(req, CAP).await?;
+    let id = match lifecycle_id(&body, st.backend.capabilities().stop, "agentId") {
+        Ok(id) => id,
+        Err(r) => return Ok(*r),
+    };
+    // Its own task, like `hire`: a client that goes away must not cut the stop short.
+    let backend = std::sync::Arc::clone(&st.backend);
+    match tokio::spawn(async move { backend.stop_agent(&id).await }).await? {
+        Ok(()) => {
+            st.poller.refresh_detached();
+            Ok(json(StatusCode::OK, &json!({ "ok": true })))
+        }
+        Err(e) => Ok(lifecycle_error(e)),
+    }
+}
+
+/// `POST /api/remove`: `{"deskId"}`.
+pub(crate) async fn remove(st: &AppState, req: Request) -> Result<Response, ApiError> {
+    let body = post_body(req, CAP).await?;
+    let id = match lifecycle_id(&body, st.backend.capabilities().remove, "deskId") {
+        Ok(id) => id,
+        Err(r) => return Ok(*r),
+    };
+    // Its own task: a client that goes away must not stop a `git worktree remove` partway.
+    let backend = std::sync::Arc::clone(&st.backend);
+    match tokio::spawn(async move { backend.remove_worktree(&id).await }).await? {
+        Ok(()) => {
+            st.poller.refresh_detached();
+            Ok(json(StatusCode::OK, &json!({ "ok": true })))
+        }
+        Err(e) => Ok(lifecycle_error(e)),
+    }
 }

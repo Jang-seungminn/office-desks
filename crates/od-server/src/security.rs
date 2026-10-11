@@ -23,6 +23,27 @@ const CSP: [&str; 9] = [
     "object-src 'none'",
 ];
 
+/// The CSP of `/app/` pages (the desktop app UI): `CSP` with two relaxations, in the same order.
+///
+/// - `style-src 'unsafe-inline'`: xterm 6 writes `<style>` elements with `textContent` (the
+///   viewport scrollbar, and the DOM renderer's theme and dimensions); `style-src 'self'` blocks
+///   them and the DOM renderer lays out wrong. Inline styles cannot run script, and `script-src`
+///   stays `'self'`.
+/// - `connect-src ipc: http://ipc.localhost`: Tauri's IPC first `fetch`es `ipc://localhost`
+///   (macOS) or `http://ipc.localhost` (Windows) and falls back to `postMessage`, with a console
+///   warning, when `connect-src` blocks it.
+pub const APP_CSP: [&str; 9] = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "connect-src 'self' ipc: http://ipc.localhost",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "object-src 'none'",
+];
+
 /// Node decodes header values as latin1: every byte is one char.
 fn latin1(v: &HeaderValue) -> String {
     v.as_bytes().iter().map(|&b| b as char).collect()
@@ -121,6 +142,15 @@ pub fn is_allowed_request(headers: &HeaderMap, allowed_ports: &[u16]) -> bool {
 
 /// Port of `setSecurityHeaders`: no framing (clickjacking), no sniffing, no referrer, strict CSP.
 pub fn apply_headers(headers: &mut HeaderMap) {
+    apply(headers, &CSP);
+}
+
+/// [`apply_headers`] with [`APP_CSP`], for `/app/` pages.
+pub fn apply_app_headers(headers: &mut HeaderMap) {
+    apply(headers, &APP_CSP);
+}
+
+fn apply(headers: &mut HeaderMap, csp: &[&str]) {
     let set = |h: &mut HeaderMap, name: &'static str, value: &str| {
         h.insert(
             HeaderName::from_static(name),
@@ -131,7 +161,7 @@ pub fn apply_headers(headers: &mut HeaderMap) {
     set(headers, "x-content-type-options", "nosniff");
     set(headers, "referrer-policy", "no-referrer");
     set(headers, "cross-origin-resource-policy", "same-origin");
-    set(headers, "content-security-policy", &CSP.join("; "));
+    set(headers, "content-security-policy", &csp.join("; "));
 }
 
 #[cfg(test)]
@@ -231,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_headers_sets_the_five_headers() {
+    fn apply_headers_is_unchanged() {
         let mut h = HeaderMap::new();
         apply_headers(&mut h);
         assert_eq!(h["x-frame-options"], "DENY");
@@ -244,5 +274,32 @@ mod tests {
              connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; \
              object-src 'none'"
         );
+    }
+
+    #[test]
+    fn apply_app_headers_relaxes_only_style_and_connect() {
+        let mut strict = HeaderMap::new();
+        apply_headers(&mut strict);
+        let mut app = HeaderMap::new();
+        apply_app_headers(&mut app);
+        assert_eq!(app["content-security-policy"], APP_CSP.join("; "));
+        for name in [
+            "x-frame-options",
+            "x-content-type-options",
+            "referrer-policy",
+            "cross-origin-resource-policy",
+        ] {
+            assert_eq!(app[name], strict[name], "{name}");
+        }
+        let differing: Vec<_> = CSP
+            .iter()
+            .zip(APP_CSP.iter())
+            .filter(|(a, b)| a != b)
+            .collect();
+        assert_eq!(differing.len(), 2, "{differing:?}");
+        let csp = app["content-security-policy"].to_str().unwrap();
+        assert!(!csp.contains("unsafe-eval"));
+        assert!(csp.contains("script-src 'self';"));
+        assert_eq!(csp.matches("script-src").count(), 1);
     }
 }

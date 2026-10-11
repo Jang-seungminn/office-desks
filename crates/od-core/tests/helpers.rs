@@ -351,6 +351,7 @@ fn screen_support_marks_untested_versions() {
 fn captured_claude_2_1_screens() {
     let expected = [
         ("composer-queued.txt", ComposerState::Ready),
+        ("composer-windows.txt", ComposerState::Ready),
         ("composer-working.txt", ComposerState::Ready),
         ("question-single-with-pane.txt", ComposerState::Menu),
         ("question-multi-first.txt", ComposerState::Menu),

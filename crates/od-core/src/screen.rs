@@ -41,9 +41,9 @@ fn is_rule(row: &str) -> bool {
         == 8
 }
 
-/// `/^\s*❯(\s|$)/`
+/// `/^\s*[❯>](\s|$)/` (Windows builds of Claude Code draw the prompt as `>`).
 fn is_prompt(row: &str) -> bool {
-    match row.trim_start_matches(is_js_space).strip_prefix('❯') {
+    match row.trim_start_matches(is_js_space).strip_prefix(['❯', '>']) {
         Some(rest) => rest.chars().next().is_none_or(is_js_space),
         None => false,
     }

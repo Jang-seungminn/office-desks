@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Gongbang",
+  "mainBinaryName": "gongbang",
+  "version": "0.1.0",
+  "identifier": "io.github.jangseungminn.gongbang",
+  "build": {},
+  "app": { "windows": [], "security": { "csp": null } },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "nsis"],
+    "category": "DeveloperTool",
+    "shortDescription": "공방: 에이전트들이 일하는 작업실",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+  }
+}

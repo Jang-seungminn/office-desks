@@ -20,6 +20,26 @@
     "expected": "ready"
   },
   {
+    "name": "claude-2.1/composer-windows.txt",
+    "lines": [
+      "⏺ Running 2 shell commands…                                                                     +> = NONE): ZoneKey {",
+      "  ⎿  $ S=/tmp/scratch  38 +  if (desk.agents.some((a) => ACTIVE.has(a.state) || unseen.has(a.i",
+      "     scratch; H=$(cat $S/me_handle); for i in $(seq 1 10); do           +d))) return 'working';",
+      "     python3 -c \"import time; time.sleep(3)\"; orca terminal read --terminal $H --screen      39    return desk.agents.length ? 'waiting' : 'idle';",
+      "     --json > $S/single_q_$i.json 2>&1; done; echo cap…                                      40  }",
+      "                                                                                             41",
+      "· Inferring… (2m 8s · ↓ 6.9k tokens)                                                         39 -export function recency(desk: OfficeDesk): number {",
+      "  ⎿  Tip: Use /btw to ask a quick side question without interrupting Claude's current work   40 -  const zone = zoneOf(desk);",
+      "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── office-desks-orca-agent-view ─",
+      ">",
+      "─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "  ⏵⏵ bypass permissions on · 1 shell · ← for agents",
+      ""
+    ],
+    "agentType": "claude",
+    "expected": "ready"
+  },
+  {
     "name": "claude-2.1/composer-working.txt",
     "lines": [
       "⏺ Running 2 shell commands…                                                                     +> = NONE): ZoneKey {",
