@@ -3,13 +3,14 @@
 
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
 use od_core::backend::BackendError;
 use od_core::model::{OfficeDesk, OfficeSnapshot};
+use od_core::util::{epoch_ms, lock};
 use serde::Serialize;
 use tokio::sync::{broadcast, watch, Notify};
 use tokio::task::JoinHandle;
@@ -43,16 +44,6 @@ pub struct Poller {
     wake: Notify,
     changes: broadcast::Sender<Arc<OfficeSnapshot>>,
     task: Mutex<Option<JoinHandle<()>>>,
-}
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-pub(crate) fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
 }
 
 /// `JSON.stringify({ desks, error })`.
@@ -214,7 +205,7 @@ impl Poller {
                 let cur = self.current();
                 OfficeSnapshot {
                     desks: cur.desks.clone(),
-                    updated_at: now_ms(),
+                    updated_at: epoch_ms(),
                     error: Some(e.message),
                 }
             }
@@ -259,7 +250,7 @@ mod tests {
     fn office(n: usize) -> OfficeSnapshot {
         OfficeSnapshot {
             desks: (0..n).map(|i| desk(&format!("d{i}"))).collect(),
-            updated_at: now_ms(),
+            updated_at: epoch_ms(),
             error: None,
         }
     }

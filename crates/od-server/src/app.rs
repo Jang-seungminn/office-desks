@@ -4,7 +4,7 @@
 
 use std::any::Any;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
@@ -53,9 +53,7 @@ pub(crate) struct AppState {
     pub stop: watch::Receiver<bool>,
 }
 
-pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
+pub(crate) use od_core::util::lock;
 
 impl AppState {
     pub fn org(&self) -> OrgChart {

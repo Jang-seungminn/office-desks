@@ -51,7 +51,11 @@ const WORKTREES: DemoWorktree[] = [
   W('api-server', 'perf-tuning', 'perf/query-cache', [A('p10', 'codex', [['done', null, null]])]),
 ];
 
-const START = Date.now();
+/** Test hook (contract recording): a fixed clock in ms since epoch makes the demo office deterministic. */
+const EPOCH_ENV = process.env.OFFICE_DESKS_DEMO_EPOCH ?? '';
+const FIXED_NOW = /^\d+$/.test(EPOCH_ENV) && Number(EPOCH_ENV) > 0 ? Number(EPOCH_ENV) : null;
+const clock = (): number => FIXED_NOW ?? Date.now();
+const START = clock();
 
 function worktreePs(now: number) {
   const tick = Math.floor((now - START) / 8000);
@@ -178,12 +182,12 @@ export function createDemoRunner(): OrcaRunner {
   const transcripts = writeDemoTranscripts();
   return async (args) => {
     const [a, b] = args;
-    if (a === 'worktree' && b === 'ps') return worktreePs(Date.now());
+    if (a === 'worktree' && b === 'ps') return worktreePs(clock());
     if (a === 'terminal' && b === 'list') return terminalList();
     if (a === 'terminal' && b === 'read') {
       // Waiting agents show a permission dialog; everyone else shows Claude's normal input box.
       const pane = String(args[args.indexOf('--terminal') + 1] ?? '').replace(/^demo_/, '');
-      const agent = worktreePs(Date.now()).worktrees.flatMap((w) => w.agents).find((x) => x.paneKey.startsWith(`${pane}:`));
+      const agent = worktreePs(clock()).worktrees.flatMap((w) => w.agents).find((x) => x.paneKey.startsWith(`${pane}:`));
       const rule = '─'.repeat(48);
       const rule2 = '─'.repeat(48);
       const asking = agent?.state === 'waiting' && (pane === 'p5' || pane === 'p2');
@@ -201,8 +205,8 @@ export function createDemoRunner(): OrcaRunner {
       return { hits: file ? [{ title: 'demo', cwd, source: { presence: 'present', filePath: file } }] : [] };
     }
     if (a === 'account' && b === 'list') {
-      const in3h = Date.now() + 3 * 3600_000;
-      const in4d = Date.now() + 4 * 86400_000;
+      const in3h = clock() + 3 * 3600_000;
+      const in4d = clock() + 4 * 86400_000;
       return {
         rateLimits: {
           claude: {

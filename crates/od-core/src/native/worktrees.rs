@@ -1,11 +1,12 @@
 //! Worktrees straight from git: list them, create one per task, and identify a repo by its main
 //! checkout. Port of `bridge/src/native/worktrees.ts`.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use crate::backend::BackendError;
 use crate::git::GitRunner;
 use crate::native::registry::RepoRecord;
+use crate::nodepath::normalize_path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorktreeInfo {
@@ -93,33 +94,6 @@ pub fn list_worktrees(
     Ok(parse_porcelain(
         &git.run(repo_path, &["worktree", "list", "--porcelain"])?,
     ))
-}
-
-/// Lexical `path.normalize`: collapses `.`, `..` and repeated separators, using the platform
-/// separator. A trailing separator is dropped (Node keeps it); git never emits one.
-pub fn normalize_path(p: &str) -> String {
-    let mut out = PathBuf::new();
-    for c in Path::new(p).components() {
-        match c {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                match out.components().next_back() {
-                    Some(Component::Normal(_)) => {
-                        out.pop();
-                    }
-                    // `/..` is `/`.
-                    Some(Component::RootDir | Component::Prefix(_)) => {}
-                    _ => out.push(".."),
-                }
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    if out.as_os_str().is_empty() {
-        ".".to_string()
-    } else {
-        out.to_string_lossy().into_owned()
-    }
 }
 
 fn repo_id(keyed_path: &str) -> String {
@@ -382,42 +356,11 @@ mod tests {
         assert_eq!(d, Path::new("/h").join("worktrees").join("a__b").join("x"));
     }
 
-    #[test]
-    fn normalize_path_handles_parent_dirs() {
-        assert_eq!(normalize_path("a/.."), ".");
-        assert_eq!(
-            normalize_path("a/b/../c"),
-            Path::new("a").join("c").to_string_lossy()
-        );
-        assert_eq!(
-            normalize_path("../a"),
-            Path::new("..").join("a").to_string_lossy()
-        );
-        assert_eq!(normalize_path("a/../.."), "..");
-        assert_eq!(
-            normalize_path("a//b/./"),
-            Path::new("a").join("b").to_string_lossy()
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn normalize_path_root_parent_stays_root() {
-        assert_eq!(normalize_path("/.."), "/");
-        assert_eq!(normalize_path("/a/../.."), "/");
-    }
-
     #[cfg(unix)]
     #[test]
     fn repo_id_golden() {
         // Verified against Node: sha1('/tmp/x').slice(0, 12)
         assert_eq!(repo_id("/tmp/x"), "e7ad2368a922");
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn normalize_path_converts_slashes_on_windows() {
-        assert_eq!(normalize_path("C:/a/b"), "C:\\a\\b");
     }
 
     #[test]

@@ -7,9 +7,10 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use crate::fsio;
+use crate::home::os_tmpdir;
 use crate::model::ImageUpload;
 
 pub const MAX_IMAGES: usize = 6;
@@ -89,15 +90,17 @@ fn current_uid() -> Option<u32> {
     None
 }
 
-/// The real upload folder for this process.
+/// The real upload folder for this process. The temp root: on Windows Node's `os.tmpdir()`
+/// ([`os_tmpdir`]: `TEMP` before `TMP`), as in TS; on unix `std::env::temp_dir()`, unchanged
+/// (with `TMPDIR` set the two agree; unset on macOS std gives the per-user folder).
 pub fn upload_dir() -> PathBuf {
     let env: HashMap<String, String> = std::env::vars().collect();
-    upload_dir_for(
-        &env,
-        &std::env::temp_dir(),
-        current_uid(),
-        cfg!(target_os = "linux"),
-    )
+    let tmp = if cfg!(windows) {
+        os_tmpdir(&env)
+    } else {
+        std::env::temp_dir()
+    };
+    upload_dir_for(&env, &tmp, current_uid(), cfg!(target_os = "linux"))
 }
 
 /// Create the folder 0700 and refuse one that is a symlink or owned by someone else.
@@ -157,17 +160,11 @@ pub fn decode_base64_lenient(s: &str) -> Vec<u8> {
     out
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
-}
-
 /// 8 random hex characters (the TS `randomUUID().slice(0, 8)`).
 pub fn random_file_id() -> String {
     let mut b = [0u8; 4];
     if getrandom::fill(&mut b).is_err() {
-        b = (now_ms() as u32).to_le_bytes();
+        b = (crate::util::epoch_ms() as u32).to_le_bytes();
     }
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
@@ -217,7 +214,7 @@ pub fn parse_images(raw: &serde_json::Value) -> Result<Vec<ImageUpload>, UploadE
 
 /// Write the images into `dir` and return their paths, in order.
 pub fn save_images(images: &[ImageUpload], dir: &Path) -> Result<Vec<String>, UploadError> {
-    save_images_with(images, dir, now_ms, random_file_id)
+    save_images_with(images, dir, crate::util::epoch_ms, random_file_id)
 }
 
 /// [`save_images`] with the clock and the random part of the file name injected.

@@ -17,14 +17,16 @@ use std::io::{Read, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::thread;
 use std::time::Duration;
 
 use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
 
 use crate::backend::BackendError;
-use crate::native::env::{resolve_windows_command, win32_is_absolute, EnvMap, ResolvedCommand};
+use crate::native::env::{resolve_windows_command, EnvMap, ResolvedCommand};
+use crate::nodepath::win32_is_absolute;
+use crate::util::lock;
 
 /// `spawn` after `dispose` has started (the server is shutting down).
 pub const DISPOSED: &str = "종료 중이라 에이전트 터미널을 시작할 수 없어요";
@@ -53,10 +55,6 @@ const DRAIN: Duration = Duration::from_millis(200);
 /// (about 2 s after the exit in total).
 const LINGER: Duration = Duration::from_millis(1800);
 const READ_BUF: usize = 64 * 1024;
-
-fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 // ---------------------------------------------------------------------------------------------
 // Spawning (Windows .cmd shims)

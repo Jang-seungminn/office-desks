@@ -1,0 +1,42 @@
+[package]
+name = "od-orca"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Orca and demo backends for office-desks (port of bridge/src/backend/orca.ts and friends)"
+
+[dependencies]
+od-core = { path = "../od-core" }
+async-trait = "0.1.92"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { workspace = true }
+tokio = { version = "1", features = ["rt", "sync", "time", "process", "io-util", "macros"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+regex = "1"
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "test-util", "time", "process", "io-util"] }
+libtest-mimic = "0.8"
+
+[target."cfg(unix)".dev-dependencies]
+libc = "0.2"
+
+[target."cfg(windows)".dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[[test]]
+name = "cli"
+path = "tests/cli/main.rs"
+harness = false
+
+# Read-only smoke test against the user's real Orca (R3 Task 8). Run by hand, with permission.
+# `test = true` makes `cargo test` run its ReadOnly unit tests (fake runner, no orca).
+[[example]]
+name = "orca_smoke"
+test = true
